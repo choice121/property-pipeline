@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { resolveImageUrl } from '../utils/imageUrl'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
@@ -32,7 +33,7 @@ function ListingAge({ listDate, daysOnMarket }) {
 
 export default function SearchResultCard({ result, isSaved, isSaving, isInLibrary, onSave, onPreview }) {
   const [imgError, setImgError] = useState(false)
-  const firstPhoto = !imgError ? (result.image_urls?.[0] || null) : null
+  const firstPhoto = !imgError ? resolveImageUrl(result.image_urls?.[0] || null) : null
   const photoCount = result.image_urls?.length || 0
 
   const savedState = isSaved || isInLibrary
@@ -155,7 +156,7 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
 
 export function SearchResultRow({ result, isSaved, isSaving, isInLibrary, onSave, onPreview }) {
   const [imgError, setImgError] = useState(false)
-  const firstPhoto = !imgError ? (result.image_urls?.[0] || null) : null
+  const firstPhoto = !imgError ? resolveImageUrl(result.image_urls?.[0] || null) : null
   const photoCount = result.image_urls?.length || 0
   const savedState = isSaved || isInLibrary
 

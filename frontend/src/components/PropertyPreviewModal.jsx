@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { resolveImageUrl } from '../utils/imageUrl'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
@@ -86,7 +87,7 @@ function ThumbnailSlot({ src, onClick, active }) {
 
 export default function PropertyPreviewModal({ result, isSaved, isSaving, isInLibrary, onSave, onClose }) {
   const [photoIndex, setPhotoIndex] = useState(0)
-  const photos = result.image_urls || []
+  const photos = (result.image_urls || []).map(resolveImageUrl)
   const savedState = isSaved || isInLibrary
 
   useEffect(() => {
