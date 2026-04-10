@@ -22,24 +22,24 @@ def safe_val(val):
         return None
 
 
-def normalize_row(row: dict, source: str) -> dict:
+def normalize_row(row: dict) -> dict:
     def get(key):
         v = row.get(key)
         return safe_val(v)
 
-    img_srcs = get("img_srcs")
-    if img_srcs is None:
-        image_urls = []
-    elif isinstance(img_srcs, list):
-        image_urls = img_srcs
-    else:
-        image_urls = []
+    # New HomeHarvest uses alt_photos and primary_photo instead of img_srcs
+    alt_photos = get("alt_photos")
+    primary_photo = get("primary_photo")
 
-    virtual_tours = get("virtual_tours")
-    if isinstance(virtual_tours, list) and len(virtual_tours) > 0:
-        virtual_tour_url = virtual_tours[0]
-    else:
-        virtual_tour_url = None
+    image_urls = []
+    if primary_photo and isinstance(primary_photo, str):
+        image_urls.append(primary_photo)
+    if isinstance(alt_photos, list):
+        for url in alt_photos:
+            if url and url not in image_urls:
+                image_urls.append(url)
+    elif isinstance(alt_photos, str) and alt_photos:
+        image_urls.append(alt_photos)
 
     row_serializable = {}
     for k, v in row.items():
@@ -56,9 +56,9 @@ def normalize_row(row: dict, source: str) -> dict:
                 row_serializable[k] = str(sv)
 
     return {
-        "source": source,
+        "source": "realtor",
         "source_url": get("property_url"),
-        "source_listing_id": str(get("mls_id")) if get("mls_id") is not None else None,
+        "source_listing_id": str(get("mls_id")) if get("mls_id") is not None else str(get("listing_id")) if get("listing_id") is not None else None,
         "status": "scraped",
         "address": get("street"),
         "city": get("city"),
@@ -69,13 +69,14 @@ def normalize_row(row: dict, source: str) -> dict:
         "lng": get("longitude"),
         "bedrooms": int(get("beds")) if get("beds") is not None else None,
         "bathrooms": float(get("full_baths")) if get("full_baths") is not None else None,
+        "half_bathrooms": int(get("half_baths")) if get("half_baths") is not None else None,
         "square_footage": int(get("sqft")) if get("sqft") is not None else None,
         "lot_size_sqft": int(get("lot_sqft")) if get("lot_sqft") is not None else None,
         "monthly_rent": int(get("list_price")) if get("list_price") is not None else None,
         "property_type": get("style"),
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
         "description": get("text"),
-        "virtual_tour_url": virtual_tour_url,
+        "virtual_tour_url": None,
         "original_image_urls": json.dumps(image_urls),
         "local_image_paths": "[]",
         "original_data": json.dumps(row_serializable),
@@ -87,25 +88,25 @@ def normalize_row(row: dict, source: str) -> dict:
 
 def scrape(
     location: str,
-    source: str = "zillow",
     listing_type: str = "for_rent",
     min_price: Optional[int] = None,
     max_price: Optional[int] = None,
     bedrooms: Optional[int] = None,
 ):
-    site_map = {
-        "zillow": "zillow",
-        "realtor": "realtor.com",
-        "redfin": "redfin",
-    }
-    site_name = site_map.get(source, "zillow")
-
     kwargs = dict(
         location=location,
         listing_type=listing_type,
-        site_name=[site_name],
         past_days=60,
+        price_min=min_price,
+        price_max=max_price,
+        beds_min=bedrooms,
+        beds_max=bedrooms,
     )
+    # Remove None values to avoid passing null filters
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    kwargs["location"] = location
+    kwargs["listing_type"] = listing_type
+    kwargs["past_days"] = 60
 
     df = scrape_property(**kwargs)
 
@@ -115,18 +116,7 @@ def scrape(
     results = []
     for _, row in df.iterrows():
         row_dict = row.to_dict()
-        normalized = normalize_row(row_dict, source)
-
-        if min_price is not None and normalized.get("monthly_rent") is not None:
-            if normalized["monthly_rent"] < min_price:
-                continue
-        if max_price is not None and normalized.get("monthly_rent") is not None:
-            if normalized["monthly_rent"] > max_price:
-                continue
-        if bedrooms is not None and normalized.get("bedrooms") is not None:
-            if normalized["bedrooms"] != bedrooms:
-                continue
-
+        normalized = normalize_row(row_dict)
         results.append(normalized)
 
     return results

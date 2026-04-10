@@ -15,7 +15,6 @@ router = APIRouter()
 
 class ScrapeRequest(BaseModel):
     location: str
-    source: str = "zillow"
     listing_type: str = "for_rent"
     min_price: Optional[int] = None
     max_price: Optional[int] = None
@@ -45,7 +44,6 @@ def scrape_properties(
     try:
         results = scraper_service.scrape(
             location=req.location,
-            source=req.source,
             listing_type=req.listing_type,
             min_price=req.min_price,
             max_price=req.max_price,

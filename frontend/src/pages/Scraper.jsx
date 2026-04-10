@@ -9,7 +9,6 @@ export default function Scraper() {
 
   const [form, setForm] = useState({
     location: '',
-    source: 'zillow',
     listing_type: 'for_rent',
     min_price: '',
     max_price: '',
@@ -35,7 +34,6 @@ export default function Scraper() {
     setResult(null)
     const payload = {
       location: form.location,
-      source: form.source,
       listing_type: form.listing_type,
       min_price: form.min_price ? parseInt(form.min_price) : null,
       max_price: form.max_price ? parseInt(form.max_price) : null,
@@ -48,7 +46,7 @@ export default function Scraper() {
     <div className="max-w-lg">
       <h1 className="text-2xl font-bold text-gray-900 mb-2">Scrape Listings</h1>
       <p className="text-gray-500 text-sm mb-6">
-        Pull property listings from major platforms and add them to your library.
+        Pull property listings from Realtor.com and add them to your library.
       </p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
@@ -64,32 +62,17 @@ export default function Scraper() {
           />
         </div>
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-            <select
-              name="source"
-              value={form.source}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-            >
-              <option value="zillow">Zillow</option>
-              <option value="realtor">Realtor.com</option>
-              <option value="redfin">Redfin</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type</label>
-            <select
-              name="listing_type"
-              value={form.listing_type}
-              onChange={handleChange}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-            >
-              <option value="for_rent">For Rent</option>
-              <option value="for_sale">For Sale</option>
-            </select>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Listing Type</label>
+          <select
+            name="listing_type"
+            value={form.listing_type}
+            onChange={handleChange}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
+          >
+            <option value="for_rent">For Rent</option>
+            <option value="for_sale">For Sale</option>
+          </select>
         </div>
 
         <div className="grid grid-cols-3 gap-3">
