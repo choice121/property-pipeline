@@ -109,6 +109,9 @@ def search_properties(req: SearchRequest):
     enriched = []
     for r in results:
         r["temp_key"] = r.get("source_listing_id") or str(uuid.uuid4())
+        r["listing_type"] = req.listing_type
+        r["list_date"] = r.pop("_list_date", None)
+        r["days_on_market"] = r.pop("_days_on_market", None)
         try:
             r["image_urls"] = json.loads(r.get("original_image_urls", "[]"))
         except Exception:
@@ -136,7 +139,7 @@ def save_property(
     valid_cols = get_valid_columns()
     save_data = {
         k: v for k, v in data.items()
-        if k in valid_cols and k != "id"
+        if k in valid_cols and k != "id" and not k.startswith("_")
     }
 
     prop_id = generate_property_id()

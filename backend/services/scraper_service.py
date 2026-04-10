@@ -54,6 +54,39 @@ def normalize_row(row: dict) -> dict:
             except Exception:
                 row_serializable[k] = str(sv)
 
+    dogs = get("dogs_allowed")
+    cats = get("cats_allowed")
+    if dogs or cats:
+        pets_allowed = True
+    elif dogs is False and cats is False:
+        pets_allowed = False
+    else:
+        pets_allowed = None
+
+    parking_garage = get("parking_garage")
+    if parking_garage:
+        try:
+            spots = int(parking_garage)
+            parking = f"{spots} garage space{'s' if spots != 1 else ''}"
+        except Exception:
+            parking = str(parking_garage)
+    else:
+        parking = None
+
+    list_date = get("list_date")
+    if list_date is not None:
+        try:
+            list_date = str(list_date)[:10]
+        except Exception:
+            list_date = None
+
+    days_on_market = get("days_on_market")
+    if days_on_market is not None:
+        try:
+            days_on_market = int(days_on_market)
+        except Exception:
+            days_on_market = None
+
     return {
         "source": "realtor",
         "source_url": get("property_url"),
@@ -76,12 +109,16 @@ def normalize_row(row: dict) -> dict:
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
         "description": get("text"),
         "virtual_tour_url": None,
+        "pets_allowed": pets_allowed,
+        "parking": parking,
         "original_image_urls": json.dumps(image_urls),
         "local_image_paths": "[]",
         "original_data": json.dumps(row_serializable),
         "edited_fields": "[]",
         "scraped_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
+        "_list_date": list_date,
+        "_days_on_market": days_on_market,
     }
 
 

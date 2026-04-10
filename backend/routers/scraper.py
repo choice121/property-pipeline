@@ -124,7 +124,9 @@ def scrape_properties(
             continue
 
         prop_id = generate_property_id()
-        prop = Property(id=prop_id, **data)
+        valid_cols = {c.name for c in Property.__table__.columns}
+        prop_data = {k: v for k, v in data.items() if k in valid_cols}
+        prop = Property(id=prop_id, **prop_data)
         db.add(prop)
         try:
             db.commit()

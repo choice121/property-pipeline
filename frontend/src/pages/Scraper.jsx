@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { searchProperties, saveProperty } from '../api/client'
-import SearchResultCard from '../components/SearchResultCard'
+import { searchProperties, saveProperty, getProperties } from '../api/client'
+import SearchResultCard, { SearchResultRow } from '../components/SearchResultCard'
 import PropertyPreviewModal from '../components/PropertyPreviewModal'
+import ResultsFilterBar from '../components/ResultsFilterBar'
 
 const PROPERTY_TYPES = [
   { value: 'single_family', label: 'Single Family' },
@@ -71,6 +72,13 @@ const defaultForm = {
   exclude_pending: false,
   sort_by: '',
   sort_direction: 'desc',
+}
+
+const defaultResultFilters = {
+  minBeds: null,
+  maxPrice: null,
+  petsOnly: false,
+  photoOnly: false,
 }
 
 function SectionLabel({ children }) {
@@ -147,6 +155,81 @@ export default function Scraper() {
   const [savingIds, setSavingIds] = useState(new Set())
   const [saveAllProgress, setSaveAllProgress] = useState(null)
 
+  const [viewMode, setViewMode] = useState('grid')
+  const [resultSort, setResultSort] = useState('default')
+  const [resultFilters, setResultFilters] = useState(defaultResultFilters)
+  const [libraryIds, setLibraryIds] = useState(new Set())
+
+  useEffect(() => {
+    getProperties()
+      .then((res) => {
+        const ids = new Set(
+          res.data
+            .map((p) => p.source_listing_id)
+            .filter(Boolean)
+        )
+        setLibraryIds(ids)
+      })
+      .catch(() => {})
+  }, [])
+
+  const displayedResults = useMemo(() => {
+    if (!searchResults) return []
+    let list = [...searchResults]
+
+    if (resultFilters.minBeds) {
+      list = list.filter((r) => r.bedrooms != null && r.bedrooms >= resultFilters.minBeds)
+    }
+    if (resultFilters.maxPrice) {
+      list = list.filter((r) => r.monthly_rent != null && r.monthly_rent <= resultFilters.maxPrice)
+    }
+    if (resultFilters.petsOnly) {
+      list = list.filter((r) => r.pets_allowed === true)
+    }
+    if (resultFilters.photoOnly) {
+      list = list.filter((r) => r.image_urls?.length > 0)
+    }
+
+    switch (resultSort) {
+      case 'price_asc':
+        list.sort((a, b) => (a.monthly_rent ?? Infinity) - (b.monthly_rent ?? Infinity))
+        break
+      case 'price_desc':
+        list.sort((a, b) => (b.monthly_rent ?? -Infinity) - (a.monthly_rent ?? -Infinity))
+        break
+      case 'beds_desc':
+        list.sort((a, b) => (b.bedrooms ?? 0) - (a.bedrooms ?? 0))
+        break
+      case 'sqft_desc':
+        list.sort((a, b) => (b.square_footage ?? 0) - (a.square_footage ?? 0))
+        break
+      case 'date_asc':
+        list.sort((a, b) => {
+          const da = a.days_on_market ?? (a.list_date ? Math.floor((Date.now() - new Date(a.list_date)) / 86400000) : null)
+          const db2 = b.days_on_market ?? (b.list_date ? Math.floor((Date.now() - new Date(b.list_date)) / 86400000) : null)
+          if (da == null && db2 == null) return 0
+          if (da == null) return 1
+          if (db2 == null) return -1
+          return db2 - da
+        })
+        break
+      case 'date_desc':
+        list.sort((a, b) => {
+          const da = a.days_on_market ?? (a.list_date ? Math.floor((Date.now() - new Date(a.list_date)) / 86400000) : null)
+          const db2 = b.days_on_market ?? (b.list_date ? Math.floor((Date.now() - new Date(b.list_date)) / 86400000) : null)
+          if (da == null && db2 == null) return 0
+          if (da == null) return 1
+          if (db2 == null) return -1
+          return da - db2
+        })
+        break
+      default:
+        break
+    }
+
+    return list
+  }, [searchResults, resultSort, resultFilters])
+
   function handleChange(e) {
     const { name, value, type, checked } = e.target
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
@@ -169,6 +252,8 @@ export default function Scraper() {
     setSavedIds(new Set())
     setSavingIds(new Set())
     setSaveAllProgress(null)
+    setResultSort('default')
+    setResultFilters(defaultResultFilters)
     setShowForm(true)
     setShowAdvanced(false)
   }
@@ -213,6 +298,9 @@ export default function Scraper() {
     setSearchResults(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
+    setSaveAllProgress(null)
+    setResultSort('default')
+    setResultFilters(defaultResultFilters)
     setSearching(true)
     try {
       const res = await searchProperties(buildPayload())
@@ -227,7 +315,7 @@ export default function Scraper() {
 
   async function handleSave(result) {
     const key = result.temp_key
-    if (savedIds.has(key) || savingIds.has(key)) return
+    if (savedIds.has(key) || savingIds.has(key) || libraryIds.has(key)) return
     setSavingIds((prev) => new Set([...prev, key]))
     try {
       await saveProperty(result)
@@ -242,7 +330,9 @@ export default function Scraper() {
 
   async function handleSaveAll() {
     if (!searchResults) return
-    const unsaved = searchResults.filter((r) => !savedIds.has(r.temp_key) && !savingIds.has(r.temp_key))
+    const unsaved = displayedResults.filter(
+      (r) => !savedIds.has(r.temp_key) && !savingIds.has(r.temp_key) && !libraryIds.has(r.temp_key)
+    )
     if (unsaved.length === 0) return
     setSaveAllProgress({ done: 0, total: unsaved.length })
     for (const r of unsaved) {
@@ -261,8 +351,18 @@ export default function Scraper() {
     form.radius, form.mls_only, form.foreclosure, form.exclude_pending, form.sort_by,
   ].filter(Boolean).length
 
-  const savedCount = savedIds.size
+  const displayedCount = displayedResults.length
   const totalCount = searchResults?.length || 0
+  const unsavedDisplayed = displayedResults.filter(
+    (r) => !savedIds.has(r.temp_key) && !libraryIds.has(r.temp_key)
+  ).length
+
+  const resultsWithLibraryFlag = useMemo(() => {
+    return displayedResults.map((r) => ({
+      ...r,
+      _alreadyInLibrary: libraryIds.has(r.temp_key),
+    }))
+  }, [displayedResults, libraryIds])
 
   return (
     <div className="max-w-5xl">
@@ -463,7 +563,6 @@ export default function Scraper() {
           )}
         </form>
       ) : (
-        /* Compact search bar when results are showing */
         <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 mb-5 flex items-center justify-between">
           <div>
             <p className="text-sm font-semibold text-gray-800">
@@ -488,28 +587,27 @@ export default function Scraper() {
       {searchResults !== null && (
         <div>
           {/* Results header */}
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <div>
               <h2 className="text-lg font-bold text-gray-900">
-                {totalCount === 0 ? 'No results found' : `${totalCount} ${totalCount === 1 ? 'property' : 'properties'} found`}
+                {totalCount === 0
+                  ? 'No results found'
+                  : displayedCount < totalCount
+                  ? `${displayedCount} of ${totalCount} properties`
+                  : `${totalCount} ${totalCount === 1 ? 'property' : 'properties'} found`}
               </h2>
-              {savedCount > 0 && (
-                <p className="text-sm text-green-600 mt-0.5">
-                  {savedCount} saved to your library
-                </p>
-              )}
             </div>
             {totalCount > 0 && (
               <div className="flex gap-2">
                 <button onClick={handleSaveAll}
-                  disabled={savedCount === totalCount || saveAllProgress !== null}
-                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors min-w-[120px]"
+                  disabled={unsavedDisplayed === 0 || saveAllProgress !== null}
+                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors min-w-[130px]"
                 >
                   {saveAllProgress !== null
                     ? `Saving ${saveAllProgress.done}/${saveAllProgress.total}…`
-                    : savedCount === totalCount
+                    : unsavedDisplayed === 0
                     ? '✓ All Saved'
-                    : `Save All (${totalCount - savedCount})`}
+                    : `Save All (${unsavedDisplayed})`}
                 </button>
                 <button onClick={handleReset}
                   className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
@@ -529,28 +627,67 @@ export default function Scraper() {
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {searchResults.map((result) => (
-                <SearchResultCard
-                  key={result.temp_key}
-                  result={result}
-                  isSaved={savedIds.has(result.temp_key)}
-                  isSaving={savingIds.has(result.temp_key)}
-                  onSave={() => handleSave(result)}
-                  onPreview={() => setSelectedResult(result)}
-                />
-              ))}
-            </div>
+            <>
+              <ResultsFilterBar
+                results={resultsWithLibraryFlag}
+                filters={resultFilters}
+                onFiltersChange={setResultFilters}
+                sort={resultSort}
+                onSortChange={setResultSort}
+                viewMode={viewMode}
+                onViewModeChange={setViewMode}
+              />
+
+              {displayedCount === 0 ? (
+                <div className="text-center py-12 text-gray-400">
+                  <p className="text-base">No results match your current filters.</p>
+                  <button
+                    onClick={() => setResultFilters(defaultResultFilters)}
+                    className="mt-3 text-sm text-blue-600 hover:underline"
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              ) : viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {resultsWithLibraryFlag.map((result) => (
+                    <SearchResultCard
+                      key={result.temp_key}
+                      result={result}
+                      isSaved={savedIds.has(result.temp_key)}
+                      isSaving={savingIds.has(result.temp_key)}
+                      isInLibrary={result._alreadyInLibrary}
+                      onSave={() => handleSave(result)}
+                      onPreview={() => setSelectedResult(result)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {resultsWithLibraryFlag.map((result) => (
+                    <SearchResultRow
+                      key={result.temp_key}
+                      result={result}
+                      isSaved={savedIds.has(result.temp_key)}
+                      isSaving={savingIds.has(result.temp_key)}
+                      isInLibrary={result._alreadyInLibrary}
+                      onSave={() => handleSave(result)}
+                      onPreview={() => setSelectedResult(result)}
+                    />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
 
-      {/* Preview modal */}
       {selectedResult && (
         <PropertyPreviewModal
           result={selectedResult}
           isSaved={savedIds.has(selectedResult.temp_key)}
           isSaving={savingIds.has(selectedResult.temp_key)}
+          isInLibrary={libraryIds.has(selectedResult.temp_key)}
           onSave={() => handleSave(selectedResult)}
           onClose={() => setSelectedResult(null)}
         />
