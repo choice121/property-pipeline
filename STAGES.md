@@ -18,12 +18,12 @@
 
   | # | Stage Title | Status | Depends On |
   |---|---|---|---|
-  | 1 | Project Setup & Foundation | ⬜ Not Started | None |
-  | 2 | Scraping Engine | 🔒 Locked | Stage 1 |
-  | 3 | Image Downloading & Storage | 🔒 Locked | Stage 2 |
-  | 4 | React Frontend Foundation | 🔒 Locked | Stage 1 |
-  | 5 | Property Library UI | 🔒 Locked | Stages 3 + 4 |
-  | 6 | Property Editor UI | 🔒 Locked | Stage 5 |
+  | 1 | Project Setup & Foundation | ✅ Complete | None |
+  | 2 | Scraping Engine | ✅ Complete | Stage 1 |
+  | 3 | Image Downloading & Storage | ✅ Complete | Stage 2 |
+  | 4 | React Frontend Foundation | ✅ Complete | Stage 1 |
+  | 5 | Property Library UI | ✅ Complete | Stages 3 + 4 |
+  | 6 | Property Editor UI | ✅ Complete | Stage 5 |
   | 7 | Publisher | 🔒 Locked | Stage 6 + Owner credentials |
 
   ---
@@ -37,4 +37,3 @@
   - **Stage 5** — Build the Library page: property grid with photos, status badges, search, filter, sort. Data is live from the API.
   - **Stage 6** — Build the Editor page: full property form with every field, image management (reorder, delete), save with edit tracking.
   - **Stage 7** — Build the Publisher: upload images to ImageKit, insert property into Supabase, mark as published. Requires owner credentials.
-  
