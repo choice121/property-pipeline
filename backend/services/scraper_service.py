@@ -1,7 +1,7 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from homeharvest import scrape_property
 
@@ -27,7 +27,6 @@ def normalize_row(row: dict) -> dict:
         v = row.get(key)
         return safe_val(v)
 
-    # New HomeHarvest uses alt_photos and primary_photo instead of img_srcs
     alt_photos = get("alt_photos")
     primary_photo = get("primary_photo")
 
@@ -88,25 +87,71 @@ def normalize_row(row: dict) -> dict:
 
 def scrape(
     location: str,
-    listing_type: str = "for_rent",
+    listing_type: Optional[str] = "for_rent",
+    property_type: Optional[List[str]] = None,
     min_price: Optional[int] = None,
     max_price: Optional[int] = None,
-    bedrooms: Optional[int] = None,
+    beds_min: Optional[int] = None,
+    beds_max: Optional[int] = None,
+    baths_min: Optional[float] = None,
+    baths_max: Optional[float] = None,
+    sqft_min: Optional[int] = None,
+    sqft_max: Optional[int] = None,
+    lot_sqft_min: Optional[int] = None,
+    lot_sqft_max: Optional[int] = None,
+    year_built_min: Optional[int] = None,
+    year_built_max: Optional[int] = None,
+    past_days: Optional[int] = None,
+    past_hours: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    radius: Optional[float] = None,
+    limit: Optional[int] = 200,
+    mls_only: bool = False,
+    foreclosure: Optional[bool] = None,
+    exclude_pending: bool = False,
+    sort_by: Optional[str] = None,
+    sort_direction: str = "desc",
 ):
     kwargs = dict(
         location=location,
         listing_type=listing_type,
-        past_days=60,
         price_min=min_price,
         price_max=max_price,
-        beds_min=bedrooms,
-        beds_max=bedrooms,
+        beds_min=beds_min,
+        beds_max=beds_max,
+        baths_min=baths_min,
+        baths_max=baths_max,
+        sqft_min=sqft_min,
+        sqft_max=sqft_max,
+        lot_sqft_min=lot_sqft_min,
+        lot_sqft_max=lot_sqft_max,
+        year_built_min=year_built_min,
+        year_built_max=year_built_max,
+        past_days=past_days,
+        past_hours=past_hours,
+        date_from=date_from,
+        date_to=date_to,
+        radius=radius,
+        limit=limit,
+        mls_only=mls_only,
+        foreclosure=foreclosure,
+        exclude_pending=exclude_pending,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
     )
-    # Remove None values to avoid passing null filters
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+
+    if property_type:
+        kwargs["property_type"] = property_type
+
+    kwargs = {k: v for k, v in kwargs.items() if v is not None and v is not False}
     kwargs["location"] = location
     kwargs["listing_type"] = listing_type
-    kwargs["past_days"] = 60
+    kwargs["sort_direction"] = sort_direction
+    kwargs["exclude_pending"] = exclude_pending
+    kwargs["mls_only"] = mls_only
+    if limit:
+        kwargs["limit"] = limit
 
     df = scrape_property(**kwargs)
 
