@@ -319,17 +319,8 @@ export default function Scraper() {
             </FieldRow>
           </div>
 
-          <Field label="Result Limit" hint="Max results to return. Use a lower number to keep searches focused.">
-            <Select name="limit" value={form.limit} onChange={handleChange}>
-              <option value="25">25 results</option>
-              <option value="50">50 results</option>
-              <option value="100">100 results</option>
-              <option value="200">200 results</option>
-              <option value="500">500 results</option>
-              <option value="1000">1,000 results</option>
-              <option value="5000">5,000 results</option>
-              <option value="10000">10,000 results (max)</option>
-            </Select>
+          <Field label="Result Limit" hint="Max number of listings to return. Type any number — e.g. 75, 300, 1000.">
+            <Input name="limit" type="number" value={form.limit} onChange={handleChange} placeholder="e.g. 200" min="1" />
           </Field>
 
           {/* Advanced toggle */}
