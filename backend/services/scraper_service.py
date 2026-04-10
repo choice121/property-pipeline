@@ -31,14 +31,14 @@ def normalize_row(row: dict) -> dict:
     primary_photo = get("primary_photo")
 
     image_urls = []
-    if primary_photo and isinstance(primary_photo, str):
-        image_urls.append(primary_photo)
     if isinstance(alt_photos, list):
         for url in alt_photos:
             if url and url not in image_urls:
                 image_urls.append(url)
     elif isinstance(alt_photos, str) and alt_photos:
         image_urls.append(alt_photos)
+    if not image_urls and primary_photo and isinstance(primary_photo, str):
+        image_urls.append(primary_photo)
 
     row_serializable = {}
     for k, v in row.items():
