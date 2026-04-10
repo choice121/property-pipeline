@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages } from '../api/client'
+import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty } from '../api/client'
 import ImageGallery from '../components/ImageGallery'
 import StatusBadge from '../components/StatusBadge'
 
@@ -35,6 +35,7 @@ export default function Editor() {
   const [showOriginal, setShowOriginal] = useState(false)
   const [form, setForm] = useState(null)
   const [saved, setSaved] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const { data: property, isLoading } = useQuery({
     queryKey: ['property', id],
@@ -101,6 +102,28 @@ export default function Editor() {
   function handleDelete() {
     if (window.confirm('Delete this property? This cannot be undone.')) {
       deleteMutation.mutate()
+    }
+  }
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      const res = await downloadProperty(id)
+      const disposition = res.headers['content-disposition'] || ''
+      const match = disposition.match(/filename="?([^"]+)"?/)
+      const filename = match ? match[1] : `${id}.zip`
+      const url = window.URL.createObjectURL(new Blob([res.data]))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (e) {
+      alert('Download failed. Please try again.')
+    } finally {
+      setDownloading(false)
     }
   }
 
@@ -264,6 +287,16 @@ export default function Editor() {
           className="bg-amber-500 text-white px-5 py-2 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
         >
           Mark as Ready
+        </button>
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+          </svg>
+          {downloading ? 'Preparing ZIP...' : 'Download ZIP'}
         </button>
         <button
           onClick={handleDelete}

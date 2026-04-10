@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from database.db import init_db
-from routers import health, scraper, properties, images, publisher
+from routers import health, scraper, properties, images, publisher, download
 
 app = FastAPI(title="Property Pipeline API")
 
@@ -26,6 +26,7 @@ app.include_router(scraper.router, prefix="/api")
 app.include_router(properties.router, prefix="/api")
 app.include_router(images.router, prefix="/api")
 app.include_router(publisher.router, prefix="/api")
+app.include_router(download.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn

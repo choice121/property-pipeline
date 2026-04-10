@@ -10,5 +10,6 @@ export const deleteProperty = (id) => api.delete('/properties/' + id)
 export const deleteImage = (id, index) => api.delete('/properties/' + id + '/images/' + index)
 export const reorderImages = (id, order) => api.put('/properties/' + id + '/images/reorder', { order })
 export const publishProperty = (id) => api.post('/publish/' + id)
+export const downloadProperty = (id) => api.get('/properties/' + id + '/download', { responseType: 'blob' })
 
 export default api
