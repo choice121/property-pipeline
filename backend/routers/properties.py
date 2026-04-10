@@ -60,8 +60,14 @@ def update_property(id: str, body: dict, db: Session = Depends(get_db)):
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
-    original = json.loads(prop.original_data or "{}")
-    edited_fields = json.loads(prop.edited_fields or "[]")
+    try:
+        original = json.loads(prop.original_data or "{}")
+    except Exception:
+        original = {}
+    try:
+        edited_fields = json.loads(prop.edited_fields or "[]")
+    except Exception:
+        edited_fields = []
 
     for key, value in body.items():
         if key in ("id", "scraped_at", "original_data", "source", "source_listing_id"):
@@ -81,8 +87,12 @@ def update_property(id: str, body: dict, db: Session = Depends(get_db)):
             prop.status = "edited"
 
     prop.updated_at = datetime.utcnow().isoformat()
-    db.commit()
-    db.refresh(prop)
+    try:
+        db.commit()
+        db.refresh(prop)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to save property")
     return prop_to_dict(prop)
 
 
@@ -92,5 +102,9 @@ def delete_property(id: str, db: Session = Depends(get_db)):
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
     db.delete(prop)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to delete property")
     return {"ok": True}

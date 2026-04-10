@@ -9,6 +9,10 @@ load_dotenv()
 from database.db import init_db
 from routers import health, scraper, properties, images, publisher, download, search
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "storage", "images"), exist_ok=True)
+
 app = FastAPI(title="Property Pipeline API")
 
 app.add_middleware(

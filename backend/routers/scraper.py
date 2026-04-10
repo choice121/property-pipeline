@@ -1,4 +1,5 @@
 import json
+import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -10,6 +11,7 @@ from database.models import Property
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -58,9 +60,13 @@ def download_images_task(property_id: str, image_urls: list, db_session_factory)
         prop = db.query(Property).filter(Property.id == property_id).first()
         if prop:
             prop.local_image_paths = json.dumps(paths)
-            db.commit()
-    except Exception:
-        pass
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error("Failed to save image paths for %s: %s", property_id, e)
+    except Exception as e:
+        logger.error("Image download task failed for %s: %s", property_id, e)
     finally:
         db.close()
 
@@ -120,11 +126,20 @@ def scrape_properties(
         prop_id = generate_property_id()
         prop = Property(id=prop_id, **data)
         db.add(prop)
-        db.commit()
-        db.refresh(prop)
+        try:
+            db.commit()
+            db.refresh(prop)
+        except Exception as e:
+            db.rollback()
+            logger.error("Failed to save property %s: %s", prop_id, e)
+            continue
         saved.append(prop)
 
-        image_urls = json.loads(data.get("original_image_urls", "[]"))
+        image_urls = []
+        try:
+            image_urls = json.loads(data.get("original_image_urls", "[]"))
+        except Exception:
+            pass
         if image_urls:
             from database.db import SessionLocal
             background_tasks.add_task(

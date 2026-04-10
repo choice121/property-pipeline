@@ -145,6 +145,7 @@ export default function Scraper() {
   const [selectedResult, setSelectedResult] = useState(null)
   const [savedIds, setSavedIds] = useState(new Set())
   const [savingIds, setSavingIds] = useState(new Set())
+  const [saveAllProgress, setSaveAllProgress] = useState(null)
 
   function handleChange(e) {
     const { name, value, type, checked } = e.target
@@ -167,6 +168,7 @@ export default function Scraper() {
     setSearchError(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
+    setSaveAllProgress(null)
     setShowForm(true)
     setShowAdvanced(false)
   }
@@ -241,7 +243,13 @@ export default function Scraper() {
   async function handleSaveAll() {
     if (!searchResults) return
     const unsaved = searchResults.filter((r) => !savedIds.has(r.temp_key) && !savingIds.has(r.temp_key))
-    await Promise.all(unsaved.map((r) => handleSave(r)))
+    if (unsaved.length === 0) return
+    setSaveAllProgress({ done: 0, total: unsaved.length })
+    for (const r of unsaved) {
+      await handleSave(r)
+      setSaveAllProgress((prev) => prev ? { ...prev, done: prev.done + 1 } : null)
+    }
+    setSaveAllProgress(null)
   }
 
   const activeAdvancedCount = [
@@ -494,10 +502,14 @@ export default function Scraper() {
             {totalCount > 0 && (
               <div className="flex gap-2">
                 <button onClick={handleSaveAll}
-                  disabled={savedCount === totalCount}
-                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors"
+                  disabled={savedCount === totalCount || saveAllProgress !== null}
+                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors min-w-[120px]"
                 >
-                  {savedCount === totalCount ? '✓ All Saved' : `Save All (${totalCount - savedCount})`}
+                  {saveAllProgress !== null
+                    ? `Saving ${saveAllProgress.done}/${saveAllProgress.total}…`
+                    : savedCount === totalCount
+                    ? '✓ All Saved'
+                    : `Save All (${totalCount - savedCount})`}
                 </button>
                 <button onClick={handleReset}
                   className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"

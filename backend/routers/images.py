@@ -14,6 +14,7 @@ from services import image_service
 router = APIRouter()
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+STORAGE_DIR = os.path.realpath(os.path.join(BASE_DIR, "storage", "images"))
 
 
 def prop_to_dict(prop: Property) -> dict:
@@ -22,10 +23,13 @@ def prop_to_dict(prop: Property) -> dict:
 
 @router.get("/images/{property_id}/{filename}")
 def serve_image(property_id: str, filename: str):
-    filepath = os.path.join(BASE_DIR, "storage", "images", property_id, filename)
-    if not os.path.exists(filepath):
+    safe_storage = STORAGE_DIR
+    requested = os.path.realpath(os.path.join(safe_storage, property_id, filename))
+    if not requested.startswith(safe_storage + os.sep):
+        raise HTTPException(status_code=400, detail="Invalid image path")
+    if not os.path.isfile(requested):
         raise HTTPException(status_code=404, detail="Image not found")
-    return FileResponse(filepath)
+    return FileResponse(requested)
 
 
 @router.delete("/properties/{id}/images/{index}")
@@ -36,8 +40,12 @@ def delete_image(id: str, index: int, db: Session = Depends(get_db)):
 
     new_paths = image_service.delete_image(id, index)
     prop.local_image_paths = json.dumps(new_paths)
-    db.commit()
-    db.refresh(prop)
+    try:
+        db.commit()
+        db.refresh(prop)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to update image list")
     return prop_to_dict(prop)
 
 
@@ -53,6 +61,10 @@ def reorder_images(id: str, body: ReorderRequest, db: Session = Depends(get_db))
 
     new_paths = image_service.reorder_images(id, body.order)
     prop.local_image_paths = json.dumps(new_paths)
-    db.commit()
-    db.refresh(prop)
+    try:
+        db.commit()
+        db.refresh(prop)
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to save new image order")
     return prop_to_dict(prop)

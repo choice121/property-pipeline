@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import Library from './pages/Library'
 import Scraper from './pages/Scraper'
 import Editor from './pages/Editor'
+import ErrorBoundary from './components/ErrorBoundary'
 
 const router = createBrowserRouter([
   {
@@ -16,5 +17,9 @@ const router = createBrowserRouter([
 ])
 
 export default function App() {
-  return <RouterProvider router={router} />
+  return (
+    <ErrorBoundary>
+      <RouterProvider router={router} />
+    </ErrorBoundary>
+  )
 }

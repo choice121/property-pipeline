@@ -13,7 +13,14 @@ export default function Library() {
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
     queryFn: () => getProperties().then((r) => r.data),
-    refetchInterval: 5000,
+    refetchInterval: (query) => {
+      const props = query.state.data
+      if (!props) return false
+      const hasDownloading = props.some(
+        (p) => p.status === 'scraped' && (!p.local_image_paths || p.local_image_paths === '[]')
+      )
+      return hasDownloading ? 4000 : false
+    },
   })
 
   const filtered = useMemo(() => {

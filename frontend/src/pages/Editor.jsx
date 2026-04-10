@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useState, useEffect, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty } from '../api/client'
 import ImageGallery from '../components/ImageGallery'
@@ -36,6 +36,7 @@ export default function Editor() {
   const [form, setForm] = useState(null)
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const isDirty = useRef(false)
 
   const { data: property, isLoading } = useQuery({
     queryKey: ['property', id],
@@ -45,13 +46,26 @@ export default function Editor() {
   useEffect(() => {
     if (property && !form) {
       setForm({ ...property })
+      isDirty.current = false
     }
   }, [property])
+
+  useEffect(() => {
+    function handleBeforeUnload(e) {
+      if (isDirty.current) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
 
   const saveMutation = useMutation({
     mutationFn: (data) => updateProperty(id, data).then((r) => r.data),
     onSuccess: (data) => {
       setForm(data)
+      isDirty.current = false
       setSaved(true)
       queryClient.invalidateQueries({ queryKey: ['properties'] })
       queryClient.setQueryData(['property', id], data)
@@ -88,7 +102,15 @@ export default function Editor() {
   }
 
   function set(key, value) {
+    isDirty.current = true
     setForm((prev) => ({ ...prev, [key]: value }))
+  }
+
+  function handleBackToLibrary() {
+    if (isDirty.current && !window.confirm('You have unsaved changes. Leave without saving?')) {
+      return
+    }
+    navigate('/')
   }
 
   function handleSave() {
@@ -142,7 +164,7 @@ export default function Editor() {
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-4">
-        <Link to="/" className="text-sm text-gray-500 hover:text-gray-700">← Back to Library</Link>
+        <button onClick={handleBackToLibrary} className="text-sm text-gray-500 hover:text-gray-700">← Back to Library</button>
         <div className="flex items-center gap-3">
           <button
             onClick={() => setShowOriginal(!showOriginal)}

@@ -1,4 +1,5 @@
 import json
+import logging
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -11,6 +12,7 @@ from database.models import Property
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 VALID_COLUMNS = None
@@ -59,9 +61,13 @@ def _download_images_task(property_id: str, image_urls: list, db_session_factory
         prop = db.query(Property).filter(Property.id == property_id).first()
         if prop:
             prop.local_image_paths = json.dumps(paths)
-            db.commit()
-    except Exception:
-        pass
+            try:
+                db.commit()
+            except Exception as e:
+                db.rollback()
+                logger.error("Failed to save image paths for %s: %s", property_id, e)
+    except Exception as e:
+        logger.error("Image download task failed for %s: %s", property_id, e)
     finally:
         db.close()
 
@@ -136,8 +142,13 @@ def save_property(
     prop_id = generate_property_id()
     prop = Property(id=prop_id, **save_data)
     db.add(prop)
-    db.commit()
-    db.refresh(prop)
+    try:
+        db.commit()
+        db.refresh(prop)
+    except Exception as e:
+        db.rollback()
+        logger.error("Failed to save property %s: %s", prop_id, e)
+        raise HTTPException(status_code=500, detail="Failed to save property")
 
     image_urls = []
     try:
