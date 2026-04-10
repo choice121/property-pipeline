@@ -1,45 +1,63 @@
 # Property Pipeline
 
-A private property management tool for Choice Properties. Scrape listings from Zillow, Realtor.com, and Redfin, manage them in a dashboard, and publish approved listings to the live website.
+A private, standalone property management tool for Choice Properties.
+
+## Overview
+
+This app scrapes property listings from major platforms (Zillow, Realtor.com, Redfin), allows viewing and editing those listings in a private dashboard, and eventually publishes them to a live website.
 
 ## Architecture
 
-- **Backend**: Python/FastAPI on port 8000 (localhost only)
-- **Frontend**: React + Vite on port 5000 (0.0.0.0, proxied)
-- **Database**: SQLite at `backend/data/pipeline.db`
-- **Image storage**: `backend/storage/images/{property_id}/`
+- **Backend**: Python FastAPI running on port 8000
+- **Frontend**: React 18 + Vite running on port 5000 (proxies /api to backend)
+- **Database**: SQLite stored at `backend/data/pipeline.db`
+- **Image storage**: Local at `backend/storage/images/`
 
-## Running
+## Project Structure
 
-Both services start with `bash start.sh` (the configured workflow):
-- Backend: `python3 backend/main.py` → localhost:8000
-- Frontend: Vite from workspace root → 0.0.0.0:5000
+```
+property-pipeline/
+├── backend/
+│   ├── data/               # SQLite database (pipeline.db)
+│   ├── database/           # SQLAlchemy models and DB config (db.py, models.py)
+│   ├── routers/            # API endpoints (health, scraper, properties, images, publisher)
+│   ├── services/           # Business logic (scraping, image handling)
+│   ├── storage/images/     # Local property photo storage
+│   └── main.py             # FastAPI entry point
+├── frontend/
+│   ├── src/
+│   │   ├── api/            # Axios client and API definitions
+│   │   ├── components/     # Reusable UI (PropertyCard, ImageGallery)
+│   │   ├── pages/          # Views (Library, Scraper, Editor)
+│   │   └── App.jsx         # Routing and main layout
+│   ├── package.json        # Frontend dependencies (React 18, Vite 5, Tailwind v4)
+│   └── vite.config.js      # Vite config with proxy to backend
+├── start.sh                # Unified startup script
+└── vite.config.js          # Root-level vite config (unused, frontend has its own)
+```
 
-## Key Files
+## Running the App
 
-- `start.sh` — starts both backend and frontend
-- `vite.config.js` — root-level Vite config (frontend root: ./frontend), proxies /api to localhost:8000
-- `backend/main.py` — FastAPI entry point
-- `backend/database/models.py` — SQLite Property schema
-- `frontend/src/pages/` — Library, Scraper, Editor pages
-- `frontend/src/components/` — Layout, PropertyCard, StatusBadge, ImageGallery
+The workflow runs `bash start.sh` which:
+1. Starts the FastAPI backend (`python3 main.py`) on port 8000 in background
+2. Starts the Vite dev server (`npm run dev`) from the `frontend/` directory on port 5000
 
-## Tech Notes
+## Key Dependencies
 
-- **Tailwind v4** is installed — uses `@import "tailwindcss"` in CSS, and `@tailwindcss/postcss` plugin
-- **React 19 + Vite 8** — latest versions
-- **Python packages** installed via uv into `.pythonlibs/`
-- **Node packages** installed at workspace root `node_modules/`
+### Backend (Python)
+- FastAPI + Uvicorn
+- SQLAlchemy (SQLite)
+- HomeHarvest (property scraping)
+- Pillow + httpx (image processing)
+- python-dotenv
 
-## Stages
+### Frontend (Node)
+- React 18 + React Router v6
+- Vite 5
+- Tailwind CSS v4 + @tailwindcss/postcss
+- TanStack Query (React Query)
+- Axios
 
-All stages 1–6 are complete. Stage 7 (Publisher to Supabase/ImageKit) is locked pending owner credentials.
+## Development Status
 
-## API
-
-- `GET /api/health` — health check
-- `POST /api/scrape` — trigger HomeHarvest scrape
-- `GET/PUT/DELETE /api/properties` — manage properties
-- `GET /api/images/{id}/{filename}` — serve images
-- `DELETE /api/properties/{id}/images/{index}` — delete image
-- `PUT /api/properties/{id}/images/reorder` — reorder images
+Stages 1-6 complete. Stage 7 (Publisher to Supabase/ImageKit) requires external credentials to be set in `.env`.
