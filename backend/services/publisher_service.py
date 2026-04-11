@@ -15,9 +15,22 @@ def _get_imagekit():
     return ImageKit(private_key=os.environ["IMAGEKIT_PRIVATE_KEY"])
 
 
+def _clean_jwt(key: str) -> str:
+    key = key.strip()
+    parts = key.split(".")
+    if len(parts) == 3:
+        sig = parts[2]
+        # HS256 signature is exactly 32 bytes = 43 base64url chars
+        if len(sig) > 43:
+            sig = sig[:43]
+        parts[2] = sig
+        key = ".".join(parts)
+    return key
+
+
 def _get_supabase():
     url = os.environ["SUPABASE_URL"].rstrip("/")
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
+    key = _clean_jwt(os.environ["SUPABASE_SERVICE_ROLE_KEY"])
     return create_client(url, key)
 
 
