@@ -104,7 +104,7 @@ def normalize_row(row: dict) -> dict:
         "half_bathrooms": int(get("half_baths")) if get("half_baths") is not None else None,
         "square_footage": int(get("sqft")) if get("sqft") is not None else None,
         "lot_size_sqft": int(get("lot_sqft")) if get("lot_sqft") is not None else None,
-        "monthly_rent": int(get("list_price")) if get("list_price") is not None else None,
+        "monthly_rent": int(get("list_price")) if get("list_price") is not None else (int(get("list_price_min")) if get("list_price_min") is not None else None),
         "property_type": get("style"),
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
         "description": get("text"),

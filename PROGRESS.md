@@ -21,6 +21,30 @@
 
   ## Completed Work
 
+  ### [2026-04-11] — Bulk Publish: 50 properties live
+
+  **Completed by:** Replit Agent
+
+  **What was done:**
+  - Discovered that HomeHarvest returns `list_price_min` / `list_price_max` for apartment complexes where `list_price` is NULL
+  - Updated scraper_service.py to fall back to `list_price_min` when `list_price` is null — rent is now populated for all scraped properties
+  - Scraped 200 properties each from Austin TX, Nashville TN, Denver CO, Atlanta GA, Phoenix AZ, Charlotte NC (1,000+ total)
+  - Backfilled `monthly_rent` for all existing scraped properties using the same fallback logic
+  - Selected 9 properties per city (6 cities = 54 candidates, capped at 50) with at least 1 downloaded image
+  - Published all 50 in one automated run — 0 failures
+  - Supabase now has 58 active listings across Austin, Atlanta, Phoenix, Nashville, Denver, Charlotte (plus 8 pre-existing)
+  - Removed bulk_scrape_publish.py (no longer needed)
+
+  **Issues encountered:**
+  - Zillow for_rent scrapes return `list_price=NULL` for apartment complexes — solved by using `list_price_min` as fallback
+  - `monthly_rent` NOT NULL constraint in Supabase required the fallback to be applied before any insert
+
+  **Next step:**
+  - Publish to production (deploy) so the admin dashboard is accessible outside Replit
+  - Optionally set CHOICE_LANDLORD_ID secret if property landlord linking is needed
+
+  ---
+
   ### [2026-04-11] — Stage 7: Publisher
 
   **Completed by:** Replit Agent

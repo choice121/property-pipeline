@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import uuid
 from datetime import datetime, timezone
 
 from imagekitio import ImageKit
@@ -20,7 +21,6 @@ def _clean_jwt(key: str) -> str:
     parts = key.split(".")
     if len(parts) == 3:
         sig = parts[2]
-        # HS256 signature is exactly 32 bytes = 43 base64url chars
         if len(sig) > 43:
             sig = sig[:43]
         parts[2] = sig
@@ -66,15 +66,36 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         if not val:
             return []
         try:
-            return json.loads(val)
+            parsed = json.loads(val)
+            return parsed if isinstance(parsed, list) else []
         except Exception:
             return []
 
     landlord_id = os.environ.get("CHOICE_LANDLORD_ID") or None
 
+    def _generate_title(prop) -> str:
+        if prop.title:
+            return prop.title
+        parts = []
+        if prop.bedrooms:
+            parts.append(f"{prop.bedrooms} Bed")
+        if prop.bathrooms:
+            baths = int(prop.bathrooms) if prop.bathrooms == int(prop.bathrooms) else prop.bathrooms
+            parts.append(f"{baths} Bath")
+        ptype = (prop.property_type or "").replace("_", " ").title() or "Property"
+        bed_bath = " / ".join(parts)
+        location = ", ".join(filter(None, [prop.city, prop.state]))
+        if bed_bath:
+            return f"{bed_bath} {ptype} in {location}" if location else f"{bed_bath} {ptype}"
+        return f"{ptype} in {location}" if location else prop.address or "Rental Property"
+
+    choice_id = "PROP-" + uuid.uuid4().hex[:8].upper()
+
     record = {
+        "id": choice_id,
         "status": "active",
-        "title": prop.title,
+        "title": _generate_title(prop),
+        "description": prop.description,
         "address": prop.address,
         "city": prop.city,
         "state": prop.state,
@@ -82,33 +103,30 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "county": prop.county,
         "lat": prop.lat,
         "lng": prop.lng,
+        "property_type": prop.property_type,
+        "year_built": prop.year_built,
         "bedrooms": prop.bedrooms,
         "bathrooms": prop.bathrooms,
         "half_bathrooms": prop.half_bathrooms,
         "square_footage": prop.square_footage,
         "lot_size_sqft": prop.lot_size_sqft,
         "monthly_rent": prop.monthly_rent,
-        "property_type": prop.property_type,
-        "year_built": prop.year_built,
-        "description": prop.description,
         "available_date": prop.available_date,
-        "parking": prop.parking,
+        "lease_terms": parse_json(prop.lease_terms),
         "pets_allowed": prop.pets_allowed,
         "pet_details": prop.pet_details,
         "smoking_allowed": prop.smoking_allowed,
+        "utilities_included": parse_json(prop.utilities_included),
+        "parking": prop.parking,
+        "amenities": parse_json(prop.amenities),
+        "appliances": parse_json(prop.appliances),
+        "flooring": parse_json(prop.flooring),
         "heating_type": prop.heating_type,
         "cooling_type": prop.cooling_type,
         "laundry_type": prop.laundry_type,
         "virtual_tour_url": prop.virtual_tour_url,
-        "lease_terms": parse_json(prop.lease_terms),
-        "amenities": parse_json(prop.amenities),
-        "appliances": parse_json(prop.appliances),
-        "utilities_included": parse_json(prop.utilities_included),
-        "flooring": parse_json(prop.flooring),
         "photo_urls": [r["url"] for r in imagekit_results],
         "photo_file_ids": [r["file_id"] for r in imagekit_results],
-        "source": prop.source,
-        "source_url": prop.source_url,
     }
 
     if landlord_id:
