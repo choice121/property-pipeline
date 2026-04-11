@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty } from '../api/client'
 import ImageGallery from '../components/ImageGallery'
 import StatusBadge from '../components/StatusBadge'
+import PublishButton from '../components/PublishButton'
 
 const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
@@ -194,11 +195,15 @@ export default function Editor() {
               <input className={inputCls} value={form.property_type || ''} onChange={(e) => set('property_type', e.target.value)} />
             </Field>
             <Field label="Status">
-              <select className={inputCls} value={form.status || 'scraped'} onChange={(e) => set('status', e.target.value)}>
-                <option value="scraped">Scraped</option>
-                <option value="edited">Edited</option>
-                <option value="ready">Ready to Publish</option>
-              </select>
+              {form.status === 'published' || form.choice_property_id ? (
+                <div className={inputCls + ' bg-gray-50 text-green-700 font-medium'}>Published</div>
+              ) : (
+                <select className={inputCls} value={form.status || 'scraped'} onChange={(e) => set('status', e.target.value)}>
+                  <option value="scraped">Scraped</option>
+                  <option value="edited">Edited</option>
+                  <option value="ready">Ready to Publish</option>
+                </select>
+              )}
             </Field>
           </div>
         </section>
@@ -295,7 +300,7 @@ export default function Editor() {
         </section>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
+      <div className="mt-6 flex flex-wrap gap-3 items-start">
         <button
           onClick={handleSave}
           disabled={saveMutation.isPending}
@@ -303,13 +308,21 @@ export default function Editor() {
         >
           {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
         </button>
-        <button
-          onClick={handleMarkReady}
-          disabled={saveMutation.isPending}
-          className="bg-amber-500 text-white px-5 py-2 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
-        >
-          Mark as Ready
-        </button>
+        {form.status !== 'published' && !form.choice_property_id && (
+          <button
+            onClick={handleMarkReady}
+            disabled={saveMutation.isPending}
+            className="bg-amber-500 text-white px-5 py-2 rounded-lg font-medium hover:bg-amber-600 disabled:opacity-50 transition-colors"
+          >
+            Mark as Ready
+          </button>
+        )}
+        <PublishButton
+          property={form}
+          onPublished={(data) => {
+            queryClient.invalidateQueries({ queryKey: ['property', id] })
+          }}
+        />
         <button
           onClick={handleDownload}
           disabled={downloading}
