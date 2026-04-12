@@ -18,7 +18,7 @@ app = FastAPI(title="Property Pipeline API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -35,5 +35,5 @@ app.include_router(search.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("BACKEND_PORT", 8000))
     uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

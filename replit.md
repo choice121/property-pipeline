@@ -39,8 +39,15 @@ property-pipeline/
 ## Running the App
 
 The workflow runs `bash start.sh` which:
-1. Starts the FastAPI backend (`python3 main.py`) on port 8000 in background
-2. Starts the Vite dev server (`npm run dev`) from the `frontend/` directory on port 5000
+1. Starts the FastAPI backend (`python3 main.py`) on port 8000 in the background using `BACKEND_PORT=8000`
+2. Starts the Vite dev server from the repository root on port 5000, serving the `frontend/` app through the root Vite config
+
+## Replit Migration Notes
+
+- The frontend is configured for Replit preview compatibility with `host: '0.0.0.0'`, port `5000`, `strictPort: true`, and `allowedHosts: true`.
+- Frontend API calls stay same-origin (`/api`) and are proxied by Vite to the internal FastAPI backend at `127.0.0.1:8000`.
+- Vite ignores Replit internal state folders (`.local`, `.cache`) so workflow log updates do not trigger browser reload loops.
+- The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server onto port 5000.
 
 ## Key Dependencies
 

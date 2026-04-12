@@ -1,10 +1,16 @@
 #!/bin/bash
-# Start the backend in background
-cd /home/runner/workspace/backend && python3 main.py &
+set -e
+
+APP_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+cd "$APP_DIR/backend"
+BACKEND_PORT=8000 python3 main.py &
 BACKEND_PID=$!
 
-# Start the frontend from its own directory
-cd /home/runner/workspace/frontend && npm run dev
+cleanup() {
+  kill "$BACKEND_PID" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
-# When frontend exits, kill backend
-kill $BACKEND_PID 2>/dev/null
+cd "$APP_DIR"
+npx vite --host 0.0.0.0 --port 5000 --strictPort
