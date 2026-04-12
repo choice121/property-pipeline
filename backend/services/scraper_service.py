@@ -30,15 +30,36 @@ def normalize_row(row: dict) -> dict:
     alt_photos = get("alt_photos")
     primary_photo = get("primary_photo")
 
+    def _extract_urls(value) -> list:
+        """Extract all individual image URLs from whatever format alt_photos arrives in."""
+        urls = []
+        if not value:
+            return urls
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.strip().startswith("http"):
+                    urls.append(item.strip())
+                elif isinstance(item, dict):
+                    for candidate in ("url", "href", "src", "photo_url"):
+                        if item.get(candidate, "").startswith("http"):
+                            urls.append(item[candidate].strip())
+                            break
+        elif isinstance(value, str):
+            for part in value.split(","):
+                part = part.strip()
+                if part.startswith("http"):
+                    urls.append(part)
+        return urls
+
     image_urls = []
-    if isinstance(alt_photos, list):
-        for url in alt_photos:
-            if url and isinstance(url, str) and url not in image_urls:
-                image_urls.append(url)
-    elif isinstance(alt_photos, str) and alt_photos:
-        image_urls.append(alt_photos)
-    if primary_photo and isinstance(primary_photo, str) and primary_photo not in image_urls:
-        image_urls.insert(0, primary_photo)
+    for url in _extract_urls(alt_photos):
+        if url not in image_urls:
+            image_urls.append(url)
+
+    if primary_photo and isinstance(primary_photo, str) and primary_photo.startswith("http"):
+        primary_photo = primary_photo.strip()
+        if primary_photo not in image_urls:
+            image_urls.insert(0, primary_photo)
 
     row_serializable = {}
     for k, v in row.items():
@@ -87,6 +108,16 @@ def normalize_row(row: dict) -> dict:
         except Exception:
             days_on_market = None
 
+    available_date = None
+    for field in ("date_available", "available_date", "move_in_date", "date_available_text"):
+        val = get(field)
+        if val is not None:
+            try:
+                available_date = str(val)[:10]
+                break
+            except Exception:
+                continue
+
     return {
         "source": "realtor",
         "source_url": get("property_url"),
@@ -108,6 +139,7 @@ def normalize_row(row: dict) -> dict:
         "property_type": get("style"),
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
         "description": get("text"),
+        "available_date": available_date,
         "virtual_tour_url": None,
         "pets_allowed": pets_allowed,
         "parking": parking,

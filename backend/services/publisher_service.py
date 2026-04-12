@@ -135,6 +135,58 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     return {k: v for k, v in record.items() if v is not None}
 
 
+def refresh_images(prop, db) -> dict:
+    """Re-upload all local images to ImageKit and update the live Supabase record."""
+    local_paths = []
+    try:
+        local_paths = json.loads(prop.local_image_paths or "[]")
+    except Exception:
+        pass
+
+    if not local_paths:
+        raise ValueError("No local images found. Download images before refreshing.")
+
+    logger.info(
+        "Re-uploading %d images to ImageKit for property %s (choice_id=%s)",
+        len(local_paths), prop.id, prop.choice_property_id
+    )
+    imagekit_results = _upload_images_to_imagekit(prop.id, local_paths)
+
+    if not imagekit_results:
+        raise RuntimeError(
+            "Image upload to ImageKit failed — no images were uploaded successfully."
+        )
+
+    client = _get_supabase()
+    update_payload = {
+        "photo_urls": [r["url"] for r in imagekit_results],
+        "photo_file_ids": [r["file_id"] for r in imagekit_results],
+    }
+
+    result = (
+        client.table("properties")
+        .update(update_payload)
+        .eq("id", prop.choice_property_id)
+        .execute()
+    )
+
+    if not result.data:
+        raise RuntimeError(
+            "Supabase update returned no data. The record may not exist or permissions may be insufficient."
+        )
+
+    logger.info(
+        "Images refreshed for property %s: %d photos now live",
+        prop.choice_property_id, len(imagekit_results)
+    )
+    return {
+        "ok": True,
+        "choice_property_id": prop.choice_property_id,
+        "photo_count": len(imagekit_results),
+        "message": f"Gallery updated — {len(imagekit_results)} photos now live on website",
+    }
+
+
 def publish(prop, db) -> dict:
     if prop.choice_property_id:
         raise ValueError(
