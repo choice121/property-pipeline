@@ -10,8 +10,8 @@ This app scrapes property listings from major platforms (Zillow, Realtor.com, Re
 
 - **Backend**: Python FastAPI running on port 8000
 - **Frontend**: React 18 + Vite running on port 5000 (proxies /api to backend)
-- **Database**: SQLite stored at `backend/data/pipeline.db`
-- **Image storage**: Local at `backend/storage/images/`
+- **Database**: SQLite stored at `backend/data/pipeline.db` for local staging; Supabase is used for live publishing
+- **Image storage**: Local at `backend/storage/images/`; ImageKit is used for live publishing
 
 ## Project Structure
 
@@ -21,7 +21,7 @@ property-pipeline/
 │   ├── data/               # SQLite database (pipeline.db)
 │   ├── database/           # SQLAlchemy models and DB config (db.py, models.py)
 │   ├── routers/            # API endpoints (health, scraper, properties, images, publisher)
-│   ├── services/           # Business logic (scraping, image handling)
+│   ├── services/           # Business logic (scraping, image handling, watermark filtering, publishing)
 │   ├── storage/images/     # Local property photo storage
 │   └── main.py             # FastAPI entry point
 ├── frontend/
@@ -65,6 +65,12 @@ The workflow runs `bash start.sh` which:
 - TanStack Query (React Query)
 - Axios
 
+## Publishing and Filtering
+
+- Stage 7 publishing sends approved listings to Supabase and ImageKit when the required environment variables are configured.
+- Watermarked listings are blocked before display/save by `backend/services/watermark_filter.py`.
+- Current blocked watermark brand terms are stored in `WATERMARKED_BRAND_TERMS`; add new brand text there to expand the denylist.
+
 ## Development Status
 
-Stages 1-6 complete. Stage 7 (Publisher to Supabase/ImageKit) requires external credentials to be set in `.env`.
+Stages 1-7 are implemented. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.

@@ -149,6 +149,7 @@ export default function Scraper() {
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState(null)
   const [searchResults, setSearchResults] = useState(null)
+  const [blockedWatermarkCount, setBlockedWatermarkCount] = useState(0)
 
   const [selectedResult, setSelectedResult] = useState(null)
   const [savedIds, setSavedIds] = useState(new Set())
@@ -248,6 +249,7 @@ export default function Scraper() {
   function handleReset() {
     setForm(defaultForm)
     setSearchResults(null)
+    setBlockedWatermarkCount(0)
     setSearchError(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
@@ -296,6 +298,7 @@ export default function Scraper() {
     e.preventDefault()
     setSearchError(null)
     setSearchResults(null)
+    setBlockedWatermarkCount(0)
     setSavedIds(new Set())
     setSavingIds(new Set())
     setSaveAllProgress(null)
@@ -305,6 +308,7 @@ export default function Scraper() {
     try {
       const res = await searchProperties(buildPayload())
       setSearchResults(res.data.results)
+      setBlockedWatermarkCount(res.data.blocked_watermark_count || 0)
       setShowForm(false)
     } catch (err) {
       setSearchError(err.response?.data?.detail || err.message || 'Search failed.')
@@ -371,7 +375,7 @@ export default function Scraper() {
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-gray-900 mb-1">Search Properties</h1>
         <p className="text-gray-500 text-sm">
-          Search for listings, preview them in full, then choose which ones to save to your library.
+          Search for listings, preview them in full, then choose which ones to save to your library. Watermarked listings are automatically blocked.
         </p>
       </div>
 
@@ -586,6 +590,12 @@ export default function Scraper() {
       {/* Results section */}
       {searchResults !== null && (
         <div>
+          {blockedWatermarkCount > 0 && (
+            <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
+              {blockedWatermarkCount} watermarked {blockedWatermarkCount === 1 ? 'property was' : 'properties were'} blocked and hidden from these results.
+            </div>
+          )}
+
           {/* Results header */}
           <div className="flex items-center justify-between mb-3">
             <div>

@@ -11,6 +11,7 @@ from database.db import get_db
 from database.models import Property
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
+from services.watermark_filter import filter_watermarked, watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -106,8 +107,10 @@ def search_properties(req: SearchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
+    filtered_results, blocked_results = filter_watermarked(results)
+
     enriched = []
-    for r in results:
+    for r in filtered_results:
         r["temp_key"] = r.get("source_listing_id") or str(uuid.uuid4())
         r["listing_type"] = req.listing_type
         r["list_date"] = r.pop("_list_date", None)
@@ -118,7 +121,12 @@ def search_properties(req: SearchRequest):
             r["image_urls"] = []
         enriched.append(r)
 
-    return {"count": len(enriched), "results": enriched}
+    return {
+        "count": len(enriched),
+        "results": enriched,
+        "blocked_watermark_count": len(blocked_results),
+        "blocked_watermarks": blocked_results,
+    }
 
 
 @router.post("/save-property")
@@ -127,6 +135,13 @@ def save_property(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+    reasons = watermark_reasons(data)
+    if reasons:
+        raise HTTPException(
+            status_code=400,
+            detail="Property blocked because it appears to contain watermarked images: " + "; ".join(reasons)
+        )
+
     source_listing_id = data.get("source_listing_id")
 
     if source_listing_id:

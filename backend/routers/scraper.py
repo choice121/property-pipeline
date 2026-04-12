@@ -10,6 +10,7 @@ from database.db import get_db
 from database.models import Property
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
+from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -111,6 +112,15 @@ def scrape_properties(
 
     saved = []
     for data in results:
+        reasons = watermark_reasons(data)
+        if reasons:
+            logger.info(
+                "Skipping watermarked property %s: %s",
+                data.get("source_listing_id") or data.get("address"),
+                "; ".join(reasons),
+            )
+            continue
+
         source_listing_id = data.get("source_listing_id")
 
         existing = None
