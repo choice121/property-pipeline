@@ -8,6 +8,27 @@ WATERMARKED_BRAND_TERMS = (
     "first key",
     "firstkey homes",
     "first key homes",
+    "era real",
+    "era realty",
+    "coldwell banker",
+    "century 21",
+    "keller williams",
+    "re/max",
+    "remax",
+    "berkshire hathaway",
+    "sotheby",
+    "compass realty",
+    "exp realty",
+    "better homes",
+    "howard hanna",
+    "long & foster",
+    "weichert",
+    "exit realty",
+    "homes for heroes",
+    "invitation homes",
+    "progress residential",
+    "tricon",
+    "american homes 4 rent",
 )
 
 WATERMARK_FIELD_HINTS = (
@@ -19,6 +40,26 @@ WATERMARK_FIELD_HINTS = (
     "advertiser",
     "provider",
     "source",
+    "agent",
+    "office",
+    "realty",
+    "realtor",
+    "listed_by",
+    "listing_agent",
+    "branding",
+)
+
+BROKER_FIELDS = (
+    "advertiser",
+    "brokers",
+    "agents",
+    "offices",
+    "branding",
+    "builder",
+    "listing_agent",
+    "office_name",
+    "agent_name",
+    "broker_name",
 )
 
 
@@ -50,6 +91,47 @@ def _loads_json(value: Any) -> Any:
         return value
 
 
+def _check_original_data(data: dict) -> list[str]:
+    """Scan original_data JSON for broker/agent brand names in known fields."""
+    reasons = []
+    raw = data.get("original_data")
+    if not raw:
+        return reasons
+    try:
+        original = json.loads(raw) if isinstance(raw, str) else raw
+    except Exception:
+        return reasons
+
+    def extract_text_from(obj, depth=0):
+        if depth > 6 or obj is None:
+            return []
+        texts = []
+        if isinstance(obj, str):
+            texts.append(obj.lower())
+        elif isinstance(obj, dict):
+            for k, v in obj.items():
+                if any(f in k.lower() for f in BROKER_FIELDS):
+                    texts.extend(extract_text_from(v, depth + 1))
+                else:
+                    texts.extend(extract_text_from(v, depth + 1))
+        elif isinstance(obj, list):
+            for item in obj:
+                texts.extend(extract_text_from(item, depth + 1))
+        return texts
+
+    all_text = " ".join(extract_text_from(original))
+    for brand in WATERMARKED_BRAND_TERMS:
+        normalized = _normalize(brand)
+        compact = normalized.replace(" ", "")
+        norm_text = _normalize(all_text)
+        if normalized in norm_text or compact in norm_text.replace(" ", ""):
+            reason = f"blocked watermark brand in listing data: {brand}"
+            if reason not in reasons:
+                reasons.append(reason)
+
+    return reasons
+
+
 def watermark_reasons(data: dict) -> list[str]:
     reasons = []
     searchable_values = []
@@ -74,7 +156,17 @@ def watermark_reasons(data: dict) -> list[str]:
                     if reason not in reasons:
                         reasons.append(reason)
 
-    return reasons
+    reasons.extend(_check_original_data(data))
+
+    deduped = []
+    seen_brands = set()
+    for r in reasons:
+        brand_key = r.split(":")[-1].strip()
+        if brand_key not in seen_brands:
+            seen_brands.add(brand_key)
+            deduped.append(r)
+
+    return deduped
 
 
 def is_watermarked(data: dict) -> bool:
