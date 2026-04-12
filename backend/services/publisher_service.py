@@ -65,11 +65,17 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     def parse_json(val):
         if not val:
             return []
+        if isinstance(val, list):
+            return val
         try:
             parsed = json.loads(val)
-            return parsed if isinstance(parsed, list) else []
+            if isinstance(parsed, list):
+                return parsed
         except Exception:
-            return []
+            pass
+        if isinstance(val, str):
+            return [item.strip() for item in val.split(",") if item.strip()]
+        return []
 
     landlord_id = os.environ.get("CHOICE_LANDLORD_ID") or None
 
@@ -96,6 +102,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "status": "active",
         "title": _generate_title(prop),
         "description": prop.description,
+        "showing_instructions": prop.showing_instructions,
         "address": prop.address,
         "city": prop.city,
         "state": prop.state,
@@ -105,19 +112,33 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "lng": prop.lng,
         "property_type": prop.property_type,
         "year_built": prop.year_built,
+        "floors": prop.floors,
+        "unit_number": prop.unit_number,
+        "total_units": prop.total_units,
         "bedrooms": prop.bedrooms,
         "bathrooms": prop.bathrooms,
         "half_bathrooms": prop.half_bathrooms,
         "square_footage": prop.square_footage,
         "lot_size_sqft": prop.lot_size_sqft,
+        "garage_spaces": prop.garage_spaces,
         "monthly_rent": prop.monthly_rent,
+        "security_deposit": prop.security_deposit,
+        "last_months_rent": prop.last_months_rent,
+        "application_fee": prop.application_fee,
+        "pet_deposit": prop.pet_deposit,
+        "admin_fee": prop.admin_fee,
+        "move_in_special": prop.move_in_special,
         "available_date": prop.available_date,
         "lease_terms": parse_json(prop.lease_terms),
+        "minimum_lease_months": prop.minimum_lease_months,
         "pets_allowed": prop.pets_allowed,
+        "pet_types_allowed": parse_json(prop.pet_types_allowed),
+        "pet_weight_limit": prop.pet_weight_limit,
         "pet_details": prop.pet_details,
         "smoking_allowed": prop.smoking_allowed,
         "utilities_included": parse_json(prop.utilities_included),
         "parking": prop.parking,
+        "parking_fee": prop.parking_fee,
         "amenities": parse_json(prop.amenities),
         "appliances": parse_json(prop.appliances),
         "flooring": parse_json(prop.flooring),

@@ -2,9 +2,20 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { publishProperty } from '../api/client'
 
+function parseArray(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 export default function PublishButton({ property, onPublished }) {
   const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
+  const missingFields = parseArray(property.missing_fields)
+  const qualityScore = property.data_quality_score
 
   const publishMutation = useMutation({
     mutationFn: () => publishProperty(property.id).then((r) => r.data),
@@ -55,6 +66,12 @@ export default function PublishButton({ property, onPublished }) {
         <p className="text-sm font-medium text-amber-800">
           This will upload all images and push the listing live to Choice Properties immediately. Continue?
         </p>
+        {(qualityScore != null || missingFields.length > 0) && (
+          <div className="text-xs text-amber-700 bg-white/70 border border-amber-100 rounded-md px-3 py-2">
+            {qualityScore != null && <p className="font-medium">Completeness: {qualityScore}%</p>}
+            {missingFields.length > 0 && <p className="mt-1">Still missing: {missingFields.slice(0, 8).join(', ')}{missingFields.length > 8 ? '…' : ''}</p>}
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             onClick={() => publishMutation.mutate()}

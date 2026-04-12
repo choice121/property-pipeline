@@ -70,7 +70,9 @@ The workflow runs `bash start.sh` which:
 - Stage 7 publishing sends approved listings to Supabase and ImageKit when the required environment variables are configured.
 - Watermarked listings are blocked before display/save by `backend/services/watermark_filter.py`.
 - Current blocked watermark brand terms are stored in `WATERMARKED_BRAND_TERMS`; add new brand text there to expand the denylist.
+- The pipeline now preserves a richer property profile for publishing, including move-in costs, garage spaces, pet restrictions, lease terms, appliances, utilities, flooring, heating/cooling/laundry, basement/central-air flags, inferred features, and a completeness score.
+- `backend/database/db.py` performs additive SQLite column migrations during startup so older local pipeline databases keep working as the property model expands.
 
 ## Development Status
 
-Stages 1-7 are implemented. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.
+Stages 1-7 are implemented, with ongoing property data completeness upgrades. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.

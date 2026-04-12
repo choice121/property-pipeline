@@ -1,4 +1,5 @@
 import json
+import re
 import uuid
 from datetime import datetime
 from typing import List, Optional
@@ -118,11 +119,207 @@ def normalize_row(row: dict) -> dict:
             except Exception:
                 continue
 
+    def first_value(*keys):
+        for key in keys:
+            val = get(key)
+            if val not in (None, "", [], {}):
+                return val
+        return None
+
+    def to_int(value):
+        value = safe_val(value)
+        if value in (None, ""):
+            return None
+        try:
+            if isinstance(value, str):
+                cleaned = re.sub(r"[^0-9.-]", "", value)
+                if not cleaned:
+                    return None
+                return int(float(cleaned))
+            return int(float(value))
+        except Exception:
+            return None
+
+    def to_float(value):
+        value = safe_val(value)
+        if value in (None, ""):
+            return None
+        try:
+            if isinstance(value, str):
+                cleaned = re.sub(r"[^0-9.-]", "", value)
+                if not cleaned:
+                    return None
+                return float(cleaned)
+            return float(value)
+        except Exception:
+            return None
+
+    def as_text(value):
+        if value is None:
+            return ""
+        if isinstance(value, (list, tuple, set)):
+            return " ".join(as_text(v) for v in value)
+        if isinstance(value, dict):
+            return " ".join(as_text(v) for v in value.values())
+        return str(value)
+
+    searchable_parts = [
+        as_text(first_value("text", "description", "property_description", "remarks")),
+        as_text(first_value("amenities", "features", "tags", "property_details", "details")),
+        as_text(first_value("appliances", "utilities", "parking", "heating", "cooling", "laundry")),
+    ]
+    searchable = " ".join(part for part in searchable_parts if part).lower()
+
+    def extract_terms(candidates):
+        found = []
+        for label, patterns in candidates:
+            if any(pattern in searchable for pattern in patterns):
+                found.append(label)
+        return found
+
+    appliances = extract_terms([
+        ("Refrigerator", ["refrigerator", "fridge"]),
+        ("Range/Oven", ["range", "oven", "stove"]),
+        ("Dishwasher", ["dishwasher"]),
+        ("Microwave", ["microwave"]),
+        ("Washer", ["washer"]),
+        ("Dryer", ["dryer"]),
+        ("Garbage Disposal", ["garbage disposal", "disposal"]),
+    ])
+
+    amenities = extract_terms([
+        ("Basement", ["basement", "finished basement", "lower level"]),
+        ("Central Air", ["central air", "central a/c", "central ac", "central cooling"]),
+        ("Garage", ["garage", "attached garage", "detached garage"]),
+        ("Fenced Yard", ["fenced yard", "fenced backyard"]),
+        ("Patio", ["patio"]),
+        ("Deck", ["deck"]),
+        ("Fireplace", ["fireplace"]),
+        ("Walk-in Closet", ["walk-in closet", "walk in closet"]),
+        ("Hardwood Floors", ["hardwood floor", "hardwood floors"]),
+    ])
+
+    utilities_included = extract_terms([
+        ("Water", ["water included"]),
+        ("Sewer", ["sewer included"]),
+        ("Trash", ["trash included", "garbage included"]),
+        ("Gas", ["gas included"]),
+        ("Electric", ["electric included", "electricity included"]),
+        ("Internet", ["internet included", "wifi included", "wi-fi included"]),
+    ])
+
+    flooring = extract_terms([
+        ("Hardwood", ["hardwood"]),
+        ("Carpet", ["carpet"]),
+        ("Tile", ["tile"]),
+        ("Vinyl", ["vinyl"]),
+        ("Laminate", ["laminate"]),
+    ])
+
+    lease_terms = []
+    lease_text = as_text(first_value("lease_terms", "lease_term", "terms"))
+    if lease_text:
+        lease_terms.append(lease_text)
+    month_match = re.search(r"(\d{1,2})\s*[- ]?month", searchable)
+    minimum_lease_months = to_int(first_value("minimum_lease_months", "min_lease_months", "lease_months"))
+    if month_match and not minimum_lease_months:
+        minimum_lease_months = int(month_match.group(1))
+    if month_match and not lease_terms:
+        lease_terms.append(f"{month_match.group(1)} months")
+
+    garage_spaces = to_int(first_value("parking_garage", "garage_spaces", "garage_space", "garage"))
+    if garage_spaces and not parking:
+        parking = f"{garage_spaces} garage space{'s' if garage_spaces != 1 else ''}"
+
+    full_baths = to_float(first_value("full_baths", "baths_full", "bathrooms_full"))
+    half_baths = to_int(first_value("half_baths", "baths_half", "bathrooms_half"))
+    source_baths = to_float(first_value("baths", "bathrooms"))
+    if full_baths is None and source_baths is not None:
+        full_baths = int(source_baths)
+    total_bathrooms = source_baths if source_baths is not None else ((full_baths or 0) + ((half_baths or 0) * 0.5))
+    if total_bathrooms == 0:
+        total_bathrooms = None
+
+    pet_types_allowed = []
+    if dogs:
+        pet_types_allowed.append("Dogs")
+    if cats:
+        pet_types_allowed.append("Cats")
+    if not pet_types_allowed:
+        if "dogs allowed" in searchable or "dog friendly" in searchable:
+            pet_types_allowed.append("Dogs")
+        if "cats allowed" in searchable or "cat friendly" in searchable:
+            pet_types_allowed.append("Cats")
+    if "no pets" in searchable or "pets not allowed" in searchable:
+        pets_allowed = False
+        pet_types_allowed = []
+    elif pet_types_allowed:
+        pets_allowed = True
+
+    smoking_allowed = None
+    if "no smoking" in searchable or "smoke-free" in searchable or "smoke free" in searchable:
+        smoking_allowed = False
+    elif "smoking allowed" in searchable:
+        smoking_allowed = True
+
+    has_basement = any(term in searchable for term in ["basement", "finished basement", "lower level"])
+    has_central_air = any(term in searchable for term in ["central air", "central a/c", "central ac", "central cooling"])
+    cooling_type = first_value("cooling", "cooling_type", "cooling_system")
+    if not cooling_type and has_central_air:
+        cooling_type = "Central Air"
+    heating_type = first_value("heating", "heating_type", "heating_system")
+    laundry_type = first_value("laundry", "laundry_type")
+    if not laundry_type:
+        if "in-unit laundry" in searchable or "in unit laundry" in searchable or "washer dryer" in searchable or "washer/dryer" in searchable:
+            laundry_type = "In-unit"
+        elif "laundry hookups" in searchable or "washer dryer hookup" in searchable:
+            laundry_type = "Hookups"
+        elif "shared laundry" in searchable or "laundry room" in searchable:
+            laundry_type = "Shared"
+
+    inferred_features = []
+    for label, value in [
+        ("Basement", has_basement),
+        ("Central Air", has_central_air),
+        ("Garage Spaces", garage_spaces),
+        ("Appliances", appliances),
+        ("Utilities Included", utilities_included),
+        ("Flooring", flooring),
+        ("Laundry Type", laundry_type),
+    ]:
+        if value:
+            inferred_features.append(label)
+
+    missing_fields = []
+    quality_fields = {
+        "address": get("street"),
+        "city": get("city"),
+        "state": get("state"),
+        "zip": get("zip_code"),
+        "monthly_rent": first_value("list_price", "list_price_min"),
+        "bedrooms": get("beds"),
+        "bathrooms": total_bathrooms,
+        "description": first_value("text", "description"),
+        "photos": image_urls,
+        "property_type": get("style"),
+        "available_date": available_date,
+        "parking": parking,
+        "heating_type": heating_type,
+        "cooling_type": cooling_type,
+        "laundry_type": laundry_type,
+        "pet_policy": pets_allowed,
+    }
+    for key, value in quality_fields.items():
+        if value in (None, "", [], {}):
+            missing_fields.append(key)
+    data_quality_score = round(((len(quality_fields) - len(missing_fields)) / len(quality_fields)) * 100)
+
     return {
         "source": "realtor",
         "source_url": get("property_url"),
         "source_listing_id": str(get("mls_id")) if get("mls_id") is not None else str(get("listing_id")) if get("listing_id") is not None else None,
         "status": "scraped",
+        "title": first_value("title", "property_name"),
         "address": get("street"),
         "city": get("city"),
         "state": get("state"),
@@ -131,22 +328,52 @@ def normalize_row(row: dict) -> dict:
         "lat": get("latitude"),
         "lng": get("longitude"),
         "bedrooms": int(get("beds")) if get("beds") is not None else None,
-        "bathrooms": float(get("full_baths")) if get("full_baths") is not None else None,
-        "half_bathrooms": int(get("half_baths")) if get("half_baths") is not None else None,
+        "bathrooms": full_baths,
+        "half_bathrooms": half_baths,
+        "total_bathrooms": total_bathrooms,
         "square_footage": int(get("sqft")) if get("sqft") is not None else None,
         "lot_size_sqft": int(get("lot_sqft")) if get("lot_sqft") is not None else None,
         "monthly_rent": int(get("list_price")) if get("list_price") is not None else (int(get("list_price_min")) if get("list_price_min") is not None else None),
         "property_type": get("style"),
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
+        "floors": to_int(first_value("floors", "stories")),
+        "unit_number": first_value("unit", "unit_number"),
+        "total_units": to_int(first_value("total_units", "units")),
         "description": get("text"),
         "available_date": available_date,
-        "virtual_tour_url": None,
+        "virtual_tour_url": first_value("virtual_tour_url", "virtual_tour", "matterport_url"),
         "pets_allowed": pets_allowed,
+        "pet_types_allowed": json.dumps(pet_types_allowed),
+        "pet_weight_limit": to_int(first_value("pet_weight_limit", "pets_weight_limit")),
+        "pet_details": first_value("pet_details", "pet_policy"),
+        "smoking_allowed": smoking_allowed,
         "parking": parking,
+        "garage_spaces": garage_spaces,
+        "security_deposit": to_int(first_value("security_deposit", "deposit")),
+        "last_months_rent": to_int(first_value("last_months_rent", "last_month_rent")),
+        "application_fee": to_int(first_value("application_fee", "app_fee")),
+        "pet_deposit": to_int(first_value("pet_deposit")),
+        "admin_fee": to_int(first_value("admin_fee", "move_in_fee")),
+        "move_in_special": first_value("move_in_special", "specials"),
+        "lease_terms": json.dumps(lease_terms),
+        "minimum_lease_months": minimum_lease_months,
+        "parking_fee": to_int(first_value("parking_fee")),
+        "amenities": json.dumps(amenities),
+        "appliances": json.dumps(appliances),
+        "utilities_included": json.dumps(utilities_included),
+        "flooring": json.dumps(flooring),
+        "heating_type": heating_type,
+        "cooling_type": cooling_type,
+        "laundry_type": laundry_type,
+        "has_basement": has_basement,
+        "has_central_air": has_central_air,
         "original_image_urls": json.dumps(image_urls),
         "local_image_paths": "[]",
         "original_data": json.dumps(row_serializable),
         "edited_fields": "[]",
+        "data_quality_score": data_quality_score,
+        "missing_fields": json.dumps(missing_fields),
+        "inferred_features": json.dumps(inferred_features),
         "scraped_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
         "_list_date": list_date,

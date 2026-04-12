@@ -10,11 +10,21 @@ const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
   address: 'Address', city: 'City', state: 'State', zip: 'Zip', county: 'County',
   bedrooms: 'Bedrooms', bathrooms: 'Bathrooms', half_bathrooms: 'Half Baths',
-  square_footage: 'Square Footage', lot_size_sqft: 'Lot Size (sqft)', year_built: 'Year Built',
-  monthly_rent: 'Monthly Rent', parking: 'Parking',
+  total_bathrooms: 'Total Bathrooms', square_footage: 'Square Footage', lot_size_sqft: 'Lot Size (sqft)', year_built: 'Year Built',
+  floors: 'Floors', unit_number: 'Unit Number', total_units: 'Total Units',
+  monthly_rent: 'Monthly Rent', security_deposit: 'Security Deposit', last_months_rent: "Last Month's Rent",
+  application_fee: 'Application Fee', pet_deposit: 'Pet Deposit', admin_fee: 'Admin / Move-in Fee', parking_fee: 'Parking Fee',
+  parking: 'Parking', garage_spaces: 'Garage Spaces',
   pets_allowed: 'Pets Allowed', pet_details: 'Pet Details',
   smoking_allowed: 'Smoking Allowed', description: 'Description',
   virtual_tour_url: 'Virtual Tour URL', amenities: 'Amenities',
+  available_date: 'Available Date', lease_terms: 'Lease Terms',
+  minimum_lease_months: 'Minimum Lease Months', pet_types_allowed: 'Pet Types Allowed',
+  pet_weight_limit: 'Pet Weight Limit', utilities_included: 'Utilities Included',
+  appliances: 'Appliances', flooring: 'Flooring', heating_type: 'Heating Type',
+  cooling_type: 'Cooling Type', laundry_type: 'Laundry Type',
+  has_basement: 'Basement', has_central_air: 'Central Air',
+  showing_instructions: 'Showing Instructions', move_in_special: 'Move-in Special',
 }
 
 function Field({ label, children }) {
@@ -27,6 +37,28 @@ function Field({ label, children }) {
 }
 
 const inputCls = 'w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400'
+
+function arrayToInput(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return Array.isArray(parsed) ? parsed.join(', ') : (value || '')
+  } catch {
+    return value || ''
+  }
+}
+
+function inputToArrayJson(value) {
+  return JSON.stringify(value.split(',').map((s) => s.trim()).filter(Boolean))
+}
+
+function parseArray(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
 
 export default function Editor() {
   const { id } = useParams()
@@ -162,6 +194,9 @@ export default function Editor() {
     try { return JSON.parse(form.local_image_paths || '[]') } catch { return [] }
   })()
 
+  const missingFields = parseArray(form.missing_fields)
+  const inferredFeatures = parseArray(form.inferred_features)
+
   return (
     <div className="max-w-3xl">
       <div className="flex items-center justify-between mb-4">
@@ -181,6 +216,43 @@ export default function Editor() {
         <div className="mb-4 text-xs text-blue-600 bg-blue-50 px-3 py-2 rounded">
           {editedFields.length} field{editedFields.length !== 1 ? 's' : ''} edited from original
         </div>
+      )}
+
+      {(form.data_quality_score != null || missingFields.length > 0 || inferredFeatures.length > 0) && (
+        <section className="mb-4 bg-white rounded-lg border border-gray-200 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">Listing Completeness</h2>
+              <p className="text-xs text-gray-500 mt-1">Use this to decide what should be reviewed before publishing.</p>
+            </div>
+            {form.data_quality_score != null && (
+              <div className="text-right">
+                <p className="text-2xl font-bold text-gray-900">{form.data_quality_score}%</p>
+                <p className="text-xs text-gray-500">complete</p>
+              </div>
+            )}
+          </div>
+          {missingFields.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-amber-700 mb-2">Missing or unknown</p>
+              <div className="flex flex-wrap gap-2">
+                {missingFields.map((field) => (
+                  <span key={field} className="text-xs bg-amber-50 text-amber-700 border border-amber-200 rounded-full px-2.5 py-1">{FIELD_LABELS[field] || field}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {inferredFeatures.length > 0 && (
+            <div className="mt-4">
+              <p className="text-xs font-medium text-blue-700 mb-2">Inferred from scraped text</p>
+              <div className="flex flex-wrap gap-2">
+                {inferredFeatures.map((field) => (
+                  <span key={field} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-full px-2.5 py-1">{field}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
       )}
 
       <div className="space-y-6">
@@ -223,9 +295,9 @@ export default function Editor() {
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Details</h2>
           <div className="grid grid-cols-3 gap-4">
-            {['bedrooms', 'bathrooms', 'half_bathrooms', 'square_footage', 'lot_size_sqft', 'year_built'].map((key) => (
+            {['bedrooms', 'bathrooms', 'half_bathrooms', 'total_bathrooms', 'square_footage', 'lot_size_sqft', 'year_built', 'floors', 'unit_number', 'total_units'].map((key) => (
               <Field key={key} label={FIELD_LABELS[key] || key}>
-                <input type="number" className={inputCls} value={form[key] ?? ''} onChange={(e) => set(key, e.target.value)} />
+                <input type={key === 'unit_number' ? 'text' : 'number'} className={inputCls} value={form[key] ?? ''} onChange={(e) => set(key, e.target.value)} />
                 {showOriginal && <p className="text-xs text-gray-400 mt-0.5">Original: {originalData[key] ?? '—'}</p>}
               </Field>
             ))}
@@ -235,8 +307,31 @@ export default function Editor() {
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Pricing</h2>
           <div className="grid grid-cols-2 gap-4">
-            <Field label="Monthly Rent">
-              <input type="number" className={inputCls} value={form.monthly_rent ?? ''} onChange={(e) => set('monthly_rent', e.target.value)} />
+            {['monthly_rent', 'security_deposit', 'last_months_rent', 'application_fee', 'admin_fee', 'pet_deposit', 'parking_fee'].map((key) => (
+              <Field key={key} label={FIELD_LABELS[key] || key}>
+                <input type="number" className={inputCls} value={form[key] ?? ''} onChange={(e) => set(key, e.target.value)} />
+              </Field>
+            ))}
+            <Field label="Move-in Special">
+              <input className={inputCls} value={form.move_in_special || ''} onChange={(e) => set('move_in_special', e.target.value)} />
+            </Field>
+          </div>
+        </section>
+
+        <section className="bg-white rounded-lg border border-gray-200 p-5">
+          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Availability & Lease</h2>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Available Date">
+              <input type="date" className={inputCls} value={(form.available_date || '').slice(0, 10)} onChange={(e) => set('available_date', e.target.value)} />
+            </Field>
+            <Field label="Minimum Lease Months">
+              <input type="number" className={inputCls} value={form.minimum_lease_months ?? ''} onChange={(e) => set('minimum_lease_months', e.target.value)} />
+            </Field>
+            <Field label="Lease Terms (comma-separated)">
+              <input className={inputCls} value={arrayToInput(form.lease_terms)} onChange={(e) => set('lease_terms', inputToArrayJson(e.target.value))} />
+            </Field>
+            <Field label="Showing Instructions">
+              <input className={inputCls} value={form.showing_instructions || ''} onChange={(e) => set('showing_instructions', e.target.value)} />
             </Field>
           </div>
         </section>
@@ -247,8 +342,17 @@ export default function Editor() {
             <Field label="Parking">
               <input className={inputCls} value={form.parking || ''} onChange={(e) => set('parking', e.target.value)} />
             </Field>
+            <Field label="Garage Spaces">
+              <input type="number" className={inputCls} value={form.garage_spaces ?? ''} onChange={(e) => set('garage_spaces', e.target.value)} />
+            </Field>
             <Field label="Pet Details">
               <input className={inputCls} value={form.pet_details || ''} onChange={(e) => set('pet_details', e.target.value)} />
+            </Field>
+            <Field label="Pet Types Allowed (comma-separated)">
+              <input className={inputCls} value={arrayToInput(form.pet_types_allowed)} onChange={(e) => set('pet_types_allowed', inputToArrayJson(e.target.value))} />
+            </Field>
+            <Field label="Pet Weight Limit">
+              <input type="number" className={inputCls} value={form.pet_weight_limit ?? ''} onChange={(e) => set('pet_weight_limit', e.target.value)} />
             </Field>
             <div className="flex items-center gap-2 mt-1">
               <input type="checkbox" id="pets" checked={!!form.pets_allowed} onChange={(e) => set('pets_allowed', e.target.checked)} />
@@ -257,6 +361,14 @@ export default function Editor() {
             <div className="flex items-center gap-2 mt-1">
               <input type="checkbox" id="smoking" checked={!!form.smoking_allowed} onChange={(e) => set('smoking_allowed', e.target.checked)} />
               <label htmlFor="smoking" className="text-sm text-gray-700">Smoking Allowed</label>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <input type="checkbox" id="basement" checked={!!form.has_basement} onChange={(e) => set('has_basement', e.target.checked)} />
+              <label htmlFor="basement" className="text-sm text-gray-700">Basement</label>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              <input type="checkbox" id="central-air" checked={!!form.has_central_air} onChange={(e) => set('has_central_air', e.target.checked)} />
+              <label htmlFor="central-air" className="text-sm text-gray-700">Central Air</label>
             </div>
           </div>
         </section>
@@ -279,14 +391,19 @@ export default function Editor() {
         </section>
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">
-          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Amenities</h2>
-          <Field label="Amenities (comma-separated)">
-            <input
-              className={inputCls}
-              value={(() => { try { return JSON.parse(form.amenities || '[]').join(', ') } catch { return form.amenities || '' } })()}
-              onChange={(e) => set('amenities', JSON.stringify(e.target.value.split(',').map((s) => s.trim()).filter(Boolean)))}
-            />
-          </Field>
+          <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Features</h2>
+          <div className="grid grid-cols-2 gap-4">
+            {['heating_type', 'cooling_type', 'laundry_type'].map((key) => (
+              <Field key={key} label={FIELD_LABELS[key] || key}>
+                <input className={inputCls} value={form[key] || ''} onChange={(e) => set(key, e.target.value)} />
+              </Field>
+            ))}
+            {['amenities', 'appliances', 'utilities_included', 'flooring'].map((key) => (
+              <Field key={key} label={`${FIELD_LABELS[key] || key} (comma-separated)`}>
+                <input className={inputCls} value={arrayToInput(form[key])} onChange={(e) => set(key, inputToArrayJson(e.target.value))} />
+              </Field>
+            ))}
+          </div>
         </section>
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">

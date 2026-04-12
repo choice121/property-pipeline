@@ -11,6 +11,15 @@ function formatLabel(str) {
   return str.replace(/_/g, ' ')
 }
 
+function parseArray(value) {
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value || '[]') : value
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
 function Stat({ label, value }) {
   if (value == null || value === '') return null
   return (
@@ -106,6 +115,19 @@ export default function PropertyPreviewModal({ result, isSaved, isSaving, isInLi
   }, [result])
 
   const addressLine = [result.address, result.city, result.state, result.zip].filter(Boolean).join(', ')
+  const amenities = parseArray(result.amenities)
+  const appliances = parseArray(result.appliances)
+  const utilities = parseArray(result.utilities_included)
+  const flooring = parseArray(result.flooring)
+  const featureChips = [
+    result.has_central_air ? 'Central Air' : null,
+    result.has_basement ? 'Basement' : null,
+    result.garage_spaces ? `${result.garage_spaces} Garage Space${Number(result.garage_spaces) === 1 ? '' : 's'}` : null,
+    result.heating_type ? `Heat: ${result.heating_type}` : null,
+    result.cooling_type ? `Cooling: ${result.cooling_type}` : null,
+    result.laundry_type ? `Laundry: ${result.laundry_type}` : null,
+    ...amenities,
+  ].filter(Boolean)
 
   return (
     <div
@@ -261,10 +283,50 @@ export default function PropertyPreviewModal({ result, isSaved, isSaving, isInLi
                     <p className="font-medium">{result.half_bathrooms}</p>
                   </div>
                 )}
+                {result.available_date && (
+                  <div>
+                    <p className="text-xs text-gray-500">Available</p>
+                    <p className="font-medium">{result.available_date}</p>
+                  </div>
+                )}
                 {result.county && (
                   <div>
                     <p className="text-xs text-gray-500">County</p>
                     <p className="font-medium">{result.county}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {featureChips.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Features</h3>
+                <div className="flex flex-wrap gap-2">
+                  {featureChips.map((feature) => (
+                    <span key={feature} className="text-xs bg-gray-100 text-gray-700 rounded-full px-2.5 py-1">{feature}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {(appliances.length > 0 || utilities.length > 0 || flooring.length > 0) && (
+              <div className="grid grid-cols-1 gap-3 text-sm">
+                {appliances.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-500">Appliances</p>
+                    <p className="font-medium">{appliances.join(', ')}</p>
+                  </div>
+                )}
+                {utilities.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-500">Utilities Included</p>
+                    <p className="font-medium">{utilities.join(', ')}</p>
+                  </div>
+                )}
+                {flooring.length > 0 && (
+                  <div>
+                    <p className="text-xs text-gray-500">Flooring</p>
+                    <p className="font-medium">{flooring.join(', ')}</p>
                   </div>
                 )}
               </div>
