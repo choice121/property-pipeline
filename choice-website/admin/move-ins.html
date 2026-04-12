@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8">
+  <meta name="theme-color" content="#006aff">
+  <link rel="manifest" href="/manifest.json"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Move-Ins — Choice Properties Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <script defer src="/config.js"></script><link rel="stylesheet" href="/css/main.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/main.css?v=1775137055043"></noscript>
+<link rel="stylesheet" href="/assets/fontawesome.css">
+  <link rel="stylesheet" href="/css/admin.css?v=1775137055043">
+  <link rel="stylesheet" href="/css/mobile.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/mobile.css?v=1775137055043"></noscript>
+<script defer src="/js/supabase.min.js"></script>
+<link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+</head><body>
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+<aside class="sidebar" id="adminSidebar"><div class="sidebar-logo"><div class="name">Choice Properties</div><div class="sub">Admin Portal</div></div>
+<nav><div class="nav-section">Overview</div><a class="nav-item" href="dashboard.html"><span class="icon">⊞</span> Dashboard</a>
+<div class="nav-section">Applications</div><a class="nav-item" href="applications.html"><span class="icon">📋</span> All Applications</a>
+<a class="nav-item" href="leases.html"><span class="icon">📄</span> Leases</a>
+<a class="nav-item active" href="move-ins.html"><span class="icon">🏠</span> Move-Ins</a>
+<a class="nav-item" href="messages.html"><span class="icon">💬</span> Messages</a>
+<div class="nav-section">Platform</div><a class="nav-item" href="landlords.html"><span class="icon">👤</span> Landlords</a>
+<a class="nav-item" href="listings.html"><span class="icon">🏢</span> Listings</a>
+<a class="nav-item" href="email-logs.html"><span class="icon">📧</span> Email Logs</a>
+    <a class="nav-item" href="audit-log.html"><span class="icon">🔍</span> Audit Log</a></nav>
+<div class="sidebar-footer"><a href="/index.html" target="_blank" style="display:block;font-size:12px;color:#8892a2;text-decoration:none;margin-bottom:8px;text-align:center"><i class="fas fa-external-link-alt" style="margin-right:4px"></i> View Live Site</a>
+    <div class="admin-name" id="admin-name">Loading…</div>
+    <button class="sign-out" onclick="CP.sb().auth.signOut().then(()=>location.href='login.html')">Sign Out</button></div></aside>
+<div class="main">
+    <div class="topbar">
+      <button class="mobile-menu-btn" id="menuBtn" aria-label="Open menu"><i class="fas fa-bars"></i></button>
+      <div><div class="page-title">Move-In Confirmations</div><div class="page-sub">Managed by the Choice Properties Application System</div></div>
+    </div>
+    <div class="content">
+      <div class="card" style="max-width:680px;margin:0 auto;text-align:center;padding:48px 40px;">
+        <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1d3f72,#2563eb);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 24px;box-shadow:0 8px 24px rgba(37,99,235,.3);">🏠</div>
+        <h2 style="font-size:1.4rem;font-weight:700;color:var(--text);margin:0 0 12px;">Move-In Management</h2>
+        <p style="color:var(--muted);font-size:.9rem;line-height:1.65;margin:0 0 32px;">Move-in confirmations and tracking are handled by the Choice Properties Application System. Open the admin panel to view signed leases and confirm move-ins.</p>
+        <a href="https://script.google.com/macros/s/AKfycbwqctrCLYOPaz1nZeMS5SXuqK7FRXbN5Bf0dSx3-3leyp_B7Bfr4HPC8YZaZ9wZVxtn/exec?path=admin" target="_blank" rel="noopener noreferrer"
+           style="display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:.95rem;box-shadow:0 4px 18px rgba(37,99,235,.35);">
+          <i class="fas fa-external-link-alt"></i> Open Application System Admin Panel
+        </a>
+        <p style="margin:24px 0 0;font-size:.78rem;color:var(--muted);padding:12px 16px;background:rgba(37,99,235,.06);border-radius:8px;border:1px solid rgba(37,99,235,.12);"><i class="fas fa-info-circle" style="color:#3b82f6;margin-right:6px;"></i>After a lease is signed in the application system, move-in confirmation is completed there as well. All records are stored in Google Sheets.</p>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/cp-api.js"></script>
+  <script nonce="kxjEbn-MjC8F1k5Nk6tB2g">
+  document.addEventListener('DOMContentLoaded', async () => {
+    const ok = await CP.Auth.requireAdmin();
+    if (!ok) return;
+    const user = await CP.Auth.getUser();
+    const adminName = document.getElementById('admin-name');
+    if (adminName) adminName.textContent = user?.email || 'Admin';
+  });
+  (function(){
+    var btn = document.getElementById('menuBtn');
+    var sidebar = document.getElementById('adminSidebar');
+    var overlay = document.getElementById('sidebarOverlay');
+    if(!btn) return;
+    function open(){ sidebar.classList.add('open'); overlay.classList.add('open'); }
+    function close(){ sidebar.classList.remove('open'); overlay.classList.remove('open'); }
+    btn.addEventListener('click', open);
+    overlay.addEventListener('click', close);
+  })();
+  </script>
+  </body></html>

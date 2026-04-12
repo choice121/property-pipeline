@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+  <html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#006aff">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>Rental Application Policy — Choice Properties</title>
+    <meta name="description" content="How rental applications work on Choice Properties — fees, decisions, and what happens after you apply.">
+    <meta property="og:title" content="Rental Application Policy — Choice Properties">
+    <meta property="og:description" content="How rental applications work on Choice Properties — fees, decisions, and what happens after you apply.">
+    <meta property="og:image" content="/assets/og-cover.jpg">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="stylesheet" href="/assets/fontawesome.css">
+    <link rel="stylesheet" href="/css/main.css?v=1775137055043">
+  <noscript><link rel="stylesheet" href="/css/main.css?v=1775137055043"></noscript>
+    <link rel="stylesheet" href="/css/mobile.css?v=1775137055043">
+  <noscript><link rel="stylesheet" href="/css/mobile.css?v=1775137055043"></noscript>
+    <style>
+      .info-hero { background: var(--color-dark-surface); padding: var(--space-16) 0 var(--space-12); margin-bottom: var(--space-12); position: relative; overflow: hidden; }
+      .info-hero::before { content:''; position:absolute; inset:0; background:radial-gradient(ellipse 80% 60% at 70% 50%, rgba(0,106,255,0.10) 0%, transparent 60%); }
+      .info-hero-inner { position:relative; z-index:1; }
+      .info-hero-title { font-size:clamp(2rem,5vw,3.2rem); font-weight:800; color:#fff; margin:0 0 var(--s-4); line-height:1.1; }
+      .info-hero-sub { color:rgba(255,255,255,0.65); font-size:1.05rem; margin:0; max-width:560px; }
+      .info-body { padding: var(--space-4) 0 var(--space-20); }
+      .info-doc { max-width:780px; margin:0 auto; }
+      .info-section { background:#fff; border:1px solid var(--color-border); border-radius:var(--radius-lg); padding:var(--space-8); margin-bottom:var(--space-6); }
+      .info-section h2 { font-size:1.2rem; font-weight:700; color:var(--color-dark); margin:0 0 var(--s-4); }
+      .info-section h3 { font-size:1rem; font-weight:700; color:var(--color-dark); margin:var(--s-6) 0 var(--s-3); }
+      .info-section p { color:var(--color-text-secondary); line-height:1.7; margin:0 0 var(--s-4); }
+      .info-section p:last-child { margin-bottom:0; }
+      .info-section ul, .info-section ol { color:var(--color-text-secondary); padding-left:1.4rem; line-height:1.7; margin:0 0 var(--s-4); }
+      .info-section li { margin-bottom:var(--s-2); }
+      .info-section table { width:100%; border-collapse:collapse; margin:var(--s-4) 0; font-size:0.92rem; }
+      .info-section th { background:var(--color-surface); font-weight:600; color:var(--color-dark); padding:10px 14px; text-align:left; border:1px solid var(--color-border); }
+      .info-section td { padding:10px 14px; border:1px solid var(--color-border); color:var(--color-text-secondary); vertical-align:top; }
+      .info-section a { color:var(--color-primary); }
+      .section-eyebrow { font-size:0.75rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--color-secondary); }
+      .effective-date { font-size:0.85rem; color:rgba(255,255,255,0.5); margin-top:var(--s-3); }
+    </style>
+  </head>
+  <body>
+  <div id="site-nav" data-server-injected="1"><div class="nav-drawer-overlay" id="drawerOverlay"></div>
+
+<!-- ── Mobile Drawer ── -->
+<nav class="nav-drawer" id="navDrawer">
+  <div class="nav-drawer-header">
+    <a href="/index.html" class="nav-logo">
+      <div class="nav-logo-emblem">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.9"/>
+          <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.8)"/>
+        </svg>
+      </div>
+      <div class="nav-logo-text-wrap">
+        <div class="nav-logo-name">Choice Properties</div>
+        <div class="nav-logo-tagline">Rental Marketplace</div>
+      </div>
+    </a>
+    <button class="nav-drawer-close" id="drawerClose" aria-label="Close menu">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+  <div class="nav-drawer-body">
+    <a href="/listings.html" class="nav-drawer-link" data-nav-path="/listings.html"><i class="fas fa-home"></i> Browse Listings</a>
+    <a href="/how-to-apply.html" class="nav-drawer-link" data-nav-path="/how-to-apply.html"><i class="fas fa-question-circle"></i> How to Apply</a>
+    <a href="/faq.html" class="nav-drawer-link" data-nav-path="/faq.html"><i class="fas fa-life-ring"></i> FAQ</a>
+    <a href="https://apply-choice-properties.pages.dev/?path=dashboard" target="_blank" rel="noopener noreferrer" class="nav-drawer-link"><i class="fas fa-file-alt"></i> Track My Application</a>    <a href="/landlord/register.html" class="nav-drawer-link" data-nav-path="/landlord/register.html"><i class="fas fa-user-tie"></i> Landlord Portal</a>
+    <a href="/admin/login.html" class="nav-drawer-link" data-nav-path="/admin/login.html"><i class="fas fa-user-shield"></i> Admin Portal</a>    <div class="nav-drawer-divider"></div>
+    <a href="/how-it-works.html" class="nav-drawer-link" id="drawerListPropertyLink" data-nav-path="/how-it-works.html"><i class="fas fa-building"></i> For Landlords</a>
+    <a href="/about.html" class="nav-drawer-link" data-nav-path="/about.html"><i class="fas fa-info-circle"></i> About Us</a>
+  </div>
+  <div class="nav-drawer-cta">
+    <a href="/landlord/login.html" class="btn btn-primary btn-full" id="drawerAuthLink">Landlord Login</a>
+  </div>
+  <div class="nav-drawer-footer"><a id="drawerFooterEmail" href="mailto:support@choiceproperties.com">support@choiceproperties.com</a></div>
+</nav>
+
+<!-- ── Main Navigation ── -->
+<nav class="nav" id="mainNav">
+  <div class="nav-inner">
+    <a href="/index.html" class="nav-logo">
+      <div class="nav-logo-emblem">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.9"/>
+          <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.8)"/>
+        </svg>
+      </div>
+      <div class="nav-logo-text-wrap">
+        <div class="nav-logo-name">Choice Properties</div>
+        <div class="nav-logo-tagline">Rental Marketplace</div>
+      </div>
+    </a>
+
+    <div class="nav-links">
+      <a href="/listings.html" class="nav-link" data-nav-path="/listings.html">Browse Listings</a>
+      <a href="/how-to-apply.html" class="nav-link" data-nav-path="/how-to-apply.html">How to Apply</a>
+      <a href="/faq.html" class="nav-link" data-nav-path="/faq.html">FAQ</a>
+      <a href="https://apply-choice-properties.pages.dev/?path=dashboard" target="_blank" rel="noopener noreferrer" class="nav-link nav-link--track">
+        <i class="fas fa-file-alt" style="font-size:11px"></i> Track Application
+      </a>
+      <a href="/landlord/register.html" class="nav-link nav-link--landlord" data-nav-path="/landlord/register.html">Landlord Portal</a>
+      <a href="/admin/login.html" class="nav-link nav-link--admin" data-nav-path="/admin/login.html">Admin Portal</a>
+    </div>
+
+    <button class="nav-mobile-toggle" id="mobileToggle" aria-label="Open menu" aria-expanded="false" aria-controls="navDrawer">
+      <i class="fas fa-bars"></i>
+    </button>
+  </div>
+</nav>
+</div>
+  <div class="info-hero">
+    <div class="container"><div class="info-hero-inner">
+      <div class="section-eyebrow" style="margin-bottom:var(--s-4)">Policy</div>
+      <h1 class="info-hero-title">Rental Application Policy</h1>
+      <p class="info-hero-sub">How applications work, what the fee covers, and what to expect after you apply.</p>
+      <p class="effective-date">Effective Date: April 8, 2026</p>
+    </div></div>
+  </div>
+  <div class="info-body">
+    <div class="container">
+      <div class="info-doc">
+  
+        <div class="info-section">
+          <h2>Overview</h2>
+          <p>This policy explains how rental applications work on Choice Properties — what the fee covers, how decisions are made, and what happens after you apply.</p>
+        </div>
+
+        <div class="info-section">
+          <h2>Application Fee</h2>
+          <p>Each property listing has an application fee set by the landlord or agent. The fee is displayed on the property listing and again on the application form before you pay. The fee amount varies by property.</p>
+          <p>The application fee:</p>
+          <ul>
+            <li>Is required to submit a complete application</li>
+            <li>Covers the cost of processing, reviewing, and administering your application</li>
+            <li>Is non-refundable once your application is submitted and payment is processed, except as described in the <a href="/application-credit-policy.html">Application Credit Policy</a></li>
+          </ul>
+        </div>
+
+        <div class="info-section">
+          <h2>Who Makes the Decision</h2>
+          <p>The landlord or agent managing the property makes all approval decisions. Choice Properties facilitates the process but does not influence or make leasing decisions. Submitting an application does not guarantee approval, reserve the property, or create any tenancy.</p>
+        </div>
+
+        <div class="info-section">
+          <h2>What Happens After You Apply</h2>
+          <p>Once your application is submitted:</p>
+          <ol>
+            <li>You receive an email confirmation with your Application ID</li>
+            <li>The landlord and Choice Properties staff review your application</li>
+            <li>Typical review time is 24 to 72 business hours</li>
+            <li>You will receive an email notification when your status changes</li>
+            <li>You can track your application status at any time using the "Track My Application" link</li>
+          </ol>
+        </div>
+
+        <div class="info-section">
+          <h2>Application Statuses — What They Mean</h2>
+          <table>
+            <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td>Received — Pending Review</td><td>Your application is in the queue for review</td></tr>
+              <tr><td>Under Review</td><td>Your application is actively being reviewed</td></tr>
+              <tr><td>Approved</td><td>Congratulations — proceed to lease and holding deposit</td></tr>
+              <tr><td>Not Selected</td><td>This application was not approved for this property</td></tr>
+              <tr><td>Waitlisted</td><td>You are being held as an alternate in case the primary applicant does not proceed</td></tr>
+              <tr><td>Withdrawn</td><td>You or the platform withdrew this application</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="info-section">
+          <h2>If You Are Not Selected</h2>
+          <p>If your application is denied, you will be notified by email. You may receive application credits as described in the <a href="/application-credit-policy.html">Application Credit Policy</a>, which can be applied toward the fee on a future application.</p>
+        </div>
+
+        <div class="info-section">
+          <h2>Co-Applicants</h2>
+          <p>One co-applicant may be included on a single application at no additional charge. The co-applicant must meet the same eligibility requirements (age 18+, truthful information). Both applicants agree to the same terms by submitting.</p>
+        </div>
+
+        <div class="info-section">
+          <h2>Income Qualification</h2>
+          <p>Applicants are generally expected to demonstrate a gross monthly income of at least three times (3×) the monthly rent. Combined household income (including a co-applicant) may be used. Income from employment, self-employment, government benefits, child support, and other documented sources may be considered. The landlord makes the final determination on income qualification.</p>
+        </div>
+
+        <div class="info-section">
+          <h2>Minimum Age</h2>
+          <p>All applicants must be 18 years of age or older. Applications from individuals under 18 will not be accepted.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="site-footer" data-server-injected="1"><footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-logo">
+            <div class="footer-logo-mark">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.92"/>
+                <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.9)"/>
+              </svg>
+            </div>
+            <div class="footer-logo-text">Choice Properties</div>
+          </div>
+          <p class="footer-desc">America's trusted rental marketplace. Connecting quality tenants with verified landlords across all 50 states.</p>
+          <a href="mailto:support@choiceproperties.com" class="footer-link" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:6px" data-cfg-email><i class="fas fa-envelope"></i> support@choiceproperties.com</a>
+          <div class="footer-link" style="display:inline-flex;align-items:center;gap:6px"><i class="fas fa-globe-americas"></i> Nationwide Rental Marketplace</div>
+        </div>
+        <div>
+          <div class="footer-col-title">Renters</div>
+          <a href="/listings.html" class="footer-link">Browse Listings</a>
+          <a href="/how-to-apply.html" class="footer-link">How to Apply</a>
+          <a href="/faq.html" class="footer-link">FAQ</a>
+          <a href="https://apply-choice-properties.pages.dev/?path=dashboard" class="footer-link" target="_blank" rel="noopener noreferrer">Track My Application</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Landlords</div>
+          <a href="/landlord/register.html" class="footer-link">List a Property</a>
+          <a href="/landlord/login.html" class="footer-link">Landlord Login</a>
+          <a href="/how-it-works.html" class="footer-link">How It Works</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Company</div>
+          <a href="/about.html" class="footer-link">About Us</a>
+          <a href="/privacy.html" class="footer-link">Privacy Policy</a>
+          <a href="/terms.html" class="footer-link">Terms of Service</a>
+          <a href="mailto:support@choiceproperties.com" class="footer-link" data-cfg-email>Contact</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Legal &amp; Policies</div>
+          <a href="/rental-application-policy.html" class="footer-link">Rental Application Policy</a>
+          <a href="/application-credit-policy.html" class="footer-link">Application Credit Policy</a>
+          <a href="/holding-deposit-policy.html" class="footer-link">Holding Deposit Policy</a>
+          <a href="/fair-housing.html" class="footer-link">Fair Housing Policy</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span class="footer-legal">&copy; 2026 Choice Properties. All rights reserved.</span>
+        <span class="footer-eq"><i class="fas fa-home" aria-hidden="true"></i> Equal Housing Opportunity</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms.html">Terms</a>
+          <a href="/fair-housing.html">Fair Housing</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+  </div>
+  <script defer src="/config.js"></script>
+  <script type="module" src="/js/cp-api.js"></script>
+  <script defer src="/js/components.js"></script>
+  </body>
+  </html>

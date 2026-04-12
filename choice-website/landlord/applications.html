@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="theme-color" content="#006aff">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Applications — Choice Properties</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <link rel="stylesheet" href="/assets/fontawesome.css">
+    <link rel="stylesheet" href="/css/main.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/main.css?v=1775137055043"></noscript>
+  <link rel="stylesheet" href="/css/landlord.css?v=1775137055043">
+  <link rel="stylesheet" href="/css/admin.css?v=1775137055043">
+  <link rel="stylesheet" href="/css/mobile.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/mobile.css?v=1775137055043"></noscript>
+  <script defer src="/config.js"></script>
+  <script defer src="/js/supabase.min.js"></script>
+  <script type="module" src="/js/cp-api.js"></script>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="nav-inner">
+    <a href="/index.html" class="nav-logo">
+      <div class="nav-logo-mark">C</div>
+      <div><div class="nav-logo-text">Choice Properties</div><div class="nav-logo-sub">Landlord Portal</div></div>
+    </a>
+    <div class="nav-links">
+      <a href="/index.html" class="nav-link">View Listings →</a>
+      <button class="btn btn-ghost btn-sm" id="signOutBtn"><i class="fas fa-sign-out-alt"></i> Sign Out</button>
+    </div>
+  </div>
+</nav>
+
+<div class="dashboard-layout">
+  <aside class="dashboard-sidebar">
+    <div class="sidebar-section-label">Menu</div>
+    <a href="/landlord/dashboard.html" class="sidebar-nav-item"><i class="fas fa-th-large"></i> Dashboard</a>
+    <a href="/landlord/new-listing.html" class="sidebar-nav-item"><i class="fas fa-plus-circle"></i> Add Listing</a>
+    <a href="/landlord/applications.html" class="sidebar-nav-item active"><i class="fas fa-file-alt"></i> Applications</a>
+    <a href="/landlord/inquiries.html" class="sidebar-nav-item"><i class="fas fa-envelope"></i> Inquiries</a>
+    <div class="sidebar-section-label" style="margin-top:var(--s-4)">Account</div>
+    <a href="/landlord/settings.html" class="sidebar-nav-item"><i class="fas fa-cog"></i> Settings</a>
+    <a href="#" class="sidebar-nav-item" id="viewProfileSide"><i class="fas fa-id-badge"></i> My Profile</a>
+    <a href="#" class="sidebar-nav-item" id="sideSignOut"><i class="fas fa-sign-out-alt"></i> Sign Out</a>
+    <div style="flex:1"></div>
+    <div class="sidebar-user">
+      <div class="sidebar-user-avatar" id="userAvatar">?</div>
+      <div>
+        <div class="sidebar-user-name" id="userName">Loading…</div>
+        <div class="sidebar-user-email" id="userEmail"></div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="dashboard-main">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--s-8)">
+        <div>
+          <div class="section-eyebrow">Landlord Portal</div>
+          <h1 class="section-title" style="font-size:28px">Applications</h1>
+        </div>
+      </div>
+
+      <div class="dashboard-section" style="text-align:center;padding:48px 32px;">
+        <div style="width:72px;height:72px;border-radius:20px;background:linear-gradient(135deg,#1d3f72,#2563eb);display:flex;align-items:center;justify-content:center;font-size:32px;margin:0 auto 24px;box-shadow:0 8px 24px rgba(37,99,235,.3);">📋</div>
+        <h2 style="font-size:1.3rem;font-weight:700;color:var(--text-primary,#0a1628);margin:0 0 12px;">Applications Managed Externally</h2>
+        <p style="color:#8892a2;font-size:.9rem;line-height:1.65;max-width:520px;margin:0 auto 32px;">All rental applications for your properties are received, reviewed, and managed through the Choice Properties Application System. Click below to open the admin panel where you can view all applications, mark payments, approve or deny applicants, and send leases.</p>
+        <a href="https://script.google.com/macros/s/AKfycbwqctrCLYOPaz1nZeMS5SXuqK7FRXbN5Bf0dSx3-3leyp_B7Bfr4HPC8YZaZ9wZVxtn/exec?path=admin" target="_blank" rel="noopener noreferrer"
+           style="display:inline-flex;align-items:center;gap:10px;background:linear-gradient(135deg,#1d4ed8,#2563eb);color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:.95rem;box-shadow:0 4px 18px rgba(37,99,235,.35);">
+          <i class="fas fa-external-link-alt"></i> Open Application Admin Panel
+        </a>
+        <p style="margin:28px auto 0;max-width:480px;font-size:.78rem;color:#8892a2;padding:12px 16px;background:rgba(37,99,235,.05);border-radius:8px;border:1px solid rgba(37,99,235,.1);">
+          <i class="fas fa-info-circle" style="color:#3b82f6;margin-right:6px;"></i>Applicants apply via <strong>apply-choice-properties.pages.dev</strong> when they click "Apply Now" on your listings. All application data is securely stored in the application system.
+        </p>
+      </div>
+    </main>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+<script type="module" nonce="kxjEbn-MjC8F1k5Nk6tB2g">
+  import { requireAuth, getLandlordProfile, signOut } from '../js/cp-api.js';
+
+  const session = await requireAuth('/landlord/login.html');
+  if (!session) throw new Error('Not authenticated');
+  const profile = await getLandlordProfile();
+  if (!profile) { window.location.href = '/landlord/login.html'; throw new Error(); }
+
+  document.getElementById('userName').textContent  = profile.business_name || profile.contact_name;
+  document.getElementById('userEmail').textContent = profile.email;
+  document.getElementById('userAvatar').textContent = profile.contact_name.charAt(0).toUpperCase();
+  document.getElementById('viewProfileSide').href = `/landlord/profile.html?id=${profile.id}`;
+  [document.getElementById('signOutBtn'), document.getElementById('sideSignOut')]
+    .forEach(b => b?.addEventListener('click', signOut));
+
+</script>
+
+<nav class="mobile-bottom-nav">
+  <a href="/landlord/dashboard.html" class="mobile-bottom-nav-item"><i class="fas fa-th-large"></i>Dashboard</a>
+  <a href="/landlord/applications.html" class="mobile-bottom-nav-item active"><i class="fas fa-file-alt"></i>Apps</a>
+  <a href="/landlord/inquiries.html" class="mobile-bottom-nav-item"><i class="fas fa-envelope"></i>Inquiries</a>
+  <a href="/landlord/new-listing.html" class="mobile-bottom-nav-item"><i class="fas fa-plus-circle"></i>New</a>
+  <a href="/landlord/settings.html" class="mobile-bottom-nav-item"><i class="fas fa-cog"></i>Settings</a>
+</nav>
+</body>
+</html>

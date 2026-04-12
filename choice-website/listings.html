@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="theme-color" content="#006aff">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browse Rentals — Choice Properties</title>
+  <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg">
+  <meta name="description" content="Browse verified rental listings across the United States. Filter by price, bedrooms, and more. Apply online in minutes.">
+  <meta property="og:title" content="Browse Rentals — Choice Properties">
+  <meta property="og:description" content="Verified rental listings nationwide. Apartments, houses, condos — apply in 15 minutes.">
+  <meta property="og:image" content="/assets/og-cover.jpg">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://choice-properties.pages.dev/listings">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Browse Rentals — Choice Properties">
+  <meta name="twitter:description" content="Verified rental listings nationwide. Apply online in minutes.">
+  <meta name="twitter:image" content="/assets/og-cover.jpg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/main.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/main.css?v=1775137055043"></noscript>
+  <link rel="stylesheet" href="/css/listings.css?v=1775137055043">
+<noscript><link rel="stylesheet" href="/css/listings.css?v=1775137055043"></noscript>
+  <link rel="stylesheet" href="/assets/fontawesome.css">
+<noscript><link rel="stylesheet" href="/assets/fontawesome.css"></noscript>
+  <style>
+    /* ── CRITICAL CSS — above-fold paint for listings.html ───────────────────
+       Inlined to eliminate render-blocking flash on slow mobile connections.
+       Covers: nav bar, listings toolbar, filter bar, card grid skeleton.
+    ─────────────────────────────────────────────────────────────────────── */
+    *,*::before,*::after{box-sizing:border-box}
+    html{-webkit-text-size-adjust:100%}
+    body{
+      margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      background:#f5f5f5;color:#1a1a1a;line-height:1.6;font-size:15px;
+    }
+    .nav{
+      position:fixed;top:0;left:0;right:0;height:64px;z-index:900;
+      background:rgba(255,255,255,0.97);
+      backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+      border-bottom:1px solid #e0e0e0;
+    }
+    .nav-inner{display:flex;align-items:center;justify-content:space-between;height:100%;padding:0 16px;max-width:1280px;margin:0 auto}
+    .nav-logo{display:flex;align-items:center;gap:10px;text-decoration:none}
+    .nav-logo-emblem{width:34px;height:34px;border-radius:8px;background:#006aff;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    #site-nav{height:64px}
+    .listings-page{padding-top:64px}
+    .listings-toolbar{
+      background:#fff;border-bottom:1px solid #e0e0e0;
+      padding:12px 16px;display:flex;align-items:center;gap:8px;
+    }
+    .search-bar{
+      display:flex;align-items:center;background:#fff;
+      border:1px solid #e0e0e0;border-radius:8px;overflow:hidden;
+    }
+    .property-grid{display:grid;grid-template-columns:1fr;gap:16px;padding:16px}
+    .property-card{border-radius:12px;overflow:hidden;background:#fff;border:1px solid #e0e0e0}
+    .property-card-img{position:relative;aspect-ratio:4/3;width:100%;overflow:hidden;background:linear-gradient(145deg,#c8d8e8 0%,#b8cad8 50%,#a8bac8 100%)}
+  </style>
+<script defer src="/config.js"></script>
+<script defer src="/js/supabase.min.js"></script>
+<script type="module" src="/js/cp-api.js"></script>
+<script defer src="/js/components.js"></script>
+<style>
+.listings-page-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 28px 0 20px;
+  margin-top: 64px;
+}
+.listings-page-header .container { max-width: var(--container-max); margin: 0 auto; padding: 0 var(--space-6); }
+.listings-page-title {
+  font-size: clamp(22px, 3vw, 28px);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  letter-spacing: -0.02em;
+  margin: 0 0 4px;
+}
+.listings-page-subtitle {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  margin: 0 0 18px;
+}
+.listings-page-subtitle strong {
+  color: var(--color-brand);
+  font-weight: 600;
+}
+.listings-search-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.listings-search-row .search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-input-bg, #f5f5f7);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 0 14px;
+  height: 42px;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  transition: border-color 0.15s;
+}
+.listings-search-row .search-field:focus-within { border-color: var(--color-brand); }
+.listings-search-row .search-field i { color: var(--color-text-muted); font-size: 12px; flex-shrink: 0; }
+.listings-search-row .search-field input,
+.listings-search-row .search-field select {
+  border: none; background: transparent; outline: none;
+  font-size: 14px; color: var(--color-text-primary); width: 100%;
+}
+.listings-search-row .search-field.sf-text { flex: 1; min-width: 180px; }
+.listings-search-row .search-field.sf-select { min-width: 120px; }
+.listings-search-btn {
+  height: 42px; padding: 0 20px;
+  background: var(--color-brand); color: #fff;
+  border: none; border-radius: var(--radius-lg);
+  font-size: 14px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+.listings-search-btn:hover { background: var(--color-brand-dark, #0053cc); }
+@media (max-width: 640px) {
+  .listings-page-header { padding: 16px 0 14px; margin-top: 56px; }
+  .listings-search-row .search-field.sf-select { min-width: 100px; }
+  .listings-page-title { font-size: 20px; }
+}
+</style>
+
+  <!-- I-060: CollectionPage structured data for listings page -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    "name": "Rental Listings — Choice Properties",
+    "description": "Browse verified rental listings across the United States. Filter by price, bedrooms, and more.",
+    "url": "https://choice-properties.pages.dev/listings.html",
+    "isPartOf": {
+      "@type": "WebSite",
+      "name": "Choice Properties",
+      "url": "https://choice-properties.pages.dev/"
+    }
+  }
+  </script>
+<script nonce="kxjEbn-MjC8F1k5Nk6tB2g">window.__INITIAL_LISTINGS__={"rows":[{"id":"PROP-3342E61A","landlord_id":null,"status":"active","title":"Single Family in Dallas, GA","description":"Offers an unparalleled living experience in Dallas, GA. Our community provides quick access to restaurants, shopping, entertainment and highways, just 8 minutes from downtown Dallas. As one of the newest single-family rental home communities in the area, Overlook at Palisades features spacious 3, 4, and 5-bedroom homes with large square footage, fenced-in backyards, basements, and luxury finishes. Each home boasts a private driveway, an attached 2-car garage, and premium in-home amenities including stainless steel appliances, granite countertops, and smart locks. Residents enjoy amenities such as expansive walk-in closets, double sink vanities, and hardwood-style flooring, alongside professional management, exclusive resident events, and maintained landscaping, creating a cozy and connected environment for families to thrive and experience the best in luxurious living.","showing_instructions":null,"address":"2300 Paris Rd","city":"Dallas","state":"GA","zip":"30157","county":"Paulding","lat":33.898250254572,"lng":-84.795774742786,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2375,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/1_H5JeOnEJd.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/2_9LYXNS5iA.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/3_E3zDFZY2M.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/4__fAfUlje5.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/5_ddtzUYdJu.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/6_zlnMh7p37.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/7_mdqA-aXI9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/8_KDrpy4d-y.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/9_Mj9cnwEdG.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/10_pTFR_3zkjs.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/11_TM0e1U1Iq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/12_8N5CD6-iY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/13_F_ivZkDYG.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/14_2m2ppLMC-.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/15_0XhhJt4iJ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/16_eug9GzEnk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/17_0ZylmHaMh.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/18_cZGvkRi7b.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/19_Ci0F4a3w_.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/20_KG1BoB8zF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/21_QhiJLeakq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/22_84lGNWXyi4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/23_zlVY7YH8UV.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/24_23CHJY8uz.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/25_zmGJeAYYP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/26_7YKEDsc4F.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/27__CzobiZmv.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/28_63qSjWDCl.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/29_teDKc_8PK.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/30_Wgo__cFdN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/31_HvgQ4jv_7c.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/32_sU2OE6_mF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/33_11b0y3PhdD.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/34_uHYfZiF4xo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/35_0i8s6tqYtT.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/36_84V1knr-8.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/37_uXWS7QPsN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/38_1KAp1Wb3Q.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/39_to08Vm9O3.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/40_Xf1W_4shk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/41_xEZHdYIp4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/42_b5aLcAnho.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/43_HuzsKenit.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/44_ffeJIYvTU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/45_dt1vrIp0V.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/46_gN7sky2oYh.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/47_xeEnGgjHV.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/48_j-VzN9F4X.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/49_7XRj8eWuU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/50_VrjwDc76o.jpg"],"photo_file_ids":["69db861b5c7cd75eb8592ac1","69db861c5c7cd75eb8592c9b","69db861c5c7cd75eb8592df0","69db861c5c7cd75eb8592f79","69db861d5c7cd75eb859313f","69db861d5c7cd75eb8593319","69db861e5c7cd75eb859350b","69db861e5c7cd75eb85936c0","69db861f5c7cd75eb859392b","69db861f5c7cd75eb8593b52","69db86205c7cd75eb8593d2e","69db86205c7cd75eb8593eed","69db86215c7cd75eb8594033","69db86215c7cd75eb859422b","69db86225c7cd75eb85943c8","69db86225c7cd75eb8594530","69db86235c7cd75eb859487a","69db86235c7cd75eb8594a18","69db86245c7cd75eb8594bae","69db86245c7cd75eb8595154","69db86255c7cd75eb8595696","69db86255c7cd75eb8595a19","69db86265c7cd75eb8595dc9","69db86275c7cd75eb85960eb","69db86275c7cd75eb85962c9","69db86285c7cd75eb8596589","69db86285c7cd75eb85968fb","69db86295c7cd75eb8596a9d","69db86295c7cd75eb8596cc5","69db862a5c7cd75eb8596ef1","69db862a5c7cd75eb85970f0","69db862b5c7cd75eb8597315","69db862b5c7cd75eb85976ff","69db862c5c7cd75eb8597949","69db862c5c7cd75eb8597b5f","69db862d5c7cd75eb8597d26","69db862e5c7cd75eb85981c7","69db862f5c7cd75eb85984a1","69db862f5c7cd75eb85987db","69db86305c7cd75eb8598b08","69db86315c7cd75eb8598d67","69db86315c7cd75eb8598fe1","69db86325c7cd75eb85992fd","69db86325c7cd75eb8599558","69db86335c7cd75eb859a68b","69db86345c7cd75eb859ab3e","69db86355c7cd75eb859b1c3","69db86355c7cd75eb859b77d","69db86365c7cd75eb859bc46","69db86365c7cd75eb859be76"],"virtual_tour_url":null,"views_count":2,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:47:03.40785+00:00","updated_at":"2026-04-12T16:05:25.506152+00:00","search_tsv":"'2':81 '2300':8 '3':55 '4':56 '5':58 '8':31 'access':23 'alongsid':117 'amen':89,101 'applianc':93 'area':49 'attach':80 'backyard':68 'basement':69 'bedroom':59 'best':139 'boast':75 'car':82 'closet':108 'communiti':20,46 'connect':130 'countertop':95 'cozi':128 'creat':126 'dalla':4,6,17,35 'doubl':109 'downtown':34 'driveway':78 'enjoy':100 'entertain':27 'environ':131 'event':122 'exclus':120 'expans':104 'experi':15,137 'famili':2,43,133,144 'featur':53 'fenc':66 'fenced-in':65 'finish':72 'floor':116 'footag':64 'ga':5,7,18 'garag':83 'granit':94 'hardwood':114 'hardwood-styl':113 'highway':29 'home':45,60,74,88 'in-hom':86 'includ':90 'landscap':125 'larg':62 'live':14,142 'lock':98 'luxuri':71,141 'maintain':124 'manag':119 'minut':32 'newest':40 'offer':11 'one':37 'overlook':50 'palisad':52 'pari':9 'premium':85 'privat':77 'profession':118 'provid':21 'quick':22 'rd':10 'rental':44 'resid':99,121 'restaur':25 'shop':26 'singl':1,42,143 'single-famili':41 'sink':110 'smart':97 'spacious':54 'squar':63 'stainless':91 'steel':92 'style':115 'thrive':135 'unparallel':13 'vaniti':111 'walk':106 'walk-in':105","landlords":null},{"id":"PROP-7A4AB073","landlord_id":null,"status":"active","title":"Single Family in Dallas, GA","description":"Offers an unparalleled living experience in Dallas, GA. Our community provides quick access to restaurants, shopping, entertainment and highways, just 8 minutes from downtown Dallas. As one of the newest single-family rental home communities in the area, Overlook at Palisades features spacious 3, 4, and 5-bedroom homes with large square footage, fenced-in backyards, basements, and luxury finishes. Each home boasts a private driveway, an attached 2-car garage, and premium in-home amenities including stainless steel appliances, granite countertops, and smart locks. Residents enjoy amenities such as expansive walk-in closets, double sink vanities, and hardwood-style flooring, alongside professional management, exclusive resident events, and maintained landscaping, creating a cozy and connected environment for families to thrive and experience the best in luxurious living.","showing_instructions":null,"address":"2300 Paris Rd","city":"Dallas","state":"GA","zip":"30157","county":"Paulding","lat":33.898250254572,"lng":-84.795774742786,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2375,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/1_jpAm8mUwT.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/2_jTWZBv4pHS.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/3_KRiE5hskw.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/4_Z_XXSMBHR.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/5_Gnih1CCdQ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/6_1lHpiDYeIr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/7_k55q5j9QJo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/8_TNfahn1cuU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/9_IHi-xFtvvW.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/10_Zng8GucJL.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/11_TzGKGHyr7.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/12__thJthnGx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/13_dsamOMQi4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/14_D3EZD8u14.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/15_2Ec139W41T.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/16_2b_K9DKJZ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/17__T-RXKeP7.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/18_MMrEynCn4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/19_0tjqBGEhdB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/20_1kZdv42zM.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/21_e3AccFmqo-.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/22_CF1PVq2iQ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/23__C8rycWflQ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/24_OUFDRMBRjb.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/25_UrB8bCuSP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/26_yVxmIvAPO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/27_0s_NX8Oxy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/28_t-GluH89W.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/29_b-7ufJtYy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/30_5nByGH19o.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/31_YbFaz6g1p.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/32_6qevdTFDi.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/33_jAd6Xl4y9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/34_fKMc92KEs.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/35_rV3PMvEtH.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/36_Oan6gcVzD.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/37_CIYOeqXw1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/38_11x7pVb1H.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/39_AgHavgR9Nc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/40_jD3OMYJK8.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/41_5He-lgLi7.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/42_tizPsFGCs.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/43__DfXbXUlV.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/44_jRaDcsbTc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/45_Oz_nEQ9_A.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/46_Df9cT6mDc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/47_RIIUw0rQh.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/48_zxkmxoKTEy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/49_RRq4MLU9n.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9E0903/50_hKRh5Kt8E.jpg"],"photo_file_ids":["69db86165c7cd75eb859166a","69db86165c7cd75eb85918c8","69db86175c7cd75eb8591a66","69db86175c7cd75eb8591cba","69db86185c7cd75eb8591ea2","69db86185c7cd75eb8592075","69db86195c7cd75eb85922a9","69db86195c7cd75eb85924db","69db861a5c7cd75eb85927b9","69db861b5c7cd75eb8592a62","69db861b5c7cd75eb8592b8c","69db861c5c7cd75eb8592d93","69db861c5c7cd75eb8592e9d","69db861d5c7cd75eb8593013","69db861d5c7cd75eb85931b4","69db861e5c7cd75eb85933d1","69db861e5c7cd75eb85935ce","69db861f5c7cd75eb8593812","69db861f5c7cd75eb8593a0e","69db86205c7cd75eb8593c2e","69db86205c7cd75eb8593f03","69db86215c7cd75eb8594071","69db86215c7cd75eb8594242","69db86225c7cd75eb85943e2","69db86225c7cd75eb859460c","69db86235c7cd75eb8594861","69db86245c7cd75eb8594a4d","69db86245c7cd75eb8594c07","69db86245c7cd75eb85952ba","69db86255c7cd75eb85957d3","69db86255c7cd75eb8595b50","69db86265c7cd75eb8595e42","69db86265c7cd75eb8596037","69db86275c7cd75eb8596263","69db86275c7cd75eb8596400","69db86285c7cd75eb85965f7","69db86285c7cd75eb85968f0","69db86295c7cd75eb8596b63","69db862a5c7cd75eb8596e10","69db862a5c7cd75eb859703c","69db862b5c7cd75eb8597213","69db862b5c7cd75eb859748f","69db862c5c7cd75eb85977e2","69db862c5c7cd75eb85979ff","69db862d5c7cd75eb8597c18","69db862d5c7cd75eb8597e48","69db862e5c7cd75eb85980a7","69db862e5c7cd75eb859834b","69db862f5c7cd75eb8598688","69db86305c7cd75eb859894f"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:56.794057+00:00","updated_at":"2026-04-12T11:46:56.794057+00:00","search_tsv":"'2':81 '2300':8 '3':55 '4':56 '5':58 '8':31 'access':23 'alongsid':117 'amen':89,101 'applianc':93 'area':49 'attach':80 'backyard':68 'basement':69 'bedroom':59 'best':139 'boast':75 'car':82 'closet':108 'communiti':20,46 'connect':130 'countertop':95 'cozi':128 'creat':126 'dalla':4,6,17,35 'doubl':109 'downtown':34 'driveway':78 'enjoy':100 'entertain':27 'environ':131 'event':122 'exclus':120 'expans':104 'experi':15,137 'famili':2,43,133,144 'featur':53 'fenc':66 'fenced-in':65 'finish':72 'floor':116 'footag':64 'ga':5,7,18 'garag':83 'granit':94 'hardwood':114 'hardwood-styl':113 'highway':29 'home':45,60,74,88 'in-hom':86 'includ':90 'landscap':125 'larg':62 'live':14,142 'lock':98 'luxuri':71,141 'maintain':124 'manag':119 'minut':32 'newest':40 'offer':11 'one':37 'overlook':50 'palisad':52 'pari':9 'premium':85 'privat':77 'profession':118 'provid':21 'quick':22 'rd':10 'rental':44 'resid':99,121 'restaur':25 'shop':26 'singl':1,42,143 'single-famili':41 'sink':110 'smart':97 'spacious':54 'squar':63 'stainless':91 'steel':92 'style':115 'thrive':135 'unparallel':13 'vaniti':111 'walk':106 'walk-in':105","landlords":null},{"id":"PROP-5CDF676F","landlord_id":null,"status":"active","title":"Single Family in San Antonio, TX","description":"Find your space at Winding Brook in San Antonio--tucked away off Old Farm to Market 471 W, yet close to everything you need. Our brand-new, pet-friendly rental homes offer open layouts, stainless steel appliances, attached garages, and in-home washers and dryers. Private backyards give your pets room to play, and the community's green spaces are perfect for walks. Step outside to enjoy a refreshing pool, a welcoming clubhouse, and beautifully maintained surroundings. With easy access to Culebra Road, TX-1604, and TX-211, you're minutes from SeaWorld San Antonio, Alamo Ranch, and local favorites like Schott's Meat Market. Whether you're grabbing a bite, exploring a park, or heading into town, Winding Brook puts it all within reach. Self-guided tours are available every day. Visit our website to schedule.","showing_instructions":null,"address":"7003 Anacua Crk","city":"San Antonio","state":"TX","zip":"78253","county":"Bexar","lat":29.504214,"lng":-98.769875,"property_type":"SINGLE_FAMILY","year_built":2023,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1832,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/1_a1hzHT0UZ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/2_FxMFqg-GP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/3_1UWAAmBOL.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/4_bASjiShEIS.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/5_cXJrAaHWk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/6_sBY3LgIoy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/7_gc8NR6iq2.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/8_uLWMhcycx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/9_-FmPhe6ch.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/10_SaTdc7WCr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/11_yPWaGyKUP4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/12_a8P3BgaeLU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/13_QryWmZUrl1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/14_jwzyeOvor.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/15_F_55kRpW9Z.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/16_ZMp0yQZCG.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/17_rtViRs83x.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/18_k4p_Bdz0W.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/19_6N6KhRji78.jpg"],"photo_file_ids":["69db86115c7cd75eb858fa15","69db86115c7cd75eb858fcb6","69db86125c7cd75eb858feed","69db86125c7cd75eb8590082","69db86135c7cd75eb8590272","69db86145c7cd75eb8590507","69db86145c7cd75eb8590c12","69db86155c7cd75eb859104c","69db86155c7cd75eb8591346","69db86165c7cd75eb8591546","69db86165c7cd75eb85916da","69db86175c7cd75eb859194f","69db86175c7cd75eb8591ba6","69db86185c7cd75eb8591e0a","69db86185c7cd75eb8591fca","69db86195c7cd75eb859223b","69db86195c7cd75eb859249a","69db861a5c7cd75eb85926a3","69db861a5c7cd75eb859287c"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:35.262078+00:00","updated_at":"2026-04-12T11:46:35.262078+00:00","search_tsv":"'-1604':100 '-211':103 '471':29 '7003':10 'access':95 'alamo':111 'anacua':11 'antonio':5,8,21,110 'applianc':51 'attach':52 'avail':146 'away':23 'backyard':62 'beauti':90 'bite':126 'brand':39 'brand-new':38 'brook':18,135 'close':32 'clubhous':88 'communiti':71 'crk':12 'culebra':97 'day':148 'dryer':60 'easi':94 'enjoy':82 'everi':147 'everyth':34 'explor':127 'famili':2,155 'farm':26 'favorit':115 'find':13 'friend':43 'garag':53 'give':63 'grab':124 'green':73 'guid':143 'head':131 'home':45,57 'in-hom':55 'layout':48 'like':116 'local':114 'maintain':91 'market':28,120 'meat':119 'minut':106 'need':36 'new':40 'offer':46 'old':25 'open':47 'outsid':80 'park':129 'perfect':76 'pet':42,65 'pet-friend':41 'play':68 'pool':85 'privat':61 'put':136 'ranch':112 're':105,123 'reach':140 'refresh':84 'rental':44 'road':98 'room':66 'san':4,7,20,109 'schedul':153 'schott':117 'seaworld':108 'self':142 'self-guid':141 'singl':1,154 'space':15,74 'stainless':49 'steel':50 'step':79 'surround':92 'tour':144 'town':133 'tuck':22 'tx':6,9,99,102 'visit':149 'w':30 'walk':78 'washer':58 'websit':151 'welcom':87 'whether':121 'wind':17,134 'within':139 'yet':31","landlords":null},{"id":"PROP-B09388B2","landlord_id":null,"status":"active","title":"Single Family in San Antonio, TX","description":"Find your space at Winding Brook in San Antonio--tucked away off Old Farm to Market 471 W, yet close to everything you need. Our brand-new, pet-friendly rental homes offer open layouts, stainless steel appliances, attached garages, and in-home washers and dryers. Private backyards give your pets room to play, and the community's green spaces are perfect for walks. Step outside to enjoy a refreshing pool, a welcoming clubhouse, and beautifully maintained surroundings. With easy access to Culebra Road, TX-1604, and TX-211, you're minutes from SeaWorld San Antonio, Alamo Ranch, and local favorites like Schott's Meat Market. Whether you're grabbing a bite, exploring a park, or heading into town, Winding Brook puts it all within reach. Self-guided tours are available every day. Visit our website to schedule.","showing_instructions":null,"address":"7003 Anacua Crk","city":"San Antonio","state":"TX","zip":"78253","county":"Bexar","lat":29.504214,"lng":-98.769875,"property_type":"SINGLE_FAMILY","year_built":2023,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1832,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/1_my0fp1t5E.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/2_L8lXPd2cp.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/3_E7-S41L9-.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/4_QTuraybHP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/5_eurqgJW-_.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/6_MGxHBbQ4E.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/7_xQswDbK0O.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/8_sNmrhqjwE.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/9_MMimCn0HH.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/10_XCXIRJyAp.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/11_CpkPJmUv8.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/12_vUFr4d6-W.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/13_23H03UlEGd.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/14_I96CAjpOK.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/15_ZSTzj4tc9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/16_qzbSHWCycL.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/17_U43hcmlb1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/18_1GZ12BT-8.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-E723E1/19_wrjUZyAOk.jpg"],"photo_file_ids":["69db860b5c7cd75eb858e482","69db860c5c7cd75eb858e67e","69db860c5c7cd75eb858e875","69db860d5c7cd75eb858eb0a","69db860d5c7cd75eb858ed06","69db860e5c7cd75eb858eed8","69db860f5c7cd75eb858f1fe","69db860f5c7cd75eb858f382","69db860f5c7cd75eb858f504","69db86105c7cd75eb858f6bc","69db86105c7cd75eb858f844","69db86115c7cd75eb858f9d5","69db86115c7cd75eb858fbcd","69db86125c7cd75eb858fe8d","69db86135c7cd75eb859013f","69db86135c7cd75eb8590370","69db86145c7cd75eb859088b","69db86145c7cd75eb8590d92","69db86155c7cd75eb85911c9"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:29.890617+00:00","updated_at":"2026-04-12T11:46:29.890617+00:00","search_tsv":"'-1604':100 '-211':103 '471':29 '7003':10 'access':95 'alamo':111 'anacua':11 'antonio':5,8,21,110 'applianc':51 'attach':52 'avail':146 'away':23 'backyard':62 'beauti':90 'bite':126 'brand':39 'brand-new':38 'brook':18,135 'close':32 'clubhous':88 'communiti':71 'crk':12 'culebra':97 'day':148 'dryer':60 'easi':94 'enjoy':82 'everi':147 'everyth':34 'explor':127 'famili':2,155 'farm':26 'favorit':115 'find':13 'friend':43 'garag':53 'give':63 'grab':124 'green':73 'guid':143 'head':131 'home':45,57 'in-hom':55 'layout':48 'like':116 'local':114 'maintain':91 'market':28,120 'meat':119 'minut':106 'need':36 'new':40 'offer':46 'old':25 'open':47 'outsid':80 'park':129 'perfect':76 'pet':42,65 'pet-friend':41 'play':68 'pool':85 'privat':61 'put':136 'ranch':112 're':105,123 'reach':140 'refresh':84 'rental':44 'road':98 'room':66 'san':4,7,20,109 'schedul':153 'schott':117 'seaworld':108 'self':142 'self-guid':141 'singl':1,154 'space':15,74 'stainless':49 'steel':50 'step':79 'surround':92 'tour':144 'town':133 'tuck':22 'tx':6,9,99,102 'visit':149 'w':30 'walk':78 'washer':58 'websit':151 'welcom':87 'whether':121 'wind':17,134 'within':139 'yet':31","landlords":null},{"id":"PROP-A2C5946F","landlord_id":null,"status":"active","title":"Single Family in San Antonio, TX","description":null,"showing_instructions":null,"address":"23609 Canyon Golf Rd","city":"San Antonio","state":"TX","zip":"78260","county":"Bexar","lat":29.66258,"lng":-98.484093,"property_type":"SINGLE_FAMILY","year_built":2025,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1559,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/1_qa_idlPey.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/2_MECUUlj5s.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/3_8glU8lCef.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/4_y7DxvSipc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/5_ApPKTxYMSk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/6_QDf8sR3BB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/7_LOWjCZUUz.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/8_lCy9dUce9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/9_366zy9ZzN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/10_c3oVtvAGRt.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/11_fBDjZ2utB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/12_-uSmzTKuo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/13_AXZj31FwYO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/14_LMf9sBgm3U.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/15_KBMMOHCxU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/16_A2-TqFy2u.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/17_RHx6f6RQv.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/18_S8DUqb2MK.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/19_-Fngafvgr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-2B70CC/20_jRoMtSEF7.jpg"],"photo_file_ids":["69db85ff5c7cd75eb858aa7b","69db86005c7cd75eb858adf4","69db86005c7cd75eb858afd8","69db86015c7cd75eb858b1de","69db86015c7cd75eb858b38a","69db86025c7cd75eb858b755","69db86025c7cd75eb858b9f3","69db86035c7cd75eb858bc34","69db86045c7cd75eb858c48b","69db86045c7cd75eb858c9cc","69db86055c7cd75eb858ccdf","69db86065c7cd75eb858cfed","69db86065c7cd75eb858d2e6","69db86075c7cd75eb858d5c2","69db86075c7cd75eb858d6db","69db86085c7cd75eb858d920","69db86085c7cd75eb858dac9","69db86095c7cd75eb858dd6a","69db86095c7cd75eb858df66","69db860a5c7cd75eb858e174"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:19.238472+00:00","updated_at":"2026-04-12T11:46:19.238472+00:00","search_tsv":"'23609':10 'antonio':5,8 'canyon':11 'famili':2,15 'golf':12 'rd':13 'san':4,7 'singl':1,14 'tx':6,9","landlords":null},{"id":"PROP-2301121C","landlord_id":null,"status":"active","title":"Single Family in San Antonio, TX","description":"There's no place like these homes at The Willows at Kendall Brook in San Antonio, TX. Practically built just for you, our community comes complete with in-unit washers and dryers, stainless steel appliances, and fenced yards. As a resident of our community, located near Shops at Walzem, you'll enjoy modern amenities like a fitness center and attached garages. If you're looking for a convenient location, come see why The Willows at Kendall Brook is more than a place to live - it's a lifestyle to love.","showing_instructions":null,"address":"5735 Cool River Way","city":"San Antonio","state":"TX","zip":"78244","county":"Bexar","lat":29.48303,"lng":-98.324602,"property_type":"SINGLE_FAMILY","year_built":2023,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2052,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/1_Q2Bx39B_P.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/2_Tjvbi3tcH.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/3_EEc_JcQ5C.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/4_SUbvlCMua.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/5_4y8LlcsC8.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/6_PHHyvNa2D.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/7_11AD0t0Ia.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/8_41aiRXyEh.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/9_gOZQ4MxtN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/10_yQMi1vjr6.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/11_ELaPoOAhp.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-A76A45/12_Is5mCMvRT.jpg"],"photo_file_ids":["69db85f85c7cd75eb8588d83","69db85f85c7cd75eb8588f1a","69db85f95c7cd75eb8589103","69db85f95c7cd75eb858933b","69db85fa5c7cd75eb8589689","69db85fb5c7cd75eb858986a","69db85fb5c7cd75eb8589a5e","69db85fc5c7cd75eb8589ca9","69db85fc5c7cd75eb8589ecb","69db85fd5c7cd75eb858a065","69db85fd5c7cd75eb858a384","69db85fe5c7cd75eb858a6bd"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:07.020819+00:00","updated_at":"2026-04-12T11:46:07.020819+00:00","search_tsv":"'5735':10 'amen':68 'antonio':5,8,29 'applianc':49 'attach':74 'brook':26,91 'built':32 'center':72 'come':38,84 'communiti':37,58 'complet':39 'conveni':82 'cool':11 'dryer':46 'enjoy':66 'famili':2,106 'fenc':51 'fit':71 'garag':75 'home':20 'in-unit':41 'kendal':25,90 'lifestyl':102 'like':18,69 'live':98 'll':65 'locat':59,83 'look':79 'love':104 'modern':67 'near':60 'place':17,96 'practic':31 're':78 'resid':55 'river':12 'san':4,7,28 'see':85 'shop':61 'singl':1,105 'stainless':47 'steel':48 'tx':6,9,30 'unit':43 'walzem':63 'washer':44 'way':13 'willow':23,88 'yard':52","landlords":null},{"id":"PROP-21F59B31","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Albuquerque, NM","description":"Nice 3 bedroom w/ spacious living room, open floor plan, dining area off the kitchen, comes with the major kitchen appliances including microwave, 2 full baths, laundry room with washer & dryer, nice balcony surrounded by trees, refrigerated air, one assigned parking space and a 1 car garage. No pets. Tenant pays electric and gas. When applying, please consider our application guidelines and fees: - 3x income of monthly rent - 600 or higher credit score (Score is based on average of all applicants in group) - Lease term: 12 months minimum Please review the information below for a detailed breakdown of fees associated with the rental of this property. - $50 Application Fee (Paid with application) - $1600 Security Deposit (Due within 2 days of application approval) - $1600 Rent (Due the 1st of each month, pro-rated first month based on move in date) - $25 Pet Rent (if applicable per month per pet) -NO PETS - $80 Late Fee (Charged for any rent amount unpaid by the 4th of the month) - $40 NSF Fee (non sufficient funds Charged for any returned payment) - $3200 Early Termination Fee (if applicable upon early termination of lease agreement) Utilities and other costs - Water/Sewer/Trash: Included - Electric - Gas - HOA: Condominium fee paid by owner Required Documents to submit with your application. - Copy of photo your I.D. - For pets, please attach their photos and proof of rabies vaccination. - Verification of income -Paycheck stubs for the last two (2) months or, if newly employed, a signed offer of employment, employment contract, or hire letter; Retirement and/or Social Security Income Statement; Financial aid award letter; Military LES; Child support award letter/divorce decree; or previous year's tax return or Form 1099 for self-employed or proof of any other lawful, verifiable and recurring source of income. If you are unable to upload one of the needed documents please email E-mail or call today to schedule your tour Visit our website for more properties or to Apply Now. ----------------------------------------------------------------------------------------------------------- Applications are only received through Properties must be seen by the applicant (or a friend or family member of the applicant) before processing of the application. Please allow 2-4 Business Days to process applications fully. If more information is required a member of our staff will reach out when your application is being reviewed. Applications are processed on a first-come, first-served basis. Applications are only received through","showing_instructions":null,"address":"6800 Vista Del Norte Rd","city":"Albuquerque","state":"NM","zip":"87113","county":"Bernalillo","lat":35.184116,"lng":-106.586296,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1357,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1600,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/1_-hlIzcAlQ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/2_eVmy7Gzbm.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/3_HHCzO0azI.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/4_ONKqclSKK.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/5_7y9SIKD5i.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/6_H-j0mjfOp.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/7_yl-RvG9SO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/8_XIPFAB1vo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/9_LOCwgkiHY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/10_WqdOsn0Co.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/11_aogEs9xwh.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/12_hHhQh9hIt.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/13_oS7iWmIJS.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/14_bAVFIDTypB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/15_bbu6olhZr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/16_cV3g-FlFY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/17_JKIqTojrsq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-8DED0B/18_ndp-ovV8i.jpg"],"photo_file_ids":["69db85ee5c7cd75eb85854aa","69db85ee5c7cd75eb85856a1","69db85ef5c7cd75eb85859be","69db85ef5c7cd75eb8585bcd","69db85f05c7cd75eb8585ee5","69db85f05c7cd75eb85861ba","69db85f15c7cd75eb8586403","69db85f15c7cd75eb8586575","69db85f25c7cd75eb85867f5","69db85f25c7cd75eb8586a1b","69db85f35c7cd75eb8586f28","69db85f35c7cd75eb85873ea","69db85f45c7cd75eb8587a4e","69db85f55c7cd75eb8587e13","69db85f55c7cd75eb8587ff0","69db85f65c7cd75eb8588204","69db85f65c7cd75eb85885fc","69db85f75c7cd75eb85888c1"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:46:00.093115+00:00","updated_at":"2026-04-12T11:46:00.093115+00:00","search_tsv":"'-4':372 '1':61 '1099':293 '12':102 '1600':129,139 '1st':143 '2':3,40,134,252,371 '25':157 '3':1,18 '3200':194 '3x':80 '40':183 '4th':179 '50':123 '600':85 '6800':12 '80':168 'agreement':205 'aid':275 'air':54 'albuquerqu':8,10 'allow':370 'amount':175 'and/or':269 'appli':72,341 'applianc':37 'applic':76,97,124,128,137,161,199,226,343,354,363,368,377,394,398,410 'approv':138 'area':28 'assign':56 'associ':116 'attach':235 'averag':94 'award':276,282 'balconi':49 'base':92,152 'basi':409 'bath':4,42 'bed':2 'bedroom':19 'breakdown':113 'busi':373 'call':327 'car':62 'charg':171,189 'child':280 'come':32,405 'condominium':215 'consid':74 'contract':264 'copi':227 'cost':209 'credit':88 'date':156 'day':135,374 'decre':284 'del':14 'deposit':131 'detail':112 'dine':27 'document':221,320 'dryer':47 'due':132,141 'e':324 'e-mail':323 'earli':195,201 'electr':68,212 'email':322 'employ':257,262,263,297 'famili':6,359,416 'fee':79,115,125,170,185,197,216 'financi':274 'first':150,404,407 'first-com':403 'first-serv':406 'floor':25 'form':292 'friend':357 'full':41 'fulli':378 'fund':188 'garag':63 'gas':70,213 'group':99 'guidelin':77 'higher':87 'hire':266 'hoa':214 'i.d':231 'includ':38,211 'incom':81,245,272,309 'inform':108,381 'kitchen':31,36 'last':250 'late':169 'laundri':43 'law':303 'leas':100,204 'les':279 'letter':267,277 'letter/divorce':283 'live':22 'mail':325 'major':35 'member':360,385 'microwav':39 'militari':278 'minimum':104 'month':83,103,146,151,163,182,253 'move':154 'must':349 'need':319 'newli':256 'nice':17,48 'nm':9,11 'non':186 'nort':15 'nsf':184 'offer':260 'one':55,316 'open':24 'owner':219 'paid':126,217 'park':57 'pay':67 'paycheck':246 'payment':193 'per':162,164 'pet':65,158,165,167,233 'photo':229,237 'plan':26 'pleas':73,105,234,321,369 'previous':286 'pro':148 'pro-rat':147 'process':365,376,400 'proof':239,299 'properti':122,338,348 'rabi':241 'rate':149 'rd':16 'reach':390 'receiv':346,413 'recur':306 'refriger':53 'rent':84,140,159,174 'rental':119 'requir':220,383 'retir':268 'return':192,290 'review':106,397 'room':23,44 'schedul':330 'score':89,90 'secur':130,271 'seen':351 'self':296 'self-employ':295 'serv':408 'sign':259 'singl':5,415 'social':270 'sourc':307 'space':58 'spacious':21 'staff':388 'statement':273 'stub':247 'submit':223 'suffici':187 'support':281 'surround':50 'tax':289 'tenant':66 'term':101 'termin':196,202 'today':328 'tour':332 'tree':52 'two':251 'unabl':313 'unpaid':176 'upload':315 'upon':200 'util':206 'vaccin':242 'verif':243 'verifi':304 'visit':333 'vista':13 'w':20 'washer':46 'water/sewer/trash':210 'websit':335 'within':133 'year':287","landlords":null},{"id":"PROP-AE24B71A","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Albuquerque, NM","description":"NE TRAMWAY/MENAUL!! 3 bedroom 2 bath 1500/SF 2-car 2-door garage! Awesome Recent Major Updates, new stucco, fresh paint inside & out, formal living, kitchen with beautiful new custom cabinets, dishwasher, breakfast bar opens to 2nd family room (den) with fireplace, doors to covered patio, spacious sunny bedrooms, built-ins, mountain views, parks, schools, shopping & dining of every kind all just around the corner!! Big fenced backyard, extra storage shed, stair stepped garden area, all in established Enchanted Mesa neighborhood! Small dog only with deposit & approval! No Smoking Please! 1-year lease! School Districts: Matheson Park Elementary, Hoover Middle, El Dorado High. Menaul/Juan Tabo","showing_instructions":null,"address":"2432 Figueroa Dr","city":"Albuquerque","state":"NM","zip":"87112","county":"Bernalillo","lat":35.11065,"lng":-106.508534,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1487,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1800,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/1_a5_8MPC96.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/2_xMjh9MzTO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/3_X_FFdhqdq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/4_s9i4_lvtY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/5_9j7Y01hBi.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/6_HoqvYe531.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/7_rpuBQmyCx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/8_Qi7Yqxz_d.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/9_MekyhZxKo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/10_bGweY81x9N.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/11_n0b-77hz9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/12_kUJ3GZNhey.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/13_Ihdjrp_2U1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/14_VXu4Y9XUZ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/15_UB0N-WSXF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/16_uwSelynUc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/17_FMMRr2YFt.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/18_NePtJ8Utw.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-64FD26/19_c5DOQO_gg.jpg"],"photo_file_ids":["69db85e55c7cd75eb8582fcc","69db85e55c7cd75eb8583156","69db85e65c7cd75eb8583311","69db85e65c7cd75eb8583490","69db85e75c7cd75eb8583642","69db85e75c7cd75eb8583860","69db85e85c7cd75eb8583ab1","69db85e85c7cd75eb8583d91","69db85e95c7cd75eb8583f63","69db85e95c7cd75eb85840e1","69db85ea5c7cd75eb858425b","69db85ea5c7cd75eb85843ab","69db85ea5c7cd75eb8584571","69db85eb5c7cd75eb85846db","69db85eb5c7cd75eb858489b","69db85eb5c7cd75eb85849df","69db85ec5c7cd75eb8584c15","69db85ec5c7cd75eb8584ea6","69db85ed5c7cd75eb85850b4"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:45:49.854303+00:00","updated_at":"2026-04-12T11:45:49.854303+00:00","search_tsv":"'1':105 '1500/sf':21 '2':3,19,22,24 '2432':12 '2nd':50 '3':1,17 'albuquerqu':8,10 'approv':101 'area':89 'around':77 'awesom':27 'backyard':82 'bar':47 'bath':4,20 'beauti':41 'bed':2 'bedroom':18,62 'big':80 'breakfast':46 'built':64 'built-in':63 'cabinet':44 'car':23 'corner':79 'cover':58 'custom':43 'den':53 'deposit':100 'dine':71 'dishwash':45 'district':109 'dog':97 'door':25,56 'dorado':116 'dr':14 'el':115 'elementari':112 'enchant':93 'establish':92 'everi':73 'extra':83 'famili':6,51,121 'fenc':81 'figueroa':13 'fireplac':55 'formal':37 'fresh':33 'garag':26 'garden':88 'high':117 'hoover':113 'in':65 'insid':35 'kind':74 'kitchen':39 'leas':107 'live':38 'major':29 'matheson':110 'menaul/juan':118 'mesa':94 'middl':114 'mountain':66 'ne':15 'neighborhood':95 'new':31,42 'nm':9,11 'open':48 'paint':34 'park':68,111 'patio':59 'pleas':104 'recent':28 'room':52 'school':69,108 'shed':85 'shop':70 'singl':5,120 'small':96 'smoke':103 'spacious':60 'stair':86 'step':87 'storag':84 'stucco':32 'sunni':61 'tabo':119 'tramway/menaul':16 'updat':30 'view':67 'year':106","landlords":null},{"id":"PROP-38C566FD","landlord_id":null,"status":"active","title":"2 Bed / 1 Bath Single Family in Albuquerque, NM","description":"Among the cutest cottages we've ever seen. This true adobe 900 SF 2 bed 1 bath home has been updated with care, quality, and a true artist's touch. Luxury vinyl plank flooring, updated fixtures and finishes, with amazing custom tile work, beam ceilings, arches, nichos, and built-ins. Large corner lot offers a spacious driveway, big wraparound private fenced front yard, and an amazing very private backyard / patio space that makes the optimum outdoor low maintenance outdoor living area. Exceptional EDO location - close but not too close to the city's best restaurants, bars, shopping, and all Downtown ABQ has to offer.","showing_instructions":null,"address":"900 Arno St","city":"Albuquerque","state":"NM","zip":"87102","county":"Bernalillo","lat":35.074442,"lng":-106.644205,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":2,"bathrooms":1,"half_bathrooms":null,"square_footage":900,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1350,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/1_Srb3PW9W_.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/2_ygaGrlJZP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/3_MHAL0ZFph.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/4_lMBEBcRZVX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/5_wzC3YZqk5.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/6_obbi4FdSF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/7_XOb54fv7h.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/8_Pn-RToOSn.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/9_zVbdJJ2zIP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/10_r-88LKWbMl.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/11_y-8y-_N4ft.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/12_L3jCoSCeS.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/13_CYLiQ6Per.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/14_NmO3pRzVk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-389A6F/15_zi6JpKD1n.jpg"],"photo_file_ids":["69db85dd5c7cd75eb8580136","69db85de5c7cd75eb85803e8","69db85de5c7cd75eb8580684","69db85df5c7cd75eb85808ae","69db85df5c7cd75eb8580b2e","69db85e05c7cd75eb8580e5f","69db85e05c7cd75eb858103a","69db85e15c7cd75eb85811b4","69db85e15c7cd75eb8581439","69db85e25c7cd75eb858180e","69db85e25c7cd75eb8581e1b","69db85e35c7cd75eb858222b","69db85e35c7cd75eb858268d","69db85e45c7cd75eb8582984","69db85e45c7cd75eb8582bc1"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:45:41.161753+00:00","updated_at":"2026-04-12T11:45:41.161753+00:00","search_tsv":"'1':3,30 '2':1,28 '900':12,26 'abq':116 'adob':25 'albuquerqu':8,10 'amaz':54,81 'among':15 'arch':60 'area':96 'arno':13 'artist':42 'backyard':84 'bar':111 'bath':4,31 'beam':58 'bed':2,29 'best':109 'big':73 'built':64 'built-in':63 'care':37 'ceil':59 'citi':107 'close':100,104 'corner':67 'cottag':18 'custom':55 'cutest':17 'downtown':115 'driveway':72 'edo':98 'ever':21 'except':97 'famili':6,121 'fenc':76 'finish':52 'fixtur':50 'floor':48 'front':77 'home':32 'in':65 'larg':66 'live':95 'locat':99 'lot':68 'low':92 'luxuri':45 'mainten':93 'make':88 'nicho':61 'nm':9,11 'offer':69,119 'optimum':90 'outdoor':91,94 'patio':85 'plank':47 'privat':75,83 'qualiti':38 'restaur':110 'seen':22 'sf':27 'shop':112 'singl':5,120 'space':86 'spacious':71 'st':14 'tile':56 'touch':44 'true':24,41 'updat':35,49 've':20 'vinyl':46 'work':57 'wraparound':74 'yard':78","landlords":null},{"id":"PROP-E5F737BB","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Albuquerque, NM","description":"Visit for Information on Viewing, Qualifying, Pets and Applying! Call Anytime To Schedule A Viewing Fresh Paint! Refrigerated Air! Brick Construction! 2 Car Garage! Fireplace! Ceiling Fans! All Appliances Included! Walk-In Closet! Laundry Room! Landscaped Front Yard! Covered Back Patio! Storage Shed! *Please, no pets permitted at this property. State Required Fee Disclosure Security Deposit: Starts at one months rent for well qualified applicants. Non-Refundable Pet Fee: Starts at $250 Required Tenant Benefit Package: $38 per month Legal Posting Fee: $50 Late Fees: 5% of the rent Non-Sufficient Fund Fee: $25 per occurrence Fee for Not Transferring Utilities: $50 for each 30 days Lease Early Termination Fee: One month's rent Holdover Rent Increase: If you don't vacate on time, rent increases to 3x the normal daily rate (a penalty for unauthorized occupancy). No-Show Fee: $50 if you're not present for scheduled repair/inspection appointments and don't provide access to Brickleys/vendors.","showing_instructions":null,"address":"1942 Avondale Pl","city":"Albuquerque","state":"NM","zip":"87120","county":"Bernalillo","lat":35.103377,"lng":-106.73043,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1200,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1750,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/1_mSQkIdtmg.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/2_3dpCQDUI6.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/3_oKjpTcoJW.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/4_4CEJRxii5N.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/5_hKANdJaIDX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/6_yZyVfMdBx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/7_AtATIAIa9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/8_hcipwcXzVr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/9__Exo2EvzfF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/10__XRHHar7D.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/11_Jws20Q3ku.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/12_cN_0-Xqyl.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/13_6GjG-DfqsO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/14_KNrNhUoIs.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/15_N4CpVikGu.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/16_BGR-j48XR.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/17_5jGFCeAYM.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/18_xjPtHjF1K.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/19_ikd-z9scq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/20_u9uKQrD2t.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/21_XGHibTTpN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/22_Ses6lYlgy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/23_WcsSTmwuRd.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/24_lL6HlbgZy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/25_SrLqNoT2q.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-BE1699/26_c8j2nTvsN.jpg"],"photo_file_ids":["69db85cf5c7cd75eb857c185","69db85d05c7cd75eb857c37f","69db85d05c7cd75eb857c544","69db85d15c7cd75eb857c7c1","69db85d15c7cd75eb857cd94","69db85d25c7cd75eb857d05a","69db85d35c7cd75eb857d6ba","69db85d35c7cd75eb857d951","69db85d45c7cd75eb857db10","69db85d45c7cd75eb857dc41","69db85d45c7cd75eb857de1b","69db85d55c7cd75eb857df71","69db85d55c7cd75eb857e0e0","69db85d65c7cd75eb857e2f2","69db85d65c7cd75eb857e51e","69db85d75c7cd75eb857e6cc","69db85d75c7cd75eb857e8b6","69db85d85c7cd75eb857ea9a","69db85d85c7cd75eb857eccc","69db85d95c7cd75eb857ee9e","69db85d95c7cd75eb857f10c","69db85da5c7cd75eb857f333","69db85db5c7cd75eb857f532","69db85db5c7cd75eb857f7c4","69db85dc5c7cd75eb857f9d8","69db85dc5c7cd75eb857fc65"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:45:33.466492+00:00","updated_at":"2026-04-12T11:45:33.466492+00:00","search_tsv":"'1942':12 '2':3,36 '25':111 '250':88 '3':1 '30':122 '38':93 '3x':145 '5':102 '50':99,119,159 'access':173 'air':33 'albuquerqu':8,10 'anytim':25 'appli':23 'applianc':43 'applic':80 'appoint':168 'avondal':13 'back':55 'bath':4 'bed':2 'benefit':91 'brick':34 'brickleys/vendors':175 'call':24 'car':37 'ceil':40 'closet':48 'construct':35 'cover':54 'daili':148 'day':123 'deposit':71 'disclosur':69 'earli':125 'famili':6,177 'fan':41 'fee':68,85,98,101,110,114,127,158 'fireplac':39 'fresh':30 'front':52 'fund':109 'garag':38 'holdov':132 'includ':44 'increas':134,143 'inform':17 'landscap':51 'late':100 'laundri':49 'leas':124 'legal':96 'month':75,95,129 'nm':9,11 'no-show':155 'non':82,107 'non-refund':81 'non-suffici':106 'normal':147 'occup':154 'occurr':113 'one':74,128 'packag':92 'paint':31 'patio':56 'penalti':151 'per':94,112 'permit':62 'pet':21,61,84 'pl':14 'pleas':59 'post':97 'present':164 'properti':65 'provid':172 'qualifi':20,79 'rate':149 're':162 'refriger':32 'refund':83 'rent':76,105,131,133,142 'repair/inspection':167 'requir':67,89 'room':50 'schedul':27,166 'secur':70 'shed':58 'show':157 'singl':5,176 'start':72,86 'state':66 'storag':57 'suffici':108 'tenant':90 'termin':126 'time':141 'transfer':117 'unauthor':153 'util':118 'vacat':139 'view':19,29 'visit':15 'walk':46 'walk-in':45 'well':78 'yard':53","landlords":null},{"id":"PROP-A575BE50","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Albuquerque, NM","description":"3-bedroom, 2-bathroom single-family home located in a gated community in Southwest Albuquerque. This home offers a comfortable layout, easy-maintenance flooring, and a convenient location close to schools, parks, and shopping. The home features a spacious living area, a functional kitchen and a primary bedroom with its own bathroom. Enjoy the privacy of a corner lot with an attached garage.","showing_instructions":null,"address":"331 Calle Amarillo","city":"Albuquerque","state":"NM","zip":"87121","county":"Bernalillo","lat":35.070784,"lng":-106.731733,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1190,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1800,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/1_camd6VSnHb.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/2_JReNG7XDF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/3_1t5lPpjkm.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/4_v_YcElBmJ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/5_5hqdRWUNf.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/6_T5tNIUpHDX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/7_5Tvyn43p1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/8_YP4HHLrlB9.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/9_sDHz6gBI0.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/10_SLIL21QksX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/11_8IPim0HtY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/12_L-km6PX9Z.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/13_OwnUxUUNc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/14_6womb1jqv.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/15_ORzMvJl1h.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/16_KjRAwz80u.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/17_bimOuGX7g.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/18_OGOPnAND1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/19_QJYUNzk4q.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/20_uRxmOuglO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/21_0Cqn_WxLD.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/22_4bB8iX_mF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/23_7ReGqUo1ku.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/24_Ik1zOQLtL.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-FE04EC/25_do08GAhH8.jpg"],"photo_file_ids":["69db85c05c7cd75eb85783f6","69db85c15c7cd75eb85785ad","69db85c15c7cd75eb8578c02","69db85c25c7cd75eb8578fdb","69db85c25c7cd75eb85792e6","69db85c35c7cd75eb857959a","69db85c45c7cd75eb8579891","69db85c45c7cd75eb8579a6f","69db85c55c7cd75eb8579c20","69db85c65c7cd75eb8579faa","69db85c65c7cd75eb857a200","69db85c75c7cd75eb857a3be","69db85c85c7cd75eb857a5e8","69db85c85c7cd75eb857a810","69db85c95c7cd75eb857a9e3","69db85c95c7cd75eb857ac19","69db85ca5c7cd75eb857ae83","69db85ca5c7cd75eb857b0be","69db85cb5c7cd75eb857b246","69db85cc5c7cd75eb857b489","69db85cc5c7cd75eb857b602","69db85cd5c7cd75eb857b7ed","69db85cd5c7cd75eb857b9d4","69db85ce5c7cd75eb857bbbc","69db85ce5c7cd75eb857bd6b"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:45:19.464765+00:00","updated_at":"2026-04-12T11:45:19.464765+00:00","search_tsv":"'2':3,17 '3':1,15 '331':12 'albuquerqu':8,10,30 'amarillo':14 'area':57 'attach':78 'bath':4 'bathroom':18,68 'bed':2 'bedroom':16,64 'call':13 'close':45 'comfort':35 'communiti':27 'conveni':43 'corner':74 'easi':38 'easy-mainten':37 'enjoy':69 'famili':6,21,81 'featur':53 'floor':40 'function':59 'garag':79 'gate':26 'home':22,32,52 'kitchen':60 'layout':36 'live':56 'locat':23,44 'lot':75 'mainten':39 'nm':9,11 'offer':33 'park':48 'primari':63 'privaci':71 'school':47 'shop':50 'singl':5,20,80 'single-famili':19 'southwest':29 'spacious':55","landlords":null},{"id":"PROP-691E2E16","landlord_id":null,"status":"active","title":"2 Bed / 2 Bath Single Family in Douglasville, GA","description":"Are you searching for your next place to live? FOLLOW these STEPS to END YOUR SEARCH. STEP 1, CALL. STEP 2, SCHEDULE a TOUR when you CALL STEP 3, SUBMIT your RENTAL APPLICATION STEP 4, wait for us to process your RENTAL APPLICATION, verifying that it MEETS the RENTAL REQUIRMENTS. STEP 5, SCHEDULE YOUR MOVE-IN DATE. STEP 6, MOVE-IN your NEW HOME! Take the steps to end your search for a place to live! Start now by CALLING and let us help you end your search as a tenant in one of our HOMES! *Processing time of rental applications varies **Steps 5 and 6 are contingent upon an approved rental application. ***Please make sure to call and speak with someone at the leasing office before submitting a rental application and/or any documents. ****We are now offering Contactless/UNGUIDED Tours. Ask us how to schedule yours when you inquire about this listing! To apply, visit TurboTenant and search for Property ID 1812464","showing_instructions":null,"address":"6266 Dorsett Shoals Rd","city":"Douglasville","state":"GA","zip":"30135","county":"Douglas","lat":33.679001,"lng":-84.782173,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":2,"bathrooms":2,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1099,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/1_H41hCtzfJ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/2_OGyVGyl8l.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/3_ItAM7KjW1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/4_0H2ApExOI.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/5_55_63LHCA.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/6_gkjrj6Hdw.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/7_zXT0H2GkZ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/8_UH8iyfJg2.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/9_3Xb_ZbXUn.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/10_tX6S0X7fU.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/11_Ugw8IXgYp.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/12_uu3YWUkwk2.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/13_bT4RJUeka.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-98110A/14_xtRsXFZ0z.jpg"],"photo_file_ids":["69db85b75c7cd75eb8575b83","69db85b85c7cd75eb857613d","69db85b95c7cd75eb8576c14","69db85b95c7cd75eb8576df1","69db85ba5c7cd75eb8576fde","69db85bb5c7cd75eb8577190","69db85bb5c7cd75eb857737c","69db85bc5c7cd75eb85774f9","69db85bc5c7cd75eb857762f","69db85bd5c7cd75eb8577750","69db85bd5c7cd75eb8577931","69db85be5c7cd75eb8577d12","69db85be5c7cd75eb8577e47","69db85bf5c7cd75eb8577f8c"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T11:45:04.13184+00:00","updated_at":"2026-04-12T11:45:04.13184+00:00","search_tsv":"'1':33 '1812464':179 '2':1,3,36 '3':44 '4':50 '5':67,121 '6':75,123 '6266':12 'and/or':149 'appli':171 'applic':48,58,118,130,148 'approv':128 'ask':158 'bath':4 'bed':2 'call':34,42,97,135 'contactless/unguided':156 'conting':125 'date':73 'document':151 'dorsett':13 'douglasvill':8,10 'end':29,86,103 'famili':6,181 'follow':25 'ga':9,11 'help':101 'home':81,113 'id':178 'inquir':166 'leas':142 'let':99 'list':169 'live':24,93 'make':132 'meet':62 'move':71,77 'move-in':70,76 'new':80 'next':21 'offer':155 'offic':143 'one':110 'place':22,91 'pleas':131 'process':55,114 'properti':177 'rd':15 'rental':47,57,64,117,129,147 'requir':65 'schedul':37,68,162 'search':18,31,88,105,175 'shoal':14 'singl':5,180 'someon':139 'speak':137 'start':94 'step':27,32,35,43,49,66,74,84,120 'submit':45,145 'sure':133 'take':82 'tenant':108 'time':115 'tour':39,157 'turboten':173 'upon':126 'us':53,100,159 'vari':119 'verifi':59 'visit':172 'wait':51","landlords":null},{"id":"PROP-ACE6B2C9","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Apartment in Columbus, OH","description":"This beautifully renovated 3-bedroom, 2-bath home blends original character with modern updates throughout. The main level features new flooring, exposed brick accents, and an open-concept kitchen with granite countertops and stainless steel appliances. The full bath showcases custom tilework from floor to ceiling. All three bedrooms are generously sized, and both bathrooms have been tastefully updated. A finished third-floor flex space provides over 300 additional square feet-perfect for an office, studio, or extra living area. Outside, enjoy a fully fenced yard, a large deck, and an oversized two-car garage.","showing_instructions":null,"address":"28 N Princeton Ave","city":"Columbus","state":"OH","zip":"43222","county":"Franklin","lat":39.958683,"lng":-83.035255,"property_type":"APARTMENT","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1716,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1500,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/1_KI6YJ0LZ2.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/2_vp08VyTPK.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/3_av16Md453.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/4_39vlCgdAb.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/5_TlzSye9Uu.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/6_Ra3zh_4RX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/7_3ZbD19vkY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/8_ZS0_-GTDg.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/9_uqP7eDeWB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/10_kkiAmpqYyo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/11_iuAVWWlDB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/12_AsHK0ecppn.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/13_xRuJ--S0S.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/14_iumqdn781.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/15_PILp2v_qP.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-7A05CB/16_4z-WkSjdX.jpg"],"photo_file_ids":["69db728d5c7cd75eb8fa6f6c","69db728e5c7cd75eb8fa728d","69db728f5c7cd75eb8fa7414","69db728f5c7cd75eb8fa7692","69db72905c7cd75eb8fa7910","69db72915c7cd75eb8fa7b63","69db72915c7cd75eb8fa7d0d","69db72925c7cd75eb8fa7f06","69db72935c7cd75eb8fa81db","69db72935c7cd75eb8fa8417","69db72945c7cd75eb8fa8642","69db72955c7cd75eb8fa8923","69db72955c7cd75eb8fa8af6","69db72965c7cd75eb8fa946b","69db72975c7cd75eb8fa984a","69db72975c7cd75eb8fa99c7"],"virtual_tour_url":null,"views_count":1,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T10:12:43.582695+00:00","updated_at":"2026-04-12T12:06:35.707868+00:00","search_tsv":"'2':3,20 '28':11 '3':1,18 '300':84 'accent':38 'addit':85 'apart':5,114 'applianc':51 'area':97 'ave':14 'bath':4,21,54 'bathroom':70 'beauti':16 'bed':2 'bedroom':19,64 'blend':23 'brick':37 'car':112 'ceil':61 'charact':25 'columbus':7,9 'concept':43 'countertop':47 'custom':56 'deck':106 'enjoy':99 'expos':36 'extra':95 'featur':33 'feet':88 'feet-perfect':87 'fenc':102 'finish':76 'flex':80 'floor':35,59,79 'full':53 'fulli':101 'garag':113 'generous':66 'granit':46 'home':22 'kitchen':44 'larg':105 'level':32 'live':96 'main':31 'modern':27 'n':12 'new':34 'offic':92 'oh':8,10 'open':42 'open-concept':41 'origin':24 'outsid':98 'overs':109 'perfect':89 'princeton':13 'provid':82 'renov':17 'showcas':55 'size':67 'space':81 'squar':86 'stainless':49 'steel':50 'studio':93 'tast':73 'third':78 'third-floor':77 'three':63 'throughout':29 'tilework':57 'two':111 'two-car':110 'updat':28,74 'yard':103","landlords":null},{"id":"PROP-FF80A047","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Columbus, OH","description":"Available now! Text for a showing***. Three bedroom 1.5 bath ranch style home located on the East side of Columbus, close to Whitehall. Off street parking included with a driveway and attached carport. Pets allowed with an additional fee.","showing_instructions":null,"address":"1537 Duffield Dr","city":"Columbus","state":"OH","zip":"43227","county":"Franklin","lat":39.943522,"lng":-82.877068,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1020,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1500,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/1_vZKPThddM.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/2_zatpYx8ZdN.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/3_ZVe1fFXnB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/4_IDng81Fbe.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/5_wd_n06M6P.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/6_wOE_93FGk.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/7_NOQH-sI0Yx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/8_Amr-vAewS.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/9_DR_hxI-eq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/10_d04DhCT1g.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/11_HVXy1desc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/12_lJ4J2mJdY.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/13_QFgkxjg-z.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/14_bY8zf20Do.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/15_Pc6US1lN4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/16_yFjCRYkL2.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-690107/17_MGzEeEaeh.jpg"],"photo_file_ids":["69db72995c7cd75eb8fa9d76","69db72995c7cd75eb8fa9eb3","69db729a5c7cd75eb8faa05f","69db729a5c7cd75eb8faa1e6","69db729b5c7cd75eb8faa336","69db729c5c7cd75eb8faa4ee","69db729c5c7cd75eb8faa622","69db729d5c7cd75eb8faa74b","69db729d5c7cd75eb8faa866","69db729e5c7cd75eb8faa97a","69db729e5c7cd75eb8faaac5","69db729f5c7cd75eb8faabb3","69db729f5c7cd75eb8faacbf","69db72a05c7cd75eb8faada0","69db72a05c7cd75eb8faae6e","69db72a05c7cd75eb8faaf8d","69db72a15c7cd75eb8fab090"],"virtual_tour_url":null,"views_count":1,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T10:12:41.925198+00:00","updated_at":"2026-04-12T12:05:29.364739+00:00","search_tsv":"'1.5':23 '1537':12 '2':3 '3':1 'addit':52 'allow':49 'attach':46 'avail':15 'bath':4,24 'bed':2 'bedroom':22 'carport':47 'close':35 'columbus':8,10,34 'dr':14 'driveway':44 'duffield':13 'east':31 'famili':6,55 'fee':53 'home':27 'includ':41 'locat':28 'oh':9,11 'park':40 'pet':48 'ranch':25 'show':20 'side':32 'singl':5,54 'street':39 'style':26 'text':17 'three':21 'whitehal':37","landlords":null},{"id":"PROP-9055A014","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Grove City, OH","description":"Remodeled! 3 bedroom 2 full bathrooms. Almost .25 Acre lot. Washer and dryer in unit! Brand new stainless steel appliances. Open kitchen layout with island. Large master closet with master bathroom. Large driveway with tons of space to park vehicles. Large back/side yard. Sign a 3 year lease and get your first month for free!","showing_instructions":null,"address":"1810 Tanis Dr","city":"Grove City","state":"OH","zip":"43123","county":"Franklin","lat":39.896044,"lng":-83.041891,"property_type":"SINGLE_FAMILY","year_built":1953,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1152,"lot_size_sqft":9148,"garage_spaces":null,"monthly_rent":1675,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/1_ZablF_Wzm.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/2_WlsSgq1uB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/3_IcEs9fRsT.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/4_qmWl3kOhj.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/5_LdV8YP7B4.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/6_GM-sVn4Q4y.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/7_TjsqvmdBA.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/8_n22m9_6FL3.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/9_Y6TxRcftgD.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/10_Nz6kg9IFl.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/11_SF_aKnYSt.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/12_efbe5Xmu6.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/13_vL6N9jqTF.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/14_svKkjALjm.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/15_MVjRdHyk6.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/16_7y072PHhr.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/17_f4s7fC5DR.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/18_92KDq4MPq.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/19_ZnIa27IT-.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/20_YSPbNkcl3.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/21_UX4e-Cbxl.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/22__uzfshf4W.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/23_vgsXi5O9x.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/24_Us8tbsfuO.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/25_PHoUXAdI5.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/26_ThZX5sNzo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/27_s4WJHCACy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-188BF4/28_2yTm03MQq.jpg"],"photo_file_ids":["69db72a85c7cd75eb8faca45","69db72a85c7cd75eb8facbe1","69db72a95c7cd75eb8facd5d","69db72aa5c7cd75eb8facf14","69db72aa5c7cd75eb8fad0a1","69db72ab5c7cd75eb8fad244","69db72ac5c7cd75eb8fad3c9","69db72ac5c7cd75eb8fad630","69db72ad5c7cd75eb8fad79e","69db72ae5c7cd75eb8fad90b","69db72ae5c7cd75eb8fada89","69db72af5c7cd75eb8fadc90","69db72b05c7cd75eb8faddea","69db72b05c7cd75eb8fadeea","69db72b15c7cd75eb8fadfe6","69db72b15c7cd75eb8fae145","69db72b25c7cd75eb8fae2ac","69db72b25c7cd75eb8fae43f","69db72b35c7cd75eb8fae5a9","69db72b35c7cd75eb8fae6c9","69db72b45c7cd75eb8fae82b","69db72b45c7cd75eb8fae93e","69db72b55c7cd75eb8faea6b","69db72b55c7cd75eb8faeba5","69db72b65c7cd75eb8faecc0","69db72b65c7cd75eb8faf20a","69db72b75c7cd75eb8faf530","69db72b75c7cd75eb8faf7f9"],"virtual_tour_url":null,"views_count":3,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T10:12:39.367716+00:00","updated_at":"2026-04-12T12:03:34.308934+00:00","search_tsv":"'1810':14 '2':3,20 '25':24 '3':1,18,62 'acr':25 'almost':23 'applianc':36 'back/side':58 'bath':4 'bathroom':22,47 'bed':2 'bedroom':19 'brand':32 'citi':9,12 'closet':44 'dr':16 'driveway':49 'dryer':29 'famili':6,73 'first':68 'free':71 'full':21 'get':66 'grove':8,11 'island':41 'kitchen':38 'larg':42,48,57 'layout':39 'leas':64 'lot':26 'master':43,46 'month':69 'new':33 'oh':10,13 'open':37 'park':55 'remodel':17 'sign':60 'singl':5,72 'space':53 'stainless':34 'steel':35 'tani':15 'ton':51 'unit':31 'vehicl':56 'washer':27 'yard':59 'year':63","landlords":null},{"id":"PROP-A475020A","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Columbus, OH","description":"Charming 3 bed, 2 bath ranch style home in a quiet neighborhood. The home flows from a comfortable living room into an open dining room and kitchen space. You will also find a primary suite with a full bath. The home boasts new appliances, a large washer and dryer on the first floor, and an attached one car garage. There is also a large fenced in backyard with a comfortable patio perfect for entertaining. Located just minutes from shopping, dining, parks, and major roadways, this home offers easy access to everything Columbus has to offer. Apply Now! Pet Policy: Pets allowed Tenant pays all utilities. Rental Requirements -Income: 3x monthly rent (combined household income) -Credit Score: 600 preferred; subject to review -Rental History: Positive history required; past evictions or bankruptcies may affect eligibility -Background Check: Required & reviewed as part of overall application -Lease Term: 12 months Move-In Costs -Application Fee: $59/adult (Zillow applications not accepted) -Admin Fee: $199 due at move-in -Security Deposit: $1X RENT due within 48hr of approval -First Month's Rent: Due before move-in Other Charges -Utilities: Tenant pays all utilities -Pets: $250 non-refundable fee + $25/month per pet -Resident Benefits Package: $64.95/month (Includes renters insurance, pest control, HVAC filter delivery, rewards, and credit building) -Enjoy lightning-fast 1 Gig internet with this home for just $69/month - an exclusive discounted rate! Additional Info -School Zones: Subject to change - please verify independently -Application Fees: Non-refundable; visit the property before applying or proceed at your discretion -Equal Housing Opportunity -Scam Notice: We do not advertise on Craigslist, Facebook Marketplace, LetGo, or similar. Report any suspicious listings.","showing_instructions":null,"address":"3486 Roswell Dr","city":"Columbus","state":"OH","zip":"43227","county":"Franklin","lat":39.939344,"lng":-82.901504,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":1116,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1625,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/1_blak56dZe.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/2_PEL9NocI3.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/3_wtzXFyCav.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/4_sHFlkLtkz.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/5_nkyyzC13t.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/6_KY9Pmx4Mg.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/7_ARcyRdlFE.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/8_3YasNaeKc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/9_H0auomowx.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DC291A/10_60D5mh2pI.jpg"],"photo_file_ids":["69db72b85c7cd75eb8fafa3d","69db72b95c7cd75eb8fafbdf","69db72b95c7cd75eb8fafcf6","69db72ba5c7cd75eb8fafe26","69db72ba5c7cd75eb8faff24","69db72bb5c7cd75eb8fb0084","69db72bc5c7cd75eb8fb01fd","69db72bc5c7cd75eb8fb033e","69db72bd5c7cd75eb8fb04b0","69db72bd5c7cd75eb8fb06f5"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-12T10:12:37.314186+00:00","updated_at":"2026-04-12T10:23:58.018511+00:00","search_tsv":"'/month':218 '1':235 '12':159 '199':174 '1x':182 '2':3,18 '25/month':211 '250':206 '3':1,16 '3486':12 '3x':123 '48hr':186 '59/adult':167 '600':131 '64.95':217 '69/month':243 'accept':171 'access':103 'addit':248 'admin':172 'advertis':281 'affect':146 'allow':115 'also':45,76 'appli':110,267 'applianc':58 'applic':156,165,169,258 'approv':188 'attach':70 'background':148 'backyard':81 'bankruptci':144 'bath':4,19,53 'bed':2,17 'benefit':215 'boast':56 'build':230 'car':72 'chang':254 'charg':199 'charm':15 'check':149 'columbus':8,10,106 'combin':126 'comfort':32,84 'control':223 'cost':164 'craigslist':283 'credit':129,229 'deliveri':226 'deposit':181 'dine':38,94 'discount':246 'discret':272 'dr':14 'dryer':63 'due':175,184,193 'easi':102 'elig':147 'enjoy':231 'entertain':88 'equal':273 'everyth':105 'evict':142 'exclus':245 'facebook':284 'famili':6,294 'fast':234 'fee':166,173,210,259 'fenc':79 'filter':225 'find':46 'first':66,189 'floor':67 'flow':29 'full':52 'garag':73 'gig':236 'histori':137,139 'home':22,28,55,100,240 'hous':274 'household':127 'hvac':224 'includ':219 'incom':122,128 'independ':257 'info':249 'insur':221 'internet':237 'kitchen':41 'larg':60,78 'leas':157 'letgo':286 'lightn':233 'lightning-fast':232 'list':292 'live':33 'locat':89 'major':97 'marketplac':285 'may':145 'minut':91 'month':124,160,190 'move':162,178,196 'move-in':161,177,195 'neighborhood':26 'new':57 'non':208,261 'non-refund':207,260 'notic':277 'offer':101,109 'oh':9,11 'one':71 'open':37 'opportun':275 'overal':155 'packag':216 'park':95 'part':153 'past':141 'patio':85 'pay':117,202 'per':212 'perfect':86 'pest':222 'pet':112,114,205,213 'pleas':255 'polici':113 'posit':138 'prefer':132 'primari':48 'proceed':269 'properti':265 'quiet':25 'ranch':20 'rate':247 'refund':209,262 'rent':125,183,192 'rental':120,136 'renter':220 'report':289 'requir':121,140,150 'resid':214 'review':135,151 'reward':227 'roadway':98 'room':34,39 'roswel':13 'scam':276 'school':250 'score':130 'secur':180 'shop':93 'similar':288 'singl':5,293 'space':42 'style':21 'subject':133,252 'suit':49 'suspici':291 'tenant':116,201 'term':158 'util':119,200,204 'verifi':256 'visit':263 'washer':61 'within':185 'zillow':168 'zone':251","landlords":null},{"id":"PROP-EE8F494C","landlord_id":null,"status":"active","title":"3 Bed / 2 Bath Single Family in Douglasville, GA","description":"Are you searching for your next place to live? FOLLOW these STEPS to END YOUR SEARCH. STEP 1 CALL and ask for our property manager Deborah. STEP 2 SCHEDULE a TOUR with Deborah when you CALL. STEP 3 SUBMIT your RENTAL APPLICATION to Deborah after your tour or apply here on TurboTenant. STEP 4 Wait patiently while we process your RENTAL APPLICATION, verifying that it MEETS the RENTAL REQUIRMENTS. *Processing time of rental applications varies STEP 5 SCHEDULE YOUR MOVE-IN DATE. STEP 6 MOVE-IN your NEW HOME! *Steps 5 and 6 are contingent upon an approved rental application. Take the steps to end your search for a place to live by CALLING and let Deborah help you end your search in one of our HOMES! ***Please make sure to call and speak with someone at the leasing office before submitting a rental application and/or any documents*** To apply, visit TurboTenant and search for Property ID 997117","showing_instructions":null,"address":"6266 Dorsett Shoals Rd","city":"Douglasville","state":"GA","zip":"30135","county":"Douglas","lat":33.679008,"lng":-84.782173,"property_type":"SINGLE_FAMILY","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":3,"bathrooms":2,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":1199,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/1_8UiNmFa7A.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/2_NtinYPNQj.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/3_Tu0_HYgLB.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/4_Z03tgiK_d.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/5_oR4M3xlaT.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/6_nzgQbnnsy.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/7_DpNyjR-xC.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/8_TxS3sD-yR.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/9_5D3-xZEVo.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/10_bClxHJPc1.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/11_-P3nuGWUX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/12_awQpw7tnV.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/13_ljunHuWGUi.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/14_ow3d7uYp96.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/15_uCMp_Zen1C.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/16_Yswc4n_Jf.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3A820A/17_soa884q7t.jpg"],"photo_file_ids":["69da74b05c7cd75eb8988161","69da74b15c7cd75eb8988413","69da74b15c7cd75eb8988898","69da74b25c7cd75eb8988ade","69da74b35c7cd75eb8988e6a","69da74b35c7cd75eb8989324","69da74b45c7cd75eb89896e3","69da74b55c7cd75eb8989964","69da74b55c7cd75eb8989c0f","69da74b55c7cd75eb8989e62","69da74b65c7cd75eb898a826","69da74b75c7cd75eb898ae7a","69da74b75c7cd75eb898b2fd","69da74b85c7cd75eb898b67e","69da74b85c7cd75eb898b95c","69da74b95c7cd75eb898bcb5","69da74b95c7cd75eb898bf30"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T16:20:10.298327+00:00","updated_at":"2026-04-11T16:20:10.298327+00:00","search_tsv":"'1':33 '2':3,43 '3':1,53 '4':69 '5':92,108 '6':100,110 '6266':12 '997117':175 'and/or':163 'appli':64,167 'applic':57,77,89,117,162 'approv':115 'ask':36 'bath':4 'bed':2 'call':34,51,131,149 'conting':112 'date':98 'deborah':41,48,59,134 'document':165 'dorsett':13 'douglasvill':8,10 'end':29,122,137 'famili':6,177 'follow':25 'ga':9,11 'help':135 'home':106,144 'id':174 'leas':156 'let':133 'live':24,129 'make':146 'manag':40 'meet':81 'move':96,102 'move-in':95,101 'new':105 'next':21 'offic':157 'one':141 'patient':71 'place':22,127 'pleas':145 'process':74,85 'properti':39,173 'rd':15 'rental':56,76,83,88,116,161 'requir':84 'schedul':44,93 'search':18,31,124,139,171 'shoal':14 'singl':5,176 'someon':153 'speak':151 'step':27,32,42,52,68,91,99,107,120 'submit':54,159 'sure':147 'take':118 'time':86 'tour':46,62 'turboten':67,169 'upon':113 'vari':90 'verifi':78 'visit':168 'wait':70","landlords":null},{"id":"PROP-D5B1681F","landlord_id":null,"status":"active","title":"Townhomes in Austin, TX","description":"Welcome home to BB Living Easton Park. Welcome to BB Living Easton Park our brand-new lifestyle community offering spacious three and four bedroom single-family townhomes in Austin, TX. Located in the vibrant Easton Park master-planned community, our modern townhomes combine the convenience of apartment living with the spaciousness of a home by providing the perfect blend of luxury, convenience, and maintenance-free living. Live in an award-winning Austin community with premier amenities, including a resort-style pool, 24/7 fitness center, dog parks, and scenic walking trails. Whether you're relaxing by the pool or enjoying the green spaces, BB Living Easton Park offers an unparalleled rental experience. Ready to take your life to the next level of comfort with the ease of apartment living including on-site management and maintenance service for a seamless rental lifestyle? We'll take care of the details. Read on to learn more about what sets our community apart and to get in touch with our friendly leasing team today. An exciting life awaits at BB Living Easton Park.","showing_instructions":null,"address":"8700 Finial Dr","city":"Austin","state":"TX","zip":"78744","county":"Travis","lat":30.150755,"lng":-97.706429,"property_type":"TOWNHOMES","year_built":2025,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2495,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-0A77FA/1_ZYmhUkkWf.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-0A77FA/2_E2mjJMyO5.jpg"],"photo_file_ids":["69da52945c7cd75eb8dcbd09","69da52945c7cd75eb8dcbec6"],"virtual_tour_url":null,"views_count":1,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:29.44125+00:00","updated_at":"2026-04-11T14:00:36.424841+00:00","search_tsv":"'24/7':97 '8700':7 'amen':90 'apart':59,142,174 'austin':3,5,40,86 'await':189 'award':84 'award-win':83 'bb':13,19,118,191 'bedroom':34 'blend':71 'brand':25 'brand-new':24 'care':160 'center':99 'combin':55 'comfort':137 'communiti':28,51,87,173 'conveni':57,74 'detail':163 'dog':100 'dr':9 'eas':140 'easton':15,21,46,120,193 'enjoy':114 'excit':187 'experi':126 'famili':37 'finial':8 'fit':98 'four':33 'free':78 'friend':182 'get':177 'green':116 'home':11,66 'includ':91,144 'learn':167 'leas':183 'level':135 'life':131,188 'lifestyl':27,156 'live':14,20,60,79,80,119,143,192 'll':158 'locat':42 'luxuri':73 'mainten':77,150 'maintenance-fre':76 'manag':148 'master':49 'master-plan':48 'modern':53 'new':26 'next':134 'offer':29,122 'on-sit':145 'park':16,22,47,101,121,194 'perfect':70 'plan':50 'pool':96,112 'premier':89 'provid':68 're':108 'read':164 'readi':127 'relax':109 'rental':125,155 'resort':94 'resort-styl':93 'scenic':103 'seamless':154 'servic':151 'set':171 'singl':36 'single-famili':35 'site':147 'space':117 'spacious':30,63 'style':95 'take':129,159 'team':184 'three':31 'today':185 'touch':179 'townhom':1,38,54,195 'trail':105 'tx':4,6,41 'unparallel':124 'vibrant':45 'walk':104 'welcom':10,17 'whether':106 'win':85","landlords":null},{"id":"PROP-1AABD4E4","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"The residences at Hanover Brazos will feature 308 well-appointed apartment homes with large windows and sleek modern finishes. This luxury apartment community is thoughtfully located on the corner of 3rd Street and Brazos Street within the heart of Downtown Austin. It's more than just a residence, it's a dynamic destination. Hanover Brazos exemplifies elevated convenience and offers walkable access to various restaurants, cafes, theaters, nightlife, shops and parks. We offer impressive hotel-inspired amenities and a devoted staff committed to Making Life Easy .","showing_instructions":null,"address":"215 Brazos St","city":"Austin","state":"TX","zip":"78701","county":"Travis","lat":30.264586,"lng":-97.742273,"property_type":"APARTMENT","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2748,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-EEF61F/1_y7eGRvAnZ.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-EEF61F/2_UC7hE_iJR.jpg"],"photo_file_ids":["69da52925c7cd75eb8dcb261","69da52935c7cd75eb8dcb876"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:27.8315+00:00","updated_at":"2026-04-11T13:54:27.8315+00:00","search_tsv":"'215':7 '308':17 '3rd':41 'access':72 'amen':88 'apart':1,21,32,98 'appoint':20 'austin':3,5,51 'brazo':8,14,44,65 'cafe':76 'commit':93 'communiti':33 'conveni':68 'corner':39 'destin':63 'devot':91 'downtown':50 'dynam':62 'easi':97 'elev':67 'exemplifi':66 'featur':16 'finish':29 'hanov':13,64 'heart':48 'home':22 'hotel':86 'hotel-inspir':85 'impress':84 'inspir':87 'larg':24 'life':96 'locat':36 'luxuri':31 'make':95 'modern':28 'nightlif':78 'offer':70,83 'park':81 'resid':11,58 'restaur':75 'shop':79 'sleek':27 'st':9 'staff':92 'street':42,45 'theater':77 'thought':35 'tx':4,6 'various':74 'walkabl':71 'well':19 'well-appoint':18 'window':25 'within':46","landlords":null},{"id":"PROP-3E351122","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"High-rise city living has never been better than here at our luxury apartments in Downtown Austin. Located in the heart of the 2nd Street District and just steps from Lady Bird Lake, this centrally-located community offers unfettered access to Austin's major employers, attractions and entertainment destinations in just minutes. Enjoy sweeping views of the city from the rooftop oasis pool and skye deck, as well as from the top-of-the-line fitness center and social hub. Inside, 10-foot ceilings and polished concrete floors complete the modern apartment interiors, while floor-to-ceiling windows and private balconies offer unparalleled views of Downtown Austin's skyline.","showing_instructions":null,"address":"421 W 3rd St","city":"Austin","state":"TX","zip":"78701","county":"Travis","lat":30.265934,"lng":-97.74803,"property_type":"APARTMENT","year_built":2007,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2625,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-DEC92A/1_XZo_ECPaV.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-DEC92A/2_dZJ_3Fo9C.jpg"],"photo_file_ids":["69da52915c7cd75eb8dcab51","69da52915c7cd75eb8dcad3f"],"virtual_tour_url":null,"views_count":1,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:26.257814+00:00","updated_at":"2026-04-11T16:07:15.672554+00:00","search_tsv":"'10':95 '2nd':35 '3rd':9 '421':7 'access':52 'apart':1,25,105,124 'attract':58 'austin':3,5,28,54,121 'balconi':115 'better':19 'bird':43 'ceil':97,111 'center':90 'central':47 'centrally-loc':46 'citi':14,70 'communiti':49 'complet':102 'concret':100 'deck':78 'destin':61 'district':37 'downtown':27,120 'employ':57 'enjoy':65 'entertain':60 'fit':89 'floor':101,109 'floor-to-ceil':108 'foot':96 'heart':32 'high':12 'high-ris':11 'hub':93 'insid':94 'interior':106 'ladi':42 'lake':44 'line':88 'live':15 'locat':29,48 'luxuri':24 'major':56 'minut':64 'modern':104 'never':17 'oasi':74 'offer':50,116 'polish':99 'pool':75 'privat':114 'rise':13 'rooftop':73 'skye':77 'skylin':123 'social':92 'st':10 'step':40 'street':36 'sweep':66 'top':85 'top-of-the-lin':84 'tx':4,6 'unfett':51 'unparallel':117 'view':67,118 'w':8 'well':80 'window':112","landlords":null},{"id":"PROP-CFDA4157","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"Live at Cole Apartments in South Lamar, Austin, TX. Our studio, 1, 2, and 3 bedroom apartments offer modern design and everyday comfort in a prime downtown location. Enjoy nearby Zilker Park, Town Lake, and local dining, plus quick access to I-35 and TX-1 Loop for easy commutes. Discover the perfect mix of convenience and lifestyle at Coleschedule your tour today.","showing_instructions":null,"address":"300 S Lamar Blvd","city":"Austin","state":"TX","zip":"78704","county":"Travis","lat":30.262781,"lng":-97.758525,"property_type":"APARTMENT","year_built":2009,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":3161,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-90E505/1_YPBdZ_JuX.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-90E505/2_PWEpnPGVe.jpg"],"photo_file_ids":["69da528f5c7cd75eb8dca70c","69da52905c7cd75eb8dca8cf"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:24.539622+00:00","updated_at":"2026-04-11T13:54:24.539622+00:00","search_tsv":"'-1':56 '-35':53 '1':22 '2':23 '3':25 '300':7 'access':50 'apart':1,14,27,74 'austin':3,5,18 'bedroom':26 'blvd':10 'cole':13 'coleschedul':70 'comfort':33 'commut':60 'conveni':66 'design':30 'dine':47 'discov':61 'downtown':37 'easi':59 'enjoy':39 'everyday':32 'lake':44 'lamar':9,17 'lifestyl':68 'live':11 'local':46 'locat':38 'loop':57 'mix':64 'modern':29 'nearbi':40 'offer':28 'park':42 'perfect':63 'plus':48 'prime':36 'quick':49 'south':16 'studio':21 'today':73 'tour':72 'town':43 'tx':4,6,19,55 'zilker':41","landlords":null},{"id":"PROP-8F8809CE","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"Bee Caves Vistas offers townhomes for rent in Bee Caves, Austin, that redefine modern living with a perfect blend of comfort, style, and convenience. Nestled in one of Austin's most sought-after neighborhoods, our pet-friendly three-bedroom townhomes feature soaring 9-foot ceilings, rich hardwood-style flooring, granite countertops, and spacious attached garages. Step outside your door to beautifully landscaped grounds, complete with a fenced dog park, scenic walking trail, and picnic area with grilling stations. Enjoy the ease of gated access, guest parking, and a prime location near Hill Country Galleria, Downtown Austin, and local parks. Experience a lifestyle where everyday comfort meets effortless sophistication. Contact us today to find your new home at Bee Caves Vistas.","showing_instructions":null,"address":"6508 Steep Cactus Trl","city":"Austin","state":"TX","zip":"78735","county":"Travis","lat":30.241316,"lng":-97.877136,"property_type":"APARTMENT","year_built":2018,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2494,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-3EB9FB/1_S5zwtvjdn.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-3EB9FB/2_lctM1ygfe.jpg"],"photo_file_ids":["69da528d5c7cd75eb8dca2cc","69da528e5c7cd75eb8dca44a"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:22.886309+00:00","updated_at":"2026-04-11T13:54:22.886309+00:00","search_tsv":"'6508':7 '9':56 'access':98 'apart':1,135 'area':89 'attach':68 'austin':3,5,21,39,110 'beauti':75 'bedroom':52 'bee':11,19,132 'blend':29 'cactus':9 'cave':12,20,133 'ceil':58 'comfort':31,119 'complet':78 'contact':123 'conveni':34 'countertop':65 'countri':107 'dog':82 'door':73 'downtown':109 'eas':95 'effortless':121 'enjoy':93 'everyday':118 'experi':114 'featur':54 'fenc':81 'find':127 'floor':63 'foot':57 'friend':49 'galleria':108 'garag':69 'gate':97 'granit':64 'grill':91 'ground':77 'guest':99 'hardwood':61 'hardwood-styl':60 'hill':106 'home':130 'landscap':76 'lifestyl':116 'live':25 'local':112 'locat':104 'meet':120 'modern':24 'near':105 'neighborhood':45 'nestl':35 'new':129 'offer':14 'one':37 'outsid':71 'park':83,100,113 'perfect':28 'pet':48 'pet-friend':47 'picnic':88 'prime':103 'redefin':23 'rent':17 'rich':59 'scenic':84 'soar':55 'sophist':122 'sought':43 'sought-aft':42 'spacious':67 'station':92 'steep':8 'step':70 'style':32,62 'three':51 'three-bedroom':50 'today':125 'townhom':15,53 'trail':86 'trl':10 'tx':4,6 'us':124 'vista':13,134 'walk':85","landlords":null},{"id":"PROP-A8EC34FF","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"Conveniently located at the crossroads of Austin's vibrant downtown, ATX Tower redefines luxury rental apartment living with a commitment to simplifying and seamlessly integrating every element of your day. Feel the camaraderie that comes from sharing a drink with a friend in our panoramic 55th floor sky lounge or from the lush outdoor pool deck. Elevate your work-from-home set up in our cozy and light filled co-working lounge with private Zoom Rooms and conference spaces. Enjoy the ease of stepping outside your door into the inspiring energy of Austin's iconic 6th Street corridor. All homes are located above the 22nd floor with floor to ceiling windows, providing every resident the opportunity to enjoy the wonder of a high-rise view overlooking the serene beauty of the lake, parks and skyline. Here, all the amenities you desire, the awe-inspiring spaces you never expected, and the meticulous attention to detail you deserve, beautifully blend together in one hospitality-driven destination with immediate access to everything this dynamic city has to offer.","showing_instructions":null,"address":"321 W 6th St","city":"Austin","state":"TX","zip":"78701","county":"Travis","lat":30.268666,"lng":-97.746025,"property_type":"APARTMENT","year_built":null,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2567,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-9C7355/1_SSKq1No7fv.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-9C7355/2_y-M-f6EP6.jpg"],"photo_file_ids":["69da528c5c7cd75eb8dc9e7c","69da528c5c7cd75eb8dca03f"],"virtual_tour_url":null,"views_count":1,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:21.271854+00:00","updated_at":"2026-04-11T14:02:11.29134+00:00","search_tsv":"'22nd':117 '321':7 '55th':56 '6th':9,108 'access':182 'amen':152 'apart':1,26,191 'attent':166 'atx':21 'austin':3,5,17,105 'awe':157 'awe-inspir':156 'beauti':142,171 'blend':172 'camaraderi':43 'ceil':122 'citi':187 'co':82 'co-work':81 'come':45 'commit':30 'confer':90 'conveni':11 'corridor':110 'cozi':77 'crossroad':15 'day':40 'deck':66 'deserv':170 'desir':154 'destin':179 'detail':168 'door':99 'downtown':20 'drink':49 'driven':178 'dynam':186 'eas':94 'element':37 'elev':67 'energi':103 'enjoy':92,130 'everi':36,125 'everyth':184 'expect':162 'feel':41 'fill':80 'floor':57,118,120 'friend':52 'high':136 'high-ris':135 'home':72,112 'hospit':177 'hospitality-driven':176 'icon':107 'immedi':181 'inspir':102,158 'integr':35 'lake':145 'light':79 'live':27 'locat':12,114 'loung':59,84 'lush':63 'luxuri':24 'meticul':165 'never':161 'offer':190 'one':175 'opportun':128 'outdoor':64 'outsid':97 'overlook':139 'panoram':55 'park':146 'pool':65 'privat':86 'provid':124 'redefin':23 'rental':25 'resid':126 'rise':137 'room':88 'seamless':34 'seren':141 'set':73 'share':47 'simplifi':32 'sky':58 'skylin':148 'space':91,159 'st':10 'step':96 'street':109 'togeth':173 'tower':22 'tx':4,6 'vibrant':19 'view':138 'w':8 'window':123 'wonder':132 'work':70,83 'work-from-hom':69 'zoom':87","landlords":null},{"id":"PROP-58B67667","landlord_id":null,"status":"active","title":"Apartment in Austin, TX","description":"Find your rhythm on Rainey. Paseo is a 48-story high-rise in the heart of downtown Austin, steps from Lady Bird Lake, live music and some of the city's best dining and nightlife. With two pools, a spa with saunas and cold plunges, a two-story fitness studio, co-working spaces and Daydreamer cafe and bar, life here flows with ease. Residences range from cozy studios to expansive penthouses, all designed with thoughtful finishes and sweeping views. Paseo is also home to ROOST Rainey, a boutique apartment hotel offering design-forward short stays. Floor plans are artist's rendering. All dimensions are approximate. Actual product and specifications may vary in dimension or detail. Not all features are available in every rental home. Please see a representative for details.","showing_instructions":null,"address":"80 Rainey St","city":"Austin","state":"TX","zip":"78701","county":"Travis","lat":30.259215,"lng":-97.738904,"property_type":"APARTMENT","year_built":2025,"floors":null,"unit_number":null,"total_units":null,"bedrooms":null,"bathrooms":null,"half_bathrooms":null,"square_footage":null,"lot_size_sqft":null,"garage_spaces":null,"monthly_rent":2992,"security_deposit":null,"last_months_rent":null,"application_fee":0,"pet_deposit":null,"admin_fee":null,"move_in_special":null,"available_date":null,"lease_terms":[],"minimum_lease_months":null,"pets_allowed":false,"pet_types_allowed":null,"pet_weight_limit":null,"pet_details":null,"smoking_allowed":false,"utilities_included":[],"parking":null,"parking_fee":null,"amenities":[],"appliances":[],"flooring":[],"heating_type":null,"cooling_type":null,"laundry_type":null,"photo_urls":["https://ik.imagekit.io/21rg7lvzo/properties/PP-468F59/1_lxG6ExPyc.jpg","https://ik.imagekit.io/21rg7lvzo/properties/PP-468F59/2_cZP1jl_Rz.jpg"],"photo_file_ids":["69da528a5c7cd75eb8dc9a38","69da528b5c7cd75eb8dc9c18"],"virtual_tour_url":null,"views_count":0,"applications_count":0,"saves_count":0,"created_at":"2026-04-11T13:54:19.732097+00:00","updated_at":"2026-04-11T13:54:19.732097+00:00","search_tsv":"'48':18 '80':7 'actual':119 'also':94 'apart':1,101,144 'approxim':118 'artist':112 'austin':3,5,28 'avail':133 'bar':70 'best':42 'bird':32 'boutiqu':100 'cafe':68 'citi':40 'co':63 'co-work':62 'cold':54 'cozi':79 'daydream':67 'design':85,105 'design-forward':104 'detail':128,143 'dimens':116,126 'dine':43 'downtown':27 'eas':75 'everi':135 'expans':82 'featur':131 'find':10 'finish':88 'fit':60 'floor':109 'flow':73 'forward':106 'heart':25 'high':21 'high-ris':20 'home':95,137 'hotel':102 'ladi':31 'lake':33 'life':71 'live':34 'may':123 'music':35 'nightlif':45 'offer':103 'paseo':15,92 'penthous':83 'plan':110 'pleas':138 'plung':55 'pool':48 'product':120 'rainey':8,14,98 'rang':77 'render':114 'rental':136 'repres':141 'resid':76 'rhythm':12 'rise':22 'roost':97 'sauna':52 'see':139 'short':107 'spa':50 'space':65 'specif':122 'st':9 'stay':108 'step':29 'stori':19,59 'studio':61,80 'sweep':90 'thought':87 'two':47,58 'two-stori':57 'tx':4,6 'vari':124 'view':91 'work':64","landlords":null}],"total":74,"page":1,"per_page":24,"total_pages":4};window.__INITIAL_LISTINGS_TS__=1776010101482;</script>
+</head>
+<body>
+
+<!-- ── Mobile Drawer Overlay ── -->
+<div id="site-nav" data-server-injected="1"><div class="nav-drawer-overlay" id="drawerOverlay"></div>
+
+<!-- ── Mobile Drawer ── -->
+<nav class="nav-drawer" id="navDrawer">
+  <div class="nav-drawer-header">
+    <a href="/index.html" class="nav-logo">
+      <div class="nav-logo-emblem">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.9"/>
+          <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.8)"/>
+        </svg>
+      </div>
+      <div class="nav-logo-text-wrap">
+        <div class="nav-logo-name">Choice Properties</div>
+        <div class="nav-logo-tagline">Rental Marketplace</div>
+      </div>
+    </a>
+    <button class="nav-drawer-close" id="drawerClose" aria-label="Close menu">
+      <i class="fas fa-times"></i>
+    </button>
+  </div>
+  <div class="nav-drawer-body">
+    <a href="/listings.html" class="nav-drawer-link" data-nav-path="/listings.html"><i class="fas fa-home"></i> Browse Listings</a>
+    <a href="/how-to-apply.html" class="nav-drawer-link" data-nav-path="/how-to-apply.html"><i class="fas fa-question-circle"></i> How to Apply</a>
+    <a href="/faq.html" class="nav-drawer-link" data-nav-path="/faq.html"><i class="fas fa-life-ring"></i> FAQ</a>
+    <a href="https://apply-choice-properties.pages.dev/?path=dashboard" target="_blank" rel="noopener noreferrer" class="nav-drawer-link"><i class="fas fa-file-alt"></i> Track My Application</a>    <a href="/landlord/register.html" class="nav-drawer-link" data-nav-path="/landlord/register.html"><i class="fas fa-user-tie"></i> Landlord Portal</a>
+    <a href="/admin/login.html" class="nav-drawer-link" data-nav-path="/admin/login.html"><i class="fas fa-user-shield"></i> Admin Portal</a>    <div class="nav-drawer-divider"></div>
+    <a href="/how-it-works.html" class="nav-drawer-link" id="drawerListPropertyLink" data-nav-path="/how-it-works.html"><i class="fas fa-building"></i> For Landlords</a>
+    <a href="/about.html" class="nav-drawer-link" data-nav-path="/about.html"><i class="fas fa-info-circle"></i> About Us</a>
+  </div>
+  <div class="nav-drawer-cta">
+    <a href="/landlord/login.html" class="btn btn-primary btn-full" id="drawerAuthLink">Landlord Login</a>
+  </div>
+  <div class="nav-drawer-footer"><a id="drawerFooterEmail" href="mailto:support@choiceproperties.com">support@choiceproperties.com</a></div>
+</nav>
+
+<!-- ── Main Navigation ── -->
+<nav class="nav" id="mainNav">
+  <div class="nav-inner">
+    <a href="/index.html" class="nav-logo">
+      <div class="nav-logo-emblem">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.9"/>
+          <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.8)"/>
+        </svg>
+      </div>
+      <div class="nav-logo-text-wrap">
+        <div class="nav-logo-name">Choice Properties</div>
+        <div class="nav-logo-tagline">Rental Marketplace</div>
+      </div>
+    </a>
+
+    <div class="nav-links">
+      <a href="/listings.html" class="nav-link" data-nav-path="/listings.html">Browse Listings</a>
+      <a href="/how-to-apply.html" class="nav-link" data-nav-path="/how-to-apply.html">How to Apply</a>
+      <a href="/faq.html" class="nav-link" data-nav-path="/faq.html">FAQ</a>
+      <a href="https://apply-choice-properties.pages.dev/?path=dashboard" target="_blank" rel="noopener noreferrer" class="nav-link nav-link--track">
+        <i class="fas fa-file-alt" style="font-size:11px"></i> Track Application
+      </a>
+      <a href="/landlord/register.html" class="nav-link nav-link--landlord" data-nav-path="/landlord/register.html">Landlord Portal</a>
+      <a href="/admin/login.html" class="nav-link nav-link--admin" data-nav-path="/admin/login.html">Admin Portal</a>
+    </div>
+
+    <button class="nav-mobile-toggle" id="mobileToggle" aria-label="Open menu" aria-expanded="false" aria-controls="navDrawer">
+      <i class="fas fa-bars"></i>
+    </button>
+  </div>
+</nav>
+</div>
+<!-- ── Page Header ── -->
+<div class="listings-page-header">
+  <div class="container">
+    <h1 class="listings-page-title">Available Rentals</h1>
+    <p class="listings-page-subtitle">
+      <strong id="statListings">—</strong> verified properties nationwide
+    </p>
+    <div class="listings-search-row">
+      <div class="search-field sf-text">
+        <i class="fas fa-search"></i>
+        <input type="text" id="searchInput"
+          placeholder="City, zip code, or neighborhood…"
+          autocomplete="off" aria-label="Search listings">
+      </div>
+      <div class="search-field sf-select">
+        <i class="fas fa-bed"></i>
+        <select id="bedroomsFilter" aria-label="Bedrooms">
+          <option value="">Any beds</option>
+          <option value="0">Studio</option>
+          <option value="1">1 Bed</option>
+          <option value="2">2 Beds</option>
+          <option value="3">3 Beds</option>
+          <option value="4">4+ Beds</option>
+        </select>
+      </div>
+      
+      <button class="listings-search-btn" id="searchBtn" aria-label="Search">
+        <i class="fas fa-search"></i> Search
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Filter Bar ── -->
+<div class="filter-bar">
+  <div class="filter-bar-inner">
+    <!-- Mobile-only Filters button (Fix 2) -->
+      <button class="mobile-filters-btn" id="mobileFiltersBtn">
+        <i class="fas fa-sliders-h"></i> Filters
+        <span class="mobile-filters-badge" id="mobileFiltersBadge" style="display:none"></span>
+      </button>
+      <!-- Clear All pill — desktop, shown when filters active (Fix 3) -->
+      <button class="filter-pill filter-pill-clear" id="clearAllPill" style="display:none">
+        <i class="fas fa-times-circle"></i> Clear all
+      </button>
+      <button class="filter-pill active" data-filter="all"><i class="fas fa-th"></i> All</button>
+    <button class="filter-pill" data-filter="apartment"><i class="fas fa-building"></i> Apartments</button>
+    <button class="filter-pill" data-filter="house"><i class="fas fa-home"></i> Houses</button>
+    <button class="filter-pill" data-filter="condo"><i class="fas fa-city"></i> Condos</button>
+    <button class="filter-pill" data-filter="townhouse"><i class="fas fa-house-user"></i> Townhomes</button>
+    <div class="filter-divider"></div>
+    <button class="filter-pill" data-filter="pets"><i class="fas fa-paw"></i> Pet Friendly</button>
+    <button class="filter-pill" data-filter="available"><i class="fas fa-calendar-check"></i> Move-in Ready</button>
+    <button class="filter-pill" data-filter="parking"><i class="fas fa-car"></i> Parking</button>
+
+    <div class="filter-dropdown-wrap" id="moreFiltersWrap">
+      <button class="filter-pill" id="moreFiltersBtn">
+        <i class="fas fa-sliders-h"></i> More Filters
+        <span class="filter-active-badge" id="filterActiveBadge" style="display:none"></span>
+      </button>
+      <div class="filter-dropdown" id="moreFiltersDropdown">
+        <div class="filter-dropdown-mobile-header">
+            <span class="filter-dropdown-title">Advanced Filters</span>
+            <button class="filter-dropdown-clear-all" id="clearAllMobile">
+              <i class="fas fa-times-circle"></i> Clear all
+            </button>
+          </div>
+        <div class="filter-dropdown-row">
+          <label>Min Bedrooms</label>
+          <select id="advMinBeds">
+            <option value="">Any</option>
+            <option value="0">Studio</option>
+            <option value="1">1+</option>
+            <option value="2">2+</option>
+            <option value="3">3+</option>
+          </select>
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Min Bathrooms</label>
+          <select id="advMinBaths">
+            <option value="">Any</option>
+            <option value="1">1+</option>
+            <option value="1.5">1.5+</option>
+            <option value="2">2+</option>
+          </select>
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Min Price</label>
+          <input type="number" id="advMinRent" placeholder="e.g. 800" min="0" step="50">
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Max Price</label>
+          <input type="number" id="advMaxRent" placeholder="e.g. 1500" min="0" step="50">
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Laundry</label>
+          <select id="advLaundryFilter">
+            <option value="">Any</option>
+            <option value="in-unit">In-Unit W/D</option>
+            <option value="hookups">W/D Hookups</option>
+            <option value="shared">Shared Laundry</option>
+            <option value="laundromat">Laundromat Nearby</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Heating</label>
+          <select id="advHeatingFilter">
+            <option value="">Any</option>
+            <option value="gas-forced-air">Gas Forced Air</option>
+            <option value="electric">Electric</option>
+            <option value="baseboard">Baseboard</option>
+            <option value="radiant">Radiant</option>
+            <option value="heat-pump">Heat Pump</option>
+            <option value="boiler">Boiler</option>
+          </select>
+        </div>
+        <div class="filter-dropdown-row">
+          <label>Pet Type</label>
+          <select id="advPetTypeFilter">
+            <option value="">Any</option>
+            <option value="Dogs">Dogs</option>
+            <option value="Cats">Cats</option>
+            <option value="Birds">Birds</option>
+            <option value="Small Animals">Small Animals</option>
+            <option value="Reptiles">Reptiles</option>
+          </select>
+        </div>
+        <div class="filter-dropdown-actions">
+          <button class="filter-btn-clear" id="clearAdvFilters">Clear</button>
+          <button class="filter-btn-apply" id="applyAdvFilters">Apply Filters</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="filter-count" id="filterCount"></div>
+  </div>
+</div>
+
+<!-- ── Listings ── -->
+<section class="listings-section" id="listings">
+  <div class="container">
+    <div class="listings-header">
+      <div class="listings-header-left">
+        <h2 class="listings-heading" id="listingsHeading">Results</h2>
+        <div class="listings-subheading" id="listingsSubheading"></div>
+      </div>
+      <div class="listings-controls">
+        <div class="view-toggle">
+          <button class="view-toggle-btn active" id="btnListView" aria-label="Grid view">
+            <i class="fas fa-th-large"></i> Grid
+          </button>
+          <button class="view-toggle-btn" id="btnMapView" aria-label="Map view">
+            <i class="fas fa-map"></i> Map
+          </button>
+        </div>
+        <div class="listings-sort">
+          <select id="sortSelect" aria-label="Sort by">
+            <option value="newest">Newest</option>
+            <option value="price_asc">Price ↑</option>
+            <option value="price_desc">Price ↓</option>
+            <option value="beds_desc">Most Beds</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grid View -->
+    <div id="listPanel">
+      <div class="property-grid" id="propertyGrid">
+        <!-- Skeleton loaders -->
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:35%"></div>
+            <div class="skeleton skeleton-line" style="width:80%"></div>
+            <div class="skeleton skeleton-line" style="width:55%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:40%;margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:38%"></div>
+            <div class="skeleton skeleton-line" style="width:75%"></div>
+            <div class="skeleton skeleton-line" style="width:60%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:45%;margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:32%"></div>
+            <div class="skeleton skeleton-line" style="width:85%"></div>
+            <div class="skeleton skeleton-line" style="width:50%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:42%;margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:40%"></div>
+            <div class="skeleton skeleton-line" style="width:78%"></div>
+            <div class="skeleton skeleton-line" style="width:58%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:38%;margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:36%"></div>
+            <div class="skeleton skeleton-line" style="width:82%"></div>
+            <div class="skeleton skeleton-line" style="width:52%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:43%;margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="property-card property-card-skeleton">
+          <div class="property-card-img skeleton-img skeleton"></div>
+          <div class="property-card-body" style="gap:10px;padding:20px">
+            <div class="skeleton skeleton-line" style="height:26px;width:34%"></div>
+            <div class="skeleton skeleton-line" style="width:76%"></div>
+            <div class="skeleton skeleton-line" style="width:62%"></div>
+            <div class="skeleton skeleton-line" style="height:12px;width:46%;margin-top:8px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Map View -->
+    <div id="mapPanel">
+      <div id="listingsMap"></div>
+      <div id="mapLoadingSpinner" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10; align-items: center; justify-content: center; flex-direction: column; gap: 12px;">
+        <div class="spinner" style="width: 40px; height: 40px;"></div>
+        <p style="color: var(--color-text-muted); font-size: 13px; margin: 0;">Loading map...</p>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div id="paginationBar" style="margin: 32px 0 8px; display:flex; justify-content:center;"></div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<div id="site-footer" data-server-injected="1"><footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <div class="footer-logo">
+            <div class="footer-logo-mark">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="M3 9.5L12 3L21 9.5V20C21 20.55 20.55 21 20 21H15V15H9V21H4C3.45 21 3 20.55 3 20V9.5Z" fill="white" opacity="0.92"/>
+                <circle cx="12" cy="11" r="2.5" fill="rgba(0,106,255,0.9)"/>
+              </svg>
+            </div>
+            <div class="footer-logo-text">Choice Properties</div>
+          </div>
+          <p class="footer-desc">America's trusted rental marketplace. Connecting quality tenants with verified landlords across all 50 states.</p>
+          <a href="mailto:support@choiceproperties.com" class="footer-link" style="display:inline-flex;align-items:center;gap:6px;margin-bottom:6px" data-cfg-email><i class="fas fa-envelope"></i> support@choiceproperties.com</a>
+          <div class="footer-link" style="display:inline-flex;align-items:center;gap:6px"><i class="fas fa-globe-americas"></i> Nationwide Rental Marketplace</div>
+        </div>
+        <div>
+          <div class="footer-col-title">Renters</div>
+          <a href="/listings.html" class="footer-link">Browse Listings</a>
+          <a href="/how-to-apply.html" class="footer-link">How to Apply</a>
+          <a href="/faq.html" class="footer-link">FAQ</a>
+          <a href="https://apply-choice-properties.pages.dev/?path=dashboard" class="footer-link" target="_blank" rel="noopener noreferrer">Track My Application</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Landlords</div>
+          <a href="/landlord/register.html" class="footer-link">List a Property</a>
+          <a href="/landlord/login.html" class="footer-link">Landlord Login</a>
+          <a href="/how-it-works.html" class="footer-link">How It Works</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Company</div>
+          <a href="/about.html" class="footer-link">About Us</a>
+          <a href="/privacy.html" class="footer-link">Privacy Policy</a>
+          <a href="/terms.html" class="footer-link">Terms of Service</a>
+          <a href="mailto:support@choiceproperties.com" class="footer-link" data-cfg-email>Contact</a>
+        </div>
+        <div>
+          <div class="footer-col-title">Legal &amp; Policies</div>
+          <a href="/rental-application-policy.html" class="footer-link">Rental Application Policy</a>
+          <a href="/application-credit-policy.html" class="footer-link">Application Credit Policy</a>
+          <a href="/holding-deposit-policy.html" class="footer-link">Holding Deposit Policy</a>
+          <a href="/fair-housing.html" class="footer-link">Fair Housing Policy</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span class="footer-legal">&copy; 2026 Choice Properties. All rights reserved.</span>
+        <span class="footer-eq"><i class="fas fa-home" aria-hidden="true"></i> Equal Housing Opportunity</span>
+        <div class="footer-bottom-links">
+          <a href="/privacy.html">Privacy</a>
+          <a href="/terms.html">Terms</a>
+          <a href="/fair-housing.html">Fair Housing</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+  </div>
+
+<div class="toast-container" id="toastContainer"></div>
+<button class="scroll-top" id="scrollTopBtn" aria-label="Back to top"><i class="fas fa-chevron-up"></i></button>
+
+<!-- Leaflet loaded lazily when user switches to Map View -->
+
+<script type="module" nonce="kxjEbn-MjC8F1k5Nk6tB2g">
+const esc = window.CP_esc || (s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'));
+
+// CSP-safe image load/error handling (inline onload/onerror blocked by Cloudflare CSP nonce policy)
+document.addEventListener('load', function(e) {
+  if (e.target.tagName === 'IMG') e.target.classList.add('cp-img-loaded');
+}, true);
+document.addEventListener('error', function(e) {
+  var t = e.target;
+  if (t.tagName !== 'IMG') return;
+  t.classList.add('cp-img-loaded');
+  if (t.src !== location.origin + '/assets/placeholder-property.jpg') {
+    t.src = '/assets/placeholder-property.jpg';
+  }
+}, true);
+
+// ── State ────────────────────────────────────────────────────────────────
+let activeType     = 'all';
+let activeBeds     = '';
+let activeMaxRent  = '';
+let activeMinRent  = '';
+let activeSearch   = '';
+let activeMinBaths = '';
+let activeLaundry  = '';
+let activeHeating  = '';
+let activePetType  = '';
+let sortBy         = 'newest';
+let currentPage    = 1;
+let totalPages     = 1;
+let totalCount     = 0;
+let currentView    = 'list';
+let isLoading      = false;
+let mapInstance    = null;
+let mapMarkers     = [];
+const savedIds     = new Set(JSON.parse(localStorage.getItem('cp_saved') || '[]'));
+const PER_PAGE     = 24;
+
+// ── Read URL → state ──────────────────────────────────────────────────────
+function readURL() {
+  const p = new URLSearchParams(window.location.search);
+  activeSearch   = p.get('q')        || '';
+  activeBeds     = p.get('beds')     || '';
+  activeMaxRent  = p.get('maxrent')  || '';
+  activeMinRent  = p.get('minrent')  || '';
+  activeMinBaths = p.get('minbaths') || '';
+  activeType     = p.get('type')     || 'all';
+  sortBy         = p.get('sort')     || 'newest';
+  currentPage    = parseInt(p.get('page') || '1', 10);
+}
+
+// ── Write state → URL ─────────────────────────────────────────────────────
+function pushURL(replace = false) {
+  const p = new URLSearchParams();
+  if (activeSearch)   p.set('q',        activeSearch);
+  if (activeBeds)     p.set('beds',     activeBeds);
+  if (activeMaxRent)  p.set('maxrent',  activeMaxRent);
+  if (activeMinRent)  p.set('minrent',  activeMinRent);
+  if (activeMinBaths) p.set('minbaths', activeMinBaths);
+  if (activeType && activeType !== 'all') p.set('type', activeType);
+  if (sortBy && sortBy !== 'newest') p.set('sort', sortBy);
+  if (currentPage > 1) p.set('page', currentPage);
+  const url = p.toString() ? `?${p}` : window.location.pathname;
+  if (replace) history.replaceState(null, '', url);
+  else         history.pushState(null, '', url);
+}
+
+// ── Sync UI controls to current state ────────────────────────────────────
+function syncControls() {
+  const si = document.getElementById('searchInput');
+  const bf = document.getElementById('bedroomsFilter');
+  const ss = document.getElementById('sortSelect');
+  if (si) si.value = activeSearch;
+  if (bf) bf.value = activeBeds;
+  if (ss) ss.value = sortBy;
+  document.querySelectorAll('.filter-pill[data-filter]').forEach(pill => {
+    pill.classList.toggle('active', pill.dataset.filter === activeType);
+  });
+  const at    = document.getElementById('advTypeFilter');
+  const ab    = document.getElementById('advMinBeds');
+  const abath = document.getElementById('advMinBaths');
+  const amin  = document.getElementById('advMinRent');
+  const amax  = document.getElementById('advMaxRent');
+  if (at)    at.value    = ['apartment','house','condo','townhouse'].includes(activeType) ? activeType : '';
+  if (ab)    ab.value    = activeBeds;
+  if (abath) abath.value = activeMinBaths;
+  if (amin)  amin.value  = activeMinRent;
+  if (amax)  amax.value  = activeMaxRent;
+  updateFilterBadge();
+}
+
+// ── Boot ─────────────────────────────────────────────────────────────────
+(async () => {
+  setupScrollTop();
+  readURL();
+  syncControls();
+  setupFilters();
+  // Restore filter dropdown state from sessionStorage (for mobile progressive disclosure)
+  const filterDropdown = document.getElementById('moreFiltersDropdown');
+  if (filterDropdown && sessionStorage.getItem('filters_dropdown_open') === 'true') {
+    filterDropdown.classList.add('open');
+  }
+  await fetchAndRender();
+  window.addEventListener('popstate', async () => {
+    readURL();
+    syncControls();
+    await fetchAndRender();
+  });
+})();
+
+// ── Core fetch ────────────────────────────────────────────────────────────
+async function fetchAndRender() {
+  if (isLoading) return;
+  isLoading = true;
+
+  // ── Use server-injected initial data on first unfiltered page-1 load ──
+  // The server embeds window.__INITIAL_LISTINGS__ directly into listings.html
+  // so properties paint immediately without waiting for a Supabase round-trip.
+  const hasNoFilters = !activeSearch && (activeType === 'all' || !activeType) &&
+    !activeBeds && !activeMinRent && !activeMaxRent && !activeMinBaths &&
+    !activeLaundry && !activeHeating && !activePetType && currentPage === 1 &&
+    sortBy === 'newest';
+  if (hasNoFilters && window.__INITIAL_LISTINGS__) {
+    const cached = window.__INITIAL_LISTINGS__;
+    window.__INITIAL_LISTINGS__ = null; // consume once; filter changes use live API
+    isLoading = false;
+    const { rows, total, total_pages } = cached;
+    totalCount = total;
+    totalPages = total_pages;
+    const counter = document.getElementById('statListings');
+    if (counter) counter.textContent = total.toLocaleString();
+    const subheading = document.getElementById('listingsSubheading');
+    if (subheading) {
+      const plural = total === 1 ? 'listing' : 'listings';
+      subheading.textContent = `Showing ${rows.length} of ${total} ${plural}`;
+    }
+    renderProperties(rows);
+    renderPagination();
+    return;
+  }
+
+  showSkeletons();
+
+  // Update subheading with loading indicator
+  const subheading = document.getElementById('listingsSubheading');
+  if (subheading) {
+    subheading.innerHTML = '<i class="fas fa-spinner" style="animation:spin 1s linear infinite;display:inline-block;margin-right:6px;"></i><span style="font-size:0.9rem;">Searching...</span>';
+  }
+
+  // Swap min/max rent if user entered them backwards — prevents silent empty results
+    if (activeMinRent && activeMaxRent) {
+      const _minR = parseFloat(activeMinRent);
+      const _maxR = parseFloat(activeMaxRent);
+      if (!isNaN(_minR) && !isNaN(_maxR) && _minR > _maxR) {
+        activeMinRent = String(_maxR);
+        activeMaxRent = String(_minR);
+        const minEl = document.getElementById('advMinRent');
+        const maxEl = document.getElementById('advMaxRent');
+        if (minEl) minEl.value = activeMinRent;
+        if (maxEl) maxEl.value = activeMaxRent;
+      }
+    }
+
+    try {
+    const result = await CP.Properties.getListings({
+      q:            activeSearch,
+      type:         activeType,
+      beds:         activeBeds,
+      min_baths:    activeMinBaths,
+      min_rent:     activeMinRent,
+      max_rent:     activeMaxRent,
+      laundry_type: activeLaundry,
+      heating_type: activeHeating,
+      pet_type:     activePetType,
+      sort:         sortBy,
+      page:      currentPage,
+      per_page:  PER_PAGE,
+    });
+
+    if (!result.ok) {
+      console.error('Failed to load listings:', result.error);
+      if (subheading) {
+        subheading.innerHTML = '<span style="color:var(--color-error);font-size:0.9rem;"><i class="fas fa-exclamation-circle"></i> Unable to load listings. Please try again.</span>';
+      }
+      renderError();
+      return;
+    }
+
+    const { rows, total, total_pages } = result.data;
+    totalCount = total;
+    totalPages = total_pages;
+
+    const counter = document.getElementById('statListings');
+    if (counter) counter.textContent = total.toLocaleString();
+
+    // Update subheading with result count or no-results message
+    if (subheading) {
+      if (total === 0) {
+        subheading.innerHTML = '<span style="color:var(--color-text-secondary);font-size:0.9rem;">No listings match your filters. <a href="?">Clear filters</a></span>';
+      } else {
+        const plural = total === 1 ? 'listing' : 'listings';
+        subheading.textContent = `Showing ${rows.length} of ${total} ${plural}`;
+      }
+    }
+
+    renderProperties(rows);
+    renderPagination();
+    if (currentView === 'map') initMap(rows);
+  } catch (err) {
+    console.error('fetchAndRender error:', err);
+    if (subheading) {
+      subheading.innerHTML = '<span style="color:var(--color-error);font-size:0.9rem;"><i class="fas fa-exclamation-circle"></i> Something went wrong. Please try again.</span>';
+    }
+    renderError();
+  } finally {
+    isLoading = false;
+  }
+}
+
+// ── Trigger search (resets to page 1) ─────────────────────────────────────
+async function refreshResults() {
+  currentPage = 1;
+  pushURL();
+  await fetchAndRender();
+}
+
+// ── Skeletons ─────────────────────────────────────────────────────────────
+function showSkeletons() {
+  const grid = document.getElementById('propertyGrid');
+  const sk = (w1, w2, w3) => `
+    <div class="property-card property-card-skeleton">
+      <div class="property-card-img skeleton-img skeleton"></div>
+      <div class="property-card-body" style="gap:10px;padding:20px">
+        <div class="skeleton skeleton-line" style="height:26px;width:${w1}%"></div>
+        <div class="skeleton skeleton-line" style="width:${w2}%"></div>
+        <div class="skeleton skeleton-line" style="width:${w3}%"></div>
+        <div class="skeleton skeleton-line" style="height:12px;width:40%;margin-top:8px"></div>
+      </div>
+    </div>`;
+  grid.innerHTML = [sk(35,80,55),sk(38,75,60),sk(32,85,50),sk(40,78,58),sk(36,82,52),sk(34,76,62)].join('');
+  const pg = document.getElementById('paginationBar');
+  if (pg) pg.innerHTML = '';
+}
+
+// ── updateNav ─────────────────────────────────────────────────────────────
+async function updateNav() {
+  const session    = await CP.Auth.getSession();
+  const authLink   = document.getElementById('navAuthLink');
+  const drawerLink = document.getElementById('drawerAuthLink');
+  const drawerListLink = document.getElementById('drawerListPropertyLink');
+  const dest  = session ? '/landlord/dashboard.html' : '/landlord/login.html';
+  const label = session ? 'My Dashboard' : 'Landlord Login';
+  if (authLink)   { authLink.href = dest;   authLink.textContent = label; }
+  if (drawerLink) { drawerLink.href = dest; drawerLink.textContent = label; }
+  if (session && drawerListLink) drawerListLink.href = '/landlord/new-listing.html';
+  if (window.CONFIG) {
+    const footerEmail = document.getElementById('drawerFooterEmail');
+    if (footerEmail) { footerEmail.href = `mailto:${CONFIG.COMPANY_EMAIL}`; footerEmail.textContent = CONFIG.COMPANY_EMAIL; }
+    document.querySelectorAll('[data-cfg-email]').forEach(el => { el.href = `mailto:${CONFIG.COMPANY_EMAIL}`; el.textContent = CONFIG.COMPANY_EMAIL; });
+    document.querySelectorAll('[data-cfg-phone]').forEach(el => { el.href = `tel:${CONFIG.COMPANY_PHONE.replace(/\D/g,'')}`; el.textContent = CONFIG.COMPANY_PHONE; });
+  }
+}
+
+// ── renderProperties ──────────────────────────────────────────────────────
+function renderProperties(props) {
+  const grid      = document.getElementById('propertyGrid');
+  const heading   = document.getElementById('listingsHeading');
+  const subheading = document.getElementById('listingsSubheading');
+  const hasFilters = activeType !== 'all' || activeSearch || activeBeds || activeMaxRent || activeMinRent || activeMinBaths;
+  const start = (currentPage - 1) * PER_PAGE + 1;
+  const end   = Math.min(currentPage * PER_PAGE, totalCount);
+
+  if (heading) heading.textContent = hasFilters
+    ? `${totalCount.toLocaleString()} Result${totalCount !== 1 ? 's' : ''}`
+    : 'All Listings';
+  if (subheading) subheading.textContent = totalCount > 0
+    ? (totalPages > 1
+        ? `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${totalCount.toLocaleString()}`
+        : (hasFilters ? 'Matching your filters' : 'Sorted by newest first'))
+    : '';
+
+  if (!props.length) {
+    grid.innerHTML = `
+      <div class="empty-state" style="grid-column:1/-1;text-align:center;padding:var(--s-16) var(--s-6)">
+        <div class="empty-state-icon"><i class="fas fa-search" style="font-size:40px;color:var(--color-text-muted)"></i></div>
+        <h3 style="margin:var(--s-4) 0 var(--s-2)">No listings match your filters</h3>
+        <p style="color:var(--color-text-secondary)">Try adjusting your search or <button onclick="window.clearAllFilters()" style="background:none;border:none;color:var(--color-brand);cursor:pointer;font-size:inherit;padding:0;text-decoration:underline">clearing all filters</button></p>
+      </div>`;
+    return;
+  }
+
+  grid.innerHTML = props.map(p => buildCard(p)).join('');
+
+  grid.querySelectorAll('.property-card-save').forEach(btn => {
+    const id = btn.dataset.id;
+    if (savedIds.has(id)) { btn.classList.add('saved'); btn.innerHTML = '<i class="fas fa-heart"></i>'; }
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); toggleSave(id, btn); });
+  });
+    grid.querySelectorAll('.property-card-share').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        const url = location.origin + btn.dataset.url;
+        const title = btn.dataset.title || 'Check out this property';
+        if (navigator.share) {
+          navigator.share({ title, url }).catch(() => {});
+        } else {
+          navigator.clipboard.writeText(url)
+            .then(() => showToast('Link copied to clipboard!', 'success'))
+            .catch(() => showToast('Could not copy link', 'error'));
+        }
+      });
+    });
+  grid.querySelectorAll('.property-card').forEach(card => {
+    initCarousel(card);
+    card.addEventListener('click', e => {
+      if (e.target.closest('a, button')) return;
+      window.location.href = `/property.html?id=${card.dataset.id}`;
+    });
+  });
+  animateCards();
+}
+
+// ── Pagination ────────────────────────────────────────────────────────────
+function renderPagination() {
+  const bar = document.getElementById('paginationBar');
+  if (!bar) return;
+  if (totalPages <= 1) { bar.innerHTML = ''; return; }
+
+  const show   = new Set([1, totalPages, currentPage, currentPage - 1, currentPage + 1].filter(n => n >= 1 && n <= totalPages));
+  const sorted = [...show].sort((a, b) => a - b);
+
+  let html = `<div class="pagination">`;
+  html += `<button class="pg-btn pg-prev" ${currentPage === 1 ? 'disabled' : ''} data-page="${currentPage - 1}" aria-label="Previous page"><i class="fas fa-chevron-left"></i></button>`;
+  let prev = 0;
+  for (const n of sorted) {
+    if (prev && n - prev > 1) html += `<span class="pg-ellipsis">…</span>`;
+    html += `<button class="pg-btn${n === currentPage ? ' pg-active' : ''}" data-page="${n}">${n}</button>`;
+    prev = n;
+  }
+  html += `<button class="pg-btn pg-next" ${currentPage === totalPages ? 'disabled' : ''} data-page="${currentPage + 1}" aria-label="Next page"><i class="fas fa-chevron-right"></i></button>`;
+  html += `</div>`;
+  bar.innerHTML = html;
+
+  bar.querySelectorAll('.pg-btn[data-page]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (btn.disabled) return;
+      currentPage = parseInt(btn.dataset.page);
+      pushURL();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      await fetchAndRender();
+    });
+  });
+}
+
+/* ─── Build card ─── */
+function buildCard(p) {
+  const photos   = p.photo_urls?.length ? p.photo_urls : ['/assets/placeholder-property.jpg'];
+  const availNow = !p.available_date || new Date(p.available_date) <= new Date();
+  const applyURL = CP.buildApplyURL(p);
+  const imgSizes = '(max-width: 539px) calc(100vw - 32px), (max-width: 899px) calc(50vw - 28px), (max-width: 1319px) calc(33vw - 32px), calc(25vw - 32px)';
+
+  const slidesHtml = photos.map((url, i) => {
+    const lqip = CP.UI.lqipUrl(url);
+    const lqipStyle = lqip ? ` style="background-image:url('${lqip}');background-size:cover;background-position:center"` : '';
+    return `<div class="property-card-slide"${lqipStyle}><img src="${CONFIG.img(url,'card')}" srcset="${CONFIG.srcset(url,'card','card_2x')}" alt="${p.title} photo ${i+1}" sizes="${imgSizes}" loading="${i===0?'eager':'lazy'}" ${i===0?'fetchpriority="high"':''} decoding="async"></div>`;
+  }).join('');
+
+  const tags = [];
+  if (p.pets_allowed) tags.push(`<span class="property-card-tag tag-pet"><i class="fas fa-paw"></i> Pets OK</span>`);
+  if (p.garage_spaces) tags.push(`<span class="property-card-tag tag-parking"><i class="fas fa-car-side"></i> ${p.garage_spaces} Garage</span>`);
+  else if (p.parking) tags.push(`<span class="property-card-tag tag-parking"><i class="fas fa-car"></i> Parking</span>`);
+  if (p.has_central_air || /central/i.test(p.cooling_type || '')) tags.push(`<span class="property-card-tag tag-utilities"><i class="fas fa-snowflake"></i> Central Air</span>`);
+  if (p.has_basement) tags.push(`<span class="property-card-tag tag-parking"><i class="fas fa-house-chimney-window"></i> Basement</span>`);
+  if (p.laundry_type) tags.push(`<span class="property-card-tag tag-utilities"><i class="fas fa-shirt"></i> Laundry</span>`);
+  if (Array.isArray(p.utilities_included) ? p.utilities_included.length > 0 : !!p.utilities_included) tags.push(`<span class="property-card-tag tag-utilities"><i class="fas fa-bolt"></i> Utilities</span>`);
+  if (p.move_in_special) tags.push(`<span class="property-card-tag tag-pet"><i class="fas fa-tag"></i> Special</span>`);
+
+  const addrLine = [p.address, p.city, p.state].filter(Boolean).join(', ');
+
+  const specParts = [];
+  if (p.bedrooms != null) specParts.push(`<span class="property-card-spec-item"><i class="fas fa-bed"></i>${p.bedrooms === 0 ? 'Studio' : p.bedrooms + ' Bed'}</span>`);
+  if (p.total_bathrooms || p.bathrooms) specParts.push(`<span class="property-card-spec-item"><i class="fas fa-bath"></i>${p.total_bathrooms || p.bathrooms} Bath</span>`);
+  if (p.square_footage)   specParts.push(`<span class="property-card-spec-item">${p.square_footage.toLocaleString()} sqft</span>`);
+  const specsHtml = specParts.map((s, i) => i === 0 ? s : `<span class="property-card-spec-sep">·</span>${s}`).join('');
+
+  const ageDays = p.created_at ? Math.floor((Date.now() - new Date(p.created_at).getTime()) / 86400000) : 999;
+    let badge = '';
+    if (ageDays <= 3) {
+      badge = `<div class="property-card-badge badge-hot"><i class="fas fa-fire"></i> Hot Deal</div>`;
+    } else if (ageDays <= 7) {
+      badge = `<div class="property-card-badge badge-new"><i class="fas fa-tag"></i> New Listing</div>`;
+    } else if (p.featured) {
+      badge = `<div class="property-card-badge badge-featured"><i class="fas fa-star"></i> Featured</div>`;
+    } else if (p.landlords?.verified) {
+      badge = `<div class="property-card-badge badge-verified"><i class="fas fa-shield-halved"></i> Verified</div>`;
+    } else if (availNow || !p.available_date) {
+      badge = `<div class="property-card-badge badge-available"><i class="fas fa-circle-check"></i> Available Now</div>`;
+    } else {
+      const availLabel = new Date(p.available_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      badge = `<div class="property-card-badge badge-available"><i class="fas fa-calendar"></i> Avail. ${availLabel}</div>`;
+    }
+    const photoCountHtml = photos.length > 1 ? `<div class="property-card-photo-count"><i class="fas fa-camera"></i> ${photos.length}</div>` : '';
+
+  return `
+    <article class="property-card" data-id="${p.id}">
+      <a href="/property.html?id=${p.id}" style="display:block;text-decoration:none" tabindex="-1" aria-hidden="true">
+        <div class="property-card-img">
+          <div class="property-card-slides">${slidesHtml}</div>
+          ${photos.length > 1 ? `
+            <button class="property-card-nav prev" data-dir="-1" aria-label="Previous photo"><i class="fas fa-chevron-left"></i></button>
+            <button class="property-card-nav next" data-dir="1"  aria-label="Next photo"><i class="fas fa-chevron-right"></i></button>
+          ` : ''}
+          ${badge}
+          ${photoCountHtml}
+        </div>
+      </a>
+      <button class="property-card-save" data-id="${p.id}" aria-label="Save property"><i class="far fa-heart"></i></button>
+      <div class="property-card-body">
+        <div class="property-card-price">${p.monthly_rent != null ? '$' + Number(p.monthly_rent).toLocaleString() : 'Rent TBD'}<span class="property-card-price-unit">${p.monthly_rent != null ? '/mo' : ''}</span></div>
+        ${specsHtml ? `<div class="property-card-specs">${specsHtml}</div>` : ''}
+        <a href="/property.html?id=${p.id}" style="text-decoration:none">
+          <div class="property-card-title">${p.title}</div>
+        </a>
+        <div class="property-card-addr"><i class="fas fa-location-dot"></i>${addrLine}</div>
+        ${tags.length ? `<div class="property-card-tags">${tags.slice(0, 5).join('')}</div>` : ''}
+      </div>
+      <div class="property-card-footer">
+          <a href="/property.html?id=${p.id}" class="property-card-view">View Details</a>
+          <button class="property-card-share" data-id="${p.id}" data-title="${p.title}" data-url="/property.html?id=${p.id}" aria-label="Share property"><i class="fas fa-share-nodes"></i> Share</button>
+        </div>
+    </article>`;
+}
+
+/* ─── Animate Cards ─── */
+function animateCards() {
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.querySelectorAll('.property-card:not(.property-card-skeleton)').forEach(c => c.classList.add('cp-card-visible'));
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('cp-card-visible'); observer.unobserve(e.target); }
+    });
+  }, { threshold: 0.06 });
+  let i = 0;
+  document.querySelectorAll('.property-card:not(.property-card-skeleton)').forEach(card => {
+    card.style.setProperty('--cp-delay', Math.min(i * 55, 320) + 'ms');
+    observer.observe(card);
+    i++;
+  });
+}
+
+/* ─── Carousel ─── */
+function initCarousel(card) {
+  const slides  = card.querySelector('.property-card-slides');
+  const navBtns = card.querySelectorAll('.property-card-nav');
+  if (!slides || !navBtns.length) return;
+  let idx = 0;
+  const total = card.querySelectorAll('.property-card-slide').length;
+  function goTo(n) {
+    idx = (n + total) % total;
+    slides.style.transform = `translateX(-${idx * 100}%)`;
+  }
+  navBtns.forEach(btn => {
+    btn.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); goTo(idx + parseInt(btn.dataset.dir)); });
+  });
+  let touchX = 0;
+  slides.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+  slides.addEventListener('touchend', e => {
+    const diff = touchX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 40) goTo(idx + (diff > 0 ? 1 : -1));
+  }, { passive: true });
+}
+
+/* ─── Map ─── */
+// M-10: Leaflet CSS+JS (~180KB gzipped) is loaded on demand only when the
+// user clicks "Map View". Saves bandwidth on every listing page visit.
+const _LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
+const _LEAFLET_JS  = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
+
+function loadLeaflet() {
+  return new Promise((resolve, reject) => {
+    if (window.L) { resolve(); return; }
+    if (!document.querySelector(`link[href="${_LEAFLET_CSS}"]`)) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = _LEAFLET_CSS;
+      link.crossOrigin = 'anonymous';
+      document.head.appendChild(link);
+    }
+    const script = document.createElement('script');
+    script.src = _LEAFLET_JS;
+    script.crossOrigin = 'anonymous';
+    script.onload = () => {
+      // Remove map loading spinner when Leaflet loads
+      const mapSpinner = document.getElementById('mapLoadingSpinner');
+      if (mapSpinner) mapSpinner.style.display = 'none';
+      resolve();
+    };
+    script.onerror = () => {
+      // Hide spinner on error  
+      const mapSpinner = document.getElementById('mapLoadingSpinner');
+      if (mapSpinner) mapSpinner.style.display = 'none';
+      reject();
+    };
+    document.head.appendChild(script);
+  });
+}
+
+function initMap(props) {
+  if (!mapInstance) {
+    mapInstance = L.map('listingsMap', { zoomControl: false }).setView([39.5, -98.35], 4);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>', maxZoom: 18
+    }).addTo(mapInstance);
+    L.control.zoom({ position: 'bottomright' }).addTo(mapInstance);
+  }
+  mapMarkers.forEach(m => m.remove()); mapMarkers = [];
+  const bounds = [];
+  props.forEach(p => {
+    if (!p.lat || !p.lng) return;
+    const lat = parseFloat(p.lat), lng = parseFloat(p.lng);
+    if (isNaN(lat) || isNaN(lng)) return;
+    bounds.push([lat, lng]);
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="map-marker-price">$${(p.monthly_rent/1000).toFixed(p.monthly_rent >= 1000 ? 1 : 0)}${p.monthly_rent >= 1000 ? 'k' : ''}</div>`,
+      iconAnchor: [30, 16], iconSize: [60, 32],
+    });
+    const marker = L.marker([lat, lng], { icon }).addTo(mapInstance);
+    marker.bindPopup(`
+      <a href="/property.html?id=${p.id}" class="map-popup-card">
+        <img class="map-popup-img" src="${CONFIG.img(p.photo_urls?.[0] || '','card')}" alt="${p.title}" loading="lazy">
+        <div class="map-popup-body">
+          <div class="map-popup-price">$${p.monthly_rent.toLocaleString()}<span>/mo</span></div>
+          <div class="map-popup-title">${p.title}</div>
+          <div class="map-popup-meta">
+            ${p.bedrooms != null ? `<span>${p.bedrooms === 0 ? 'Studio' : p.bedrooms + ' bd'}</span>` : ''}
+            ${p.bathrooms ? `<span>${p.bathrooms} ba</span>` : ''}
+          </div>
+          <a href="/property.html?id=${p.id}" class="map-popup-apply">View Property →</a>
+        </div>
+      </a>`, { maxWidth: 260 });
+    mapMarkers.push(marker);
+  });
+  if (bounds.length) mapInstance.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+  setTimeout(() => mapInstance.invalidateSize(), 50);
+}
+
+/* ─── View toggle ─── */
+document.getElementById('btnListView').addEventListener('click', () => {
+  currentView = 'list';
+  document.getElementById('listPanel').style.display = '';
+  document.getElementById('mapPanel').style.display = 'none';
+  document.getElementById('btnListView').classList.add('active');
+  document.getElementById('btnMapView').classList.remove('active');
+});
+document.getElementById('btnMapView').addEventListener('click', async () => {
+  currentView = 'map';
+  document.getElementById('listPanel').style.display = 'none';
+  document.getElementById('mapPanel').style.display = 'block';
+  document.getElementById('btnMapView').classList.add('active');
+  document.getElementById('btnListView').classList.remove('active');
+  // Show loading spinner while Leaflet loads
+  const mapSpinner = document.getElementById('mapLoadingSpinner');
+  if (mapSpinner) mapSpinner.style.display = 'flex';
+  // Lazy-load Leaflet on first map view, then fetch and render markers
+  await loadLeaflet();
+  const result = await CP.Properties.getListings({
+    q: activeSearch, type: activeType, beds: activeBeds,
+    min_baths: activeMinBaths, min_rent: activeMinRent, max_rent: activeMaxRent,
+    sort: sortBy, page: currentPage, per_page: PER_PAGE,
+  });
+  if (result.ok) initMap(result.data.rows);
+});
+
+/* ─── Filters ─── */
+function setupFilters() {
+  document.querySelectorAll('.filter-pill[data-filter]').forEach(pill => {
+    pill.addEventListener('click', () => {
+      activeType = pill.dataset.filter;
+      refreshResults();
+    });
+  });
+
+  // Debounce helper — prevents API calls on every keystroke
+  function debounce(fn, delay) {
+    let timer;
+    return function(...args) { clearTimeout(timer); timer = setTimeout(() => fn.apply(this, args), delay); };
+  }
+  const debouncedSearch = debounce(doSearch, 400);
+
+  document.getElementById('searchBtn').addEventListener('click', doSearch);
+  document.getElementById('searchInput').addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+  document.getElementById('searchInput').addEventListener('input', debouncedSearch);
+  document.getElementById('bedroomsFilter').addEventListener('change', e => { activeBeds = e.target.value; refreshResults(); });
+  document.getElementById('sortSelect').addEventListener('change', e => { sortBy = e.target.value; refreshResults(); });
+
+  document.getElementById('moreFiltersBtn').addEventListener('click', e => {
+      e.stopPropagation();
+      const dropdown = document.getElementById('moreFiltersDropdown');
+      dropdown.classList.toggle('open');
+      const isOpen = dropdown.classList.contains('open');
+      sessionStorage.setItem('filters_dropdown_open', isOpen ? 'true' : 'false');
+    });
+
+    // Fix 2: Mobile Filters button opens the same dropdown bottom-sheet
+    const mfBtn = document.getElementById('mobileFiltersBtn');
+    if (mfBtn) {
+      mfBtn.addEventListener('click', e => {
+        e.stopPropagation();
+        const dropdown = document.getElementById('moreFiltersDropdown');
+        dropdown.classList.toggle('open');
+        sessionStorage.setItem('filters_dropdown_open', dropdown.classList.contains('open') ? 'true' : 'false');
+      });
+    }
+
+    // Fix 3: Clear All pill (desktop bar)
+    const clearAllPill = document.getElementById('clearAllPill');
+    if (clearAllPill) clearAllPill.addEventListener('click', () => window.clearAllFilters());
+
+    // Fix 3: Clear All inside dropdown header (mobile)
+    const clearAllMobile = document.getElementById('clearAllMobile');
+    if (clearAllMobile) clearAllMobile.addEventListener('click', () => {
+      ['advMinBeds','advMinBaths','advMinRent','advMaxRent','advLaundryFilter','advHeatingFilter','advPetTypeFilter'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+      });
+      window.clearAllFilters();
+      document.getElementById('moreFiltersDropdown').classList.remove('open');
+      sessionStorage.setItem('filters_dropdown_open', 'false');
+    });
+  document.addEventListener('click', e => {
+    if (!document.getElementById('moreFiltersWrap').contains(e.target)) {
+      document.getElementById('moreFiltersDropdown').classList.remove('open');
+      sessionStorage.setItem('filters_dropdown_open', 'false');
+    }
+  });
+
+  document.getElementById('applyAdvFilters').addEventListener('click', () => {
+    activeMinRent  = document.getElementById('advMinRent').value;
+    activeMaxRent  = document.getElementById('advMaxRent').value || activeMaxRent;
+    activeMinBaths = document.getElementById('advMinBaths').value;
+    activeLaundry  = document.getElementById('advLaundryFilter').value;
+    activeHeating  = document.getElementById('advHeatingFilter').value;
+    activePetType  = document.getElementById('advPetTypeFilter').value;
+    const advBeds = document.getElementById('advMinBeds').value;
+    if (advBeds !== '') activeBeds = advBeds;
+    document.getElementById('moreFiltersDropdown').classList.remove('open');
+    sessionStorage.setItem('filters_dropdown_open', 'false');
+    refreshResults();
+    showToast('Filters applied', 'success');
+  });
+
+  document.getElementById('clearAdvFilters').addEventListener('click', () => {
+    ['advTypeFilter','advMinBeds','advMinBaths','advMinRent','advMaxRent','advLaundryFilter','advHeatingFilter','advPetTypeFilter'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    window.clearAllFilters();
+    document.getElementById('moreFiltersDropdown').classList.remove('open');
+    sessionStorage.setItem('filters_dropdown_open', 'false');
+  });
+}
+
+window.clearAllFilters = function() {
+  activeType = 'all'; activeSearch = ''; activeBeds = '';
+  activeMaxRent = ''; activeMinRent = ''; activeMinBaths = '';
+  activeLaundry = ''; activeHeating = ''; activePetType = '';
+  sortBy = 'newest'; currentPage = 1;
+  syncControls();
+  pushURL(true);
+  fetchAndRender();
+};
+
+function doSearch() {
+  activeSearch = document.getElementById('searchInput').value.trim();
+  refreshResults();
+}
+
+function updateFilterBadge() {
+    const badge = document.getElementById('filterActiveBadge');
+    const clearAllPill = document.getElementById('clearAllPill');
+    const mobileBadge = document.getElementById('mobileFiltersBadge');
+    const count = [activeType && activeType !== 'all', !!activeBeds, !!activeMaxRent, !!activeMinRent, !!activeMinBaths, !!activeSearch, !!activeLaundry, !!activeHeating, !!activePetType].filter(Boolean).length;
+    if (badge) { badge.textContent = count || ''; badge.style.display = count > 0 ? 'inline-flex' : 'none'; }
+    if (clearAllPill) clearAllPill.style.display = count > 0 ? '' : 'none';
+    if (mobileBadge) { mobileBadge.textContent = count || ''; mobileBadge.style.display = count > 0 ? 'inline-flex' : 'none'; }
+  }
+
+/* ─── Utilities ─── */
+
+function setupScrollTop() {
+  const btn = document.getElementById('scrollTopBtn');
+  if (!btn) return;
+  window.addEventListener('scroll', () => btn.classList.toggle('visible', window.scrollY > 400), { passive: true });
+  btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+}
+
+function renderError(errorMsg = 'Failed to load listings') {
+  const grid = document.getElementById('propertyGrid');
+  if (!grid) return;
+  grid.innerHTML = `
+    <div class="empty-state" style="grid-column:1/-1;text-align:center;padding:var(--space-16) var(--space-6)">
+      <div class="empty-state-icon"><i class="fas fa-exclamation-triangle" style="font-size:48px;color:var(--color-error);margin-bottom:16px;opacity:0.7"></i></div>
+      <h3 style="margin:var(--space-4) 0 var(--space-2);color:var(--color-text-primary);font-size:1.1rem">Something went wrong</h3>
+      <p style="color:var(--color-text-secondary);margin-bottom:24px;max-width:360px;margin-left:auto;margin-right:auto;line-height:1.5">
+        ${errorMsg || 'We couldn\'t load listings from the server. Please check your connection and try again.'}
+      </p>
+      <button onclick="location.reload()" style="background:var(--color-brand);color:#fff;border:none;border-radius:8px;padding:12px 28px;cursor:pointer;font-size:0.9rem;font-weight:500;transition:background 160ms ease">
+        <i class="fas fa-redo" style="margin-right:6px"></i>Retry
+      </button>
+    </div>`;
+}
+
+
+function showToast(msg, type = 'info') {
+  const c = document.getElementById('toastContainer');
+  if (!c) return;
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  const icons = { success: 'check-circle', error: 'exclamation-circle', info: 'info-circle' };
+  t.innerHTML = `<i class="fas fa-${icons[type] || 'info-circle'}"></i> ${msg}`;
+  c.appendChild(t);
+  const duration = type === 'error' ? 5000 : 3200;
+  setTimeout(() => {
+    t.style.opacity = '0';
+    t.style.transform = 'translateY(6px) scale(0.97)';
+    t.style.transition = 'all 280ms';
+    setTimeout(() => t.remove(), 280);
+  }, duration);
+}
+
+function toggleSave(id, btn) {
+  if (savedIds.has(id)) {
+    savedIds.delete(id);
+    btn.classList.remove('saved');
+    btn.innerHTML = '<i class="far fa-heart"></i>';
+  } else {
+    savedIds.add(id);
+    btn.classList.add('saved');
+    btn.innerHTML = '<i class="fas fa-heart"></i>';
+    showToast('Property saved!', 'success');
+  }
+  localStorage.setItem('cp_saved', JSON.stringify([...savedIds]));
+}
+
+/* ─── Mobile Drawer ─── */
+</script>
+</body>
+</html>

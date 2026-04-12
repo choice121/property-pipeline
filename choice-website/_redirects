@@ -1,0 +1,16 @@
+# _redirects — Cloudflare Pages
+#
+# Format: /source-path   destination   status-code
+# External redirects (to a different domain) are fully supported.
+#
+# ── Legacy internal apply system → external application form ─────────────────
+# The internal /apply/ pages are no longer in use. All applications are handled
+# by the external form at https://apply-choice-properties.pages.dev.
+# These rules catch any old email links or bookmarks and send them to the right place.
+#
+/apply.html                 https://apply-choice-properties.pages.dev                      301
+/apply/login.html           https://apply-choice-properties.pages.dev/?path=dashboard      301
+/apply/dashboard.html       https://apply-choice-properties.pages.dev/?path=dashboard      301
+/apply/success.html         https://apply-choice-properties.pages.dev/?path=dashboard      301
+/apply/lease.html           https://apply-choice-properties.pages.dev                      301
+/apply/*                    https://apply-choice-properties.pages.dev/?path=dashboard      301
