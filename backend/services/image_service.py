@@ -1,8 +1,12 @@
+import io
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STORAGE_DIR = os.path.join(BASE_DIR, "storage", "images")
@@ -16,6 +20,48 @@ def get_property_dir(property_id: str) -> str:
     return os.path.join(STORAGE_DIR, property_id)
 
 
+def _has_branded_overlay(image_bytes: bytes) -> bool:
+    """
+    Detect branded text watermarks burned into property photos.
+    Checks for high-contrast semi-transparent overlay bands in the bottom
+    quarter of the image — the typical placement for real estate logo watermarks.
+    Returns True if a suspicious overlay pattern is found.
+    """
+    try:
+        from PIL import Image, ImageFilter
+        import statistics
+
+        img = Image.open(io.BytesIO(image_bytes)).convert("L")
+        width, height = img.size
+        if width < 100 or height < 100:
+            return False
+
+        band_top = int(height * 0.72)
+        band_bottom = int(height * 0.92)
+        band_width = int(width * 0.60)
+
+        region = img.crop((0, band_top, band_width, band_bottom))
+        pixels = list(region.getdata())
+
+        if len(pixels) < 50:
+            return False
+
+        mean = sum(pixels) / len(pixels)
+        variance = sum((p - mean) ** 2 for p in pixels) / len(pixels)
+        std_dev = variance ** 0.5
+
+        bright = sum(1 for p in pixels if p > 200)
+        bright_ratio = bright / len(pixels)
+
+        if std_dev > 38 and bright_ratio > 0.12:
+            return True
+
+        return False
+    except Exception as e:
+        logger.debug("Watermark image check failed: %s", e)
+        return False
+
+
 def _download_one(url: str, filepath: str) -> bool:
     try:
         with httpx.Client(timeout=20, follow_redirects=True) as client:
@@ -26,6 +72,9 @@ def _download_one(url: str, filepath: str) -> bool:
         if not content_type.startswith("image/"):
             return False
         if len(resp.content) < 5 * 1024:
+            return False
+        if _has_branded_overlay(resp.content):
+            logger.info("Skipping watermarked image: %s", url)
             return False
         with open(filepath, "wb") as f:
             f.write(resp.content)
