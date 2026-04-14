@@ -377,11 +377,40 @@ def sync_fields(prop, db) -> dict:
     }
 
 
+BLOCKING_RULES = [
+    ("address",   lambda p: bool(p.address),                              "Address is required"),
+    ("city_state",lambda p: bool(p.city and p.state),                     "City and state are required"),
+    ("rent",      lambda p: bool(p.monthly_rent),                         "Monthly rent must be set"),
+    ("bedrooms",  lambda p: p.bedrooms is not None,                       "Bedroom count is required"),
+    ("photos",    lambda p: bool(json.loads(p.local_image_paths or "[]")),"At least one image must be downloaded"),
+    ("quality",   lambda p: (p.data_quality_score or 0) >= 50,           "Quality score is below 50 — too many critical fields missing"),
+]
+
+
+def pre_publish_checks(prop) -> list[str]:
+    """
+    Run hard blocking rules before any ImageKit upload.
+    Returns a list of error messages; empty list means all checks passed.
+    """
+    errors = []
+    for name, check, message in BLOCKING_RULES:
+        try:
+            if not check(prop):
+                errors.append(message)
+        except Exception as e:
+            errors.append(f"Check '{name}' failed unexpectedly: {e}")
+    return errors
+
+
 def publish(prop, db) -> dict:
     if prop.choice_property_id:
         raise ValueError(
             f"Property {prop.id} is already published (choice_property_id={prop.choice_property_id})"
         )
+
+    blocking_errors = pre_publish_checks(prop)
+    if blocking_errors:
+        raise ValueError("Cannot publish — failing checks:\n• " + "\n• ".join(blocking_errors))
 
     local_paths = []
     try:

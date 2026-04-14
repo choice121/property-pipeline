@@ -62,6 +62,34 @@ def _has_branded_overlay(image_bytes: bytes) -> bool:
         return False
 
 
+def _is_quality_image(content: bytes) -> tuple[bool, str]:
+    """
+    Check image dimensions and detect near-blank/solid-color placeholders.
+    Returns (is_valid, reason).
+    """
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(content))
+        w, h = img.size
+
+        if w < 200 or h < 150:
+            return False, "too_small_dimensions"
+
+        if w / h > 5 or h / w > 5:
+            return False, "extreme_aspect_ratio"
+
+        if img.mode in ("RGB", "RGBA"):
+            img_small = img.resize((20, 20)).convert("RGB")
+            pixels = list(img_small.getdata())
+            r_vals = [p[0] for p in pixels]
+            if max(r_vals) - min(r_vals) < 15:
+                return False, "near_blank"
+
+        return True, "ok"
+    except Exception:
+        return False, "cannot_decode"
+
+
 def _download_one(url: str, filepath: str) -> bool:
     try:
         with httpx.Client(timeout=20, follow_redirects=True) as client:
@@ -72,6 +100,10 @@ def _download_one(url: str, filepath: str) -> bool:
         if not content_type.startswith("image/"):
             return False
         if len(resp.content) < 5 * 1024:
+            return False
+        valid, reason = _is_quality_image(resp.content)
+        if not valid:
+            logger.debug("Skipping image %s: %s", url, reason)
             return False
         if _has_branded_overlay(resp.content):
             logger.info("Skipping watermarked image: %s", url)

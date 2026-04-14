@@ -23,6 +23,68 @@ def safe_val(val):
         return None
 
 
+FIELD_FALLBACKS = {
+    "monthly_rent":     ["list_price", "list_price_min", "rent", "price", "asking_price"],
+    "description":      ["text", "description", "property_description", "remarks", "public_remarks", "agent_remarks"],
+    "security_deposit": ["security_deposit", "deposit", "deposit_amount", "security", "move_in_deposit"],
+    "available_date":   ["date_available", "available_date", "move_in_date", "date_available_text", "availability"],
+    "laundry":          ["laundry", "laundry_type", "laundry_features", "laundry_location"],
+    "parking":          ["parking_garage", "parking", "parking_type", "garage_spaces", "parking_spaces"],
+}
+
+WEIGHTED_QUALITY_FIELDS = {
+    "address":      {"weight": 10, "group": "location"},
+    "city":         {"weight": 5,  "group": "location"},
+    "state":        {"weight": 5,  "group": "location"},
+    "zip":          {"weight": 5,  "group": "location"},
+    "monthly_rent": {"weight": 20, "group": "rent"},
+    "bedrooms":     {"weight": 8,  "group": "beds_baths"},
+    "bathrooms":    {"weight": 7,  "group": "beds_baths"},
+    "photos":       {"weight": 15, "group": "photos"},
+    "description":  {"weight": 10, "group": "description"},
+    "property_type":{"weight": 5,  "group": "type"},
+    "available_date":{"weight": 5, "group": "date"},
+    "amenities":    {"weight": 3,  "group": "amenities"},
+    "appliances":   {"weight": 2,  "group": "amenities"},
+}
+
+
+def _calculate_weighted_quality(prop: dict, image_urls: list) -> tuple[int, list]:
+    """
+    Calculate a weighted quality score (0-100) that reflects actual publish-readiness.
+    Returns (score, missing_fields).
+    """
+    missing = []
+    earned = 0
+    total_weight = sum(f["weight"] for f in WEIGHTED_QUALITY_FIELDS.values())
+
+    checks = {
+        "address":       prop.get("address"),
+        "city":          prop.get("city"),
+        "state":         prop.get("state"),
+        "zip":           prop.get("zip"),
+        "monthly_rent":  prop.get("monthly_rent"),
+        "bedrooms":      prop.get("bedrooms"),
+        "bathrooms":     prop.get("bathrooms") or prop.get("total_bathrooms"),
+        "photos":        image_urls if len(image_urls) >= 3 else None,
+        "description":   prop.get("description") if prop.get("description") and len(str(prop.get("description", ""))) >= 50 else None,
+        "property_type": prop.get("property_type"),
+        "available_date":prop.get("available_date"),
+        "amenities":     prop.get("amenities") if prop.get("amenities") and prop.get("amenities") != "[]" else None,
+        "appliances":    prop.get("appliances") if prop.get("appliances") and prop.get("appliances") != "[]" else None,
+    }
+
+    for field, cfg in WEIGHTED_QUALITY_FIELDS.items():
+        val = checks.get(field)
+        if val in (None, "", [], {}, "[]"):
+            missing.append(field)
+        else:
+            earned += cfg["weight"]
+
+    score = round((earned / total_weight) * 100)
+    return score, missing
+
+
 def normalize_row(row: dict) -> dict:
     def get(key):
         v = row.get(key)
@@ -110,7 +172,7 @@ def normalize_row(row: dict) -> dict:
             days_on_market = None
 
     available_date = None
-    for field in ("date_available", "available_date", "move_in_date", "date_available_text"):
+    for field in FIELD_FALLBACKS["available_date"]:
         val = get(field)
         if val is not None:
             try:
@@ -290,29 +352,21 @@ def normalize_row(row: dict) -> dict:
         if value:
             inferred_features.append(label)
 
-    missing_fields = []
-    quality_fields = {
-        "address": get("street"),
-        "city": get("city"),
-        "state": get("state"),
-        "zip": get("zip_code"),
-        "monthly_rent": first_value("list_price", "list_price_min"),
-        "bedrooms": get("beds"),
-        "bathrooms": total_bathrooms,
-        "description": first_value("text", "description"),
-        "photos": image_urls,
+    _pre_score_prop = {
+        "address":       get("street"),
+        "city":          get("city"),
+        "state":         get("state"),
+        "zip":           str(get("zip_code")) if get("zip_code") is not None else None,
+        "monthly_rent":  to_int(first_value(*FIELD_FALLBACKS["monthly_rent"])),
+        "bedrooms":      int(get("beds")) if get("beds") is not None else None,
+        "bathrooms":     total_bathrooms,
+        "description":   first_value(*FIELD_FALLBACKS["description"]),
         "property_type": get("style"),
-        "available_date": available_date,
-        "parking": parking,
-        "heating_type": heating_type,
-        "cooling_type": cooling_type,
-        "laundry_type": laundry_type,
-        "pet_policy": pets_allowed,
+        "available_date":available_date,
+        "amenities":     json.dumps(amenities),
+        "appliances":    json.dumps(appliances),
     }
-    for key, value in quality_fields.items():
-        if value in (None, "", [], {}):
-            missing_fields.append(key)
-    data_quality_score = round(((len(quality_fields) - len(missing_fields)) / len(quality_fields)) * 100)
+    data_quality_score, missing_fields = _calculate_weighted_quality(_pre_score_prop, image_urls)
 
     # PIPE-3 FIX: source is passed in at scrape() call time and injected here
     # so each property correctly reflects its actual scrape source (zillow/realtor/redfin).
@@ -336,13 +390,13 @@ def normalize_row(row: dict) -> dict:
         "total_bathrooms": total_bathrooms,
         "square_footage": int(get("sqft")) if get("sqft") is not None else None,
         "lot_size_sqft": int(get("lot_sqft")) if get("lot_sqft") is not None else None,
-        "monthly_rent": int(get("list_price")) if get("list_price") is not None else (int(get("list_price_min")) if get("list_price_min") is not None else None),
+        "monthly_rent": to_int(first_value(*FIELD_FALLBACKS["monthly_rent"])),
         "property_type": get("style"),
         "year_built": int(get("year_built")) if get("year_built") is not None else None,
         "floors": to_int(first_value("floors", "stories")),
         "unit_number": first_value("unit", "unit_number"),
         "total_units": to_int(first_value("total_units", "units")),
-        "description": get("text"),
+        "description": first_value(*FIELD_FALLBACKS["description"]),
         "available_date": available_date,
         "virtual_tour_url": first_value("virtual_tour_url", "virtual_tour", "matterport_url"),
         "pets_allowed": pets_allowed,
@@ -352,7 +406,7 @@ def normalize_row(row: dict) -> dict:
         "smoking_allowed": smoking_allowed,
         "parking": parking,
         "garage_spaces": garage_spaces,
-        "security_deposit": to_int(first_value("security_deposit", "deposit")),
+        "security_deposit": to_int(first_value(*FIELD_FALLBACKS["security_deposit"])),
         "last_months_rent": to_int(first_value("last_months_rent", "last_month_rent")),
         "application_fee": to_int(first_value("application_fee", "app_fee")),
         "pet_deposit": to_int(first_value("pet_deposit")),

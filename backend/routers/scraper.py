@@ -10,6 +10,7 @@ from database.db import get_db
 from database.models import Property
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
+from services.validator import validate_and_warn
 from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,8 @@ def scrape_properties(
         if existing:
             saved.append(existing)
             continue
+
+        data = validate_and_warn(data)
 
         prop_id = generate_property_id()
         valid_cols = {c.name for c in Property.__table__.columns}
