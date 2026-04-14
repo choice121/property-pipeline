@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 from database.db import get_db
 from database.models import Property
 from services import scraper_service, image_service
-from services.scraper_service import generate_property_id
+from services.detail_fetcher import fetch_missing_fields
+from services.enrichment_service import geocode_property, run_rule_based_enrichment
+from services.scraper_service import _calculate_weighted_quality, generate_property_id
 from services.validator import validate_and_warn
 from services.watermark_filter import watermark_reasons
 
@@ -55,6 +57,55 @@ class ScrapeRequest(BaseModel):
 
     sort_by: Optional[str] = None
     sort_direction: Optional[str] = "desc"
+
+
+def enrichment_background_task(property_id: str, db_session_factory):
+    """
+    Background task: geocode missing lat/lng, run detail_fetcher for sub-70 score
+    properties, then recalculate and persist the quality score.
+    """
+    db = db_session_factory()
+    try:
+        geocode_property(property_id, db)
+        fetch_missing_fields(property_id, db)
+
+        prop = db.query(Property).filter(Property.id == property_id).first()
+        if not prop:
+            return
+
+        image_urls = []
+        try:
+            image_urls = json.loads(prop.original_image_urls or "[]")
+        except Exception:
+            pass
+
+        prop_dict = {
+            "address":       prop.address,
+            "city":          prop.city,
+            "state":         prop.state,
+            "zip":           prop.zip,
+            "monthly_rent":  prop.monthly_rent,
+            "bedrooms":      prop.bedrooms,
+            "bathrooms":     prop.bathrooms or prop.total_bathrooms,
+            "description":   prop.description,
+            "property_type": prop.property_type,
+            "available_date":prop.available_date,
+            "amenities":     prop.amenities,
+            "appliances":    prop.appliances,
+        }
+        score, missing = _calculate_weighted_quality(prop_dict, image_urls)
+        prop.data_quality_score = score
+        prop.missing_fields = json.dumps(missing)
+        try:
+            db.commit()
+            logger.info("Enrichment background task complete for %s — score now %d", property_id, score)
+        except Exception as e:
+            db.rollback()
+            logger.error("Failed to update score after enrichment for %s: %s", property_id, e)
+    except Exception as e:
+        logger.error("Enrichment background task failed for %s: %s", property_id, e)
+    finally:
+        db.close()
 
 
 def download_images_task(property_id: str, image_urls: list, db_session_factory):
@@ -147,6 +198,18 @@ def scrape_properties(
 
         data = validate_and_warn(data)
 
+        data = run_rule_based_enrichment(data)
+
+        image_urls = []
+        try:
+            image_urls = json.loads(data.get("original_image_urls", "[]"))
+        except Exception:
+            pass
+
+        score, missing = _calculate_weighted_quality(data, image_urls)
+        data["data_quality_score"] = score
+        data["missing_fields"] = json.dumps(missing)
+
         prop_id = generate_property_id()
         valid_cols = {c.name for c in Property.__table__.columns}
         prop_data = {k: v for k, v in data.items() if k in valid_cols}
@@ -161,16 +224,14 @@ def scrape_properties(
             continue
         saved.append(prop)
 
-        image_urls = []
-        try:
-            image_urls = json.loads(data.get("original_image_urls", "[]"))
-        except Exception:
-            pass
+        from database.db import SessionLocal
         if image_urls:
-            from database.db import SessionLocal
             background_tasks.add_task(
                 download_images_task, prop_id, image_urls, SessionLocal
             )
+        background_tasks.add_task(
+            enrichment_background_task, prop_id, SessionLocal
+        )
 
     return {"count": len(saved), "properties": [prop_to_dict(p) for p in saved]}
 

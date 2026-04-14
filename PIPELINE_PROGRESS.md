@@ -19,11 +19,11 @@
 ## Phase 2 · Enrichment Layer
 *Goal: Auto-fill missing fields using rule-based logic, no external APIs.*
 
-- [ ] **Rule-based enrichers** — `services/enrichment_service.py` with title generation, available_date fallback, deposit inference (1× rent), and pet policy from description keywords.
-- [ ] **Nominatim geocoding fallback** — Free OSM geocoding for properties missing lat/lng.
-- [ ] **`detail_fetcher.py`** — Background HTML fetch for sub-70 score properties to extract available_date, deposit, and lease_terms via regex.
-- [ ] **Wire enrichment into scrape background task** — Run enrichers after normalization, before saving score.
-- [ ] **Recalculate quality score after enrichment** — Score must reflect post-enrichment completeness.
+- [x] **Rule-based enrichers** — `services/enrichment_service.py` with title generation, available_date fallback (list_date or today), deposit inference (1× rent), and pet policy from description keywords. Runs inline before saving every new property.
+- [x] **Nominatim geocoding fallback** — Free OSM geocoding for properties missing lat/lng. Runs as a background task after scrape, respects the 1 req/sec rate limit.
+- [x] **`detail_fetcher.py`** — Background HTML fetch for sub-70 score properties to extract available_date, security_deposit, and lease_terms via regex from the listing source URL.
+- [x] **Wire enrichment into scrape background task** — Rule-based enrichers run inline (before save); geocoding and detail_fetcher run as background tasks after save.
+- [x] **Recalculate quality score after enrichment** — Score is recalculated after rule-based enrichment (inline) and again after background geocoding/detail-fetch completes, then persisted to the DB.
 
 ---
 
