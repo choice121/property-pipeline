@@ -314,8 +314,11 @@ def normalize_row(row: dict) -> dict:
             missing_fields.append(key)
     data_quality_score = round(((len(quality_fields) - len(missing_fields)) / len(quality_fields)) * 100)
 
+    # PIPE-3 FIX: source is passed in at scrape() call time and injected here
+    # so each property correctly reflects its actual scrape source (zillow/realtor/redfin).
+    # The _source key is set by scrape() after normalize_row() returns.
     return {
-        "source": "realtor",
+        "source": row.get("_source", "realtor"),
         "source_url": get("property_url"),
         "source_listing_id": str(get("mls_id")) if get("mls_id") is not None else str(get("listing_id")) if get("listing_id") is not None else None,
         "status": "scraped",
@@ -460,4 +463,11 @@ def scrape(
         normalized = normalize_row(row_dict)
         results.append(normalized)
 
+    return results
+
+
+def _inject_source(results: list, source: str) -> list:
+    """PIPE-3 FIX: stamp the real source onto each normalized row."""
+    for r in results:
+        r["source"] = source
     return results

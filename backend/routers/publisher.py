@@ -70,3 +70,34 @@ def refresh_published_images(id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Image refresh failed: {str(e)}")
 
     return result
+
+
+@router.post("/publish/{id}/sync-fields")
+def sync_published_fields(id: str, db: Session = Depends(get_db)):
+    """
+    PIPE-10 FIX: Push all edited fields back to the live Supabase record.
+    Use this after editing a published property in the Editor.
+    """
+    prop = db.query(Property).filter(Property.id == id).first()
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    if not prop.choice_property_id:
+        raise HTTPException(status_code=400, detail="Property has not been published yet")
+
+    try:
+        result = publisher_service.sync_fields(prop, db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Missing environment variable: {e}. Check that all credentials are configured."
+        )
+    except Exception as e:
+        logger.exception("Unexpected error syncing fields for property %s", id)
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+    return result

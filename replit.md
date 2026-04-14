@@ -73,7 +73,9 @@ The workflow runs `bash start.sh` which:
 - The pipeline now preserves a richer property profile for publishing, including move-in costs, garage spaces, pet restrictions, lease terms, appliances, utilities, flooring, heating/cooling/laundry, basement/central-air flags, inferred features, and a completeness score.
 - `backend/database/db.py` performs additive SQLite column migrations during startup so older local pipeline databases keep working as the property model expands.
 - A local `choice-website/` copy of the Choice Properties static site has been added for the display-side update. It now includes website schema/display support for `total_bathrooms`, `has_basement`, and `has_central_air`, richer listing-card feature tags, richer property-detail structured data, and expanded search indexing for appliances/utilities/flooring/HVAC terms.
+- The uploaded pipeline fix pass has been merged selectively while keeping the Replit import setup and current dependency ranges. Publishing now normalizes property types, checks Supabase for existing address/city/state duplicates before insert, preserves unknown pet status, strips known platform boilerplate from descriptions, caps ImageKit uploads at 25 photos, and supports refreshing photos or syncing edited fields for already-published properties.
+- The scraper UI now includes a source selector and the backend stores the selected source on scraped/search results. The included backfill SQL files (`BACKFILL_PIPE1_property_types.sql`, `BACKFILL_PIPE2_remove_duplicates.sql`, `BACKFILL_PIPE4_landlord_id.sql`) are for manual Supabase cleanup of already-live records.
 
 ## Development Status
 
-Stages 1-7 are implemented, with ongoing property data completeness upgrades. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.
+Stages 1-7 are implemented, with ongoing property data completeness and publishing reliability upgrades. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.

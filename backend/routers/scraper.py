@@ -14,10 +14,12 @@ from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+SUPPORTED_SOURCES = {"realtor"}
 
 
 class ScrapeRequest(BaseModel):
     location: str
+    source: Optional[str] = "realtor"  # PIPE-3 FIX: "zillow" | "realtor" | "redfin"
     listing_type: Optional[str] = "for_rent"
     property_type: Optional[List[str]] = None
 
@@ -78,6 +80,12 @@ def scrape_properties(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
+    if (req.source or "realtor") not in SUPPORTED_SOURCES:
+        raise HTTPException(
+            status_code=400,
+            detail="This scraper currently supports Realtor.com only. Choose Realtor.com as the source."
+        )
+
     try:
         results = scraper_service.scrape(
             location=req.location,
@@ -109,6 +117,9 @@ def scrape_properties(
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
+
+    # PIPE-3 FIX: stamp actual source
+    results = scraper_service._inject_source(results, req.source or "realtor")
 
     saved = []
     for data in results:

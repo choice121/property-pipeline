@@ -17,6 +17,12 @@ const PROPERTY_TYPES = [
   { value: 'farm', label: 'Farm' },
 ]
 
+const SOURCES = [
+  { value: 'realtor', label: 'Realtor.com' },
+  { value: 'zillow',  label: 'Zillow' },
+  { value: 'redfin',  label: 'Redfin' },
+]
+
 const LISTING_TYPES = [
   { value: 'for_rent', label: 'For Rent' },
   { value: 'for_sale', label: 'For Sale' },
@@ -46,6 +52,7 @@ const TIME_MODE_OPTIONS = [
 
 const defaultForm = {
   location: '',
+  source: 'realtor',
   listing_type: 'for_rent',
   property_types: [],
   min_price: '',
@@ -266,6 +273,7 @@ export default function Scraper() {
     const str = (v) => (v !== '' ? v : null)
     return {
       location: form.location,
+      source: form.source || 'realtor',
       listing_type: form.listing_type || null,
       property_type: form.property_types.length > 0 ? form.property_types : null,
       min_price: int(form.min_price),
@@ -387,6 +395,12 @@ export default function Scraper() {
             hint='City, state, zip code, or full address — e.g. "Austin, TX", "78701", "123 Main St, Dallas TX"'
           >
             <Input name="location" value={form.location} onChange={handleChange} placeholder='e.g. "Austin, TX" or "78701"' />
+          </Field>
+
+          <Field label="Source" hint="Which platform to scrape from">
+            <Select name="source" value={form.source} onChange={handleChange}>
+              {SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </Select>
           </Field>
 
           <Field label="Listing Type">

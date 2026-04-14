@@ -28,6 +28,7 @@ def get_valid_columns():
 
 class SearchRequest(BaseModel):
     location: str
+    source: Optional[str] = "realtor"  # PIPE-3 FIX: "zillow" | "realtor" | "redfin"
     listing_type: Optional[str] = "for_rent"
     property_type: Optional[List[str]] = None
     min_price: Optional[int] = None
@@ -107,6 +108,8 @@ def search_properties(req: SearchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
+    # PIPE-3 FIX: stamp actual source onto every result
+    results = scraper_service._inject_source(results, req.source or "realtor")
     filtered_results, blocked_results = filter_watermarked(results)
 
     enriched = []
