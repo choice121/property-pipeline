@@ -256,7 +256,16 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     if landlord_id:
         record["landlord_id"] = landlord_id
 
-    return {k: v for k, v in record.items() if v is not None}
+    # Filter None values; also filter False booleans for fields that may not yet exist in Supabase schema
+    SCHEMA_OPTIONAL_BOOLEANS = {"has_basement", "has_central_air", "smoking_allowed"}
+    result = {}
+    for k, v in record.items():
+        if v is None:
+            continue
+        if k in SCHEMA_OPTIONAL_BOOLEANS and v is False:
+            continue
+        result[k] = v
+    return result
 
 
 def refresh_images(prop, db) -> dict:
@@ -488,7 +497,38 @@ def publish(prop, db) -> dict:
     logger.info("Inserting property into Supabase for property %s", prop.id)
     record = _build_supabase_record(prop, imagekit_results)
 
-    result = client.table("properties").insert(record).execute()
+    # Retry up to 15 times — each PGRST204 "column not found" strips one unknown column
+    stripped_columns = []
+    for attempt in range(15):
+        try:
+            result = client.table("properties").insert(record).execute()
+            break
+        except Exception as exc:
+            err_str = str(exc)
+            # PGRST204: column does not exist in schema cache
+            if "PGRST204" in err_str or "could not find" in err_str.lower():
+                import re as _re
+                col_match = _re.search(r"'(\w+)'\s+column", err_str, _re.IGNORECASE)
+                if col_match:
+                    bad_col = col_match.group(1)
+                    if bad_col in record:
+                        stripped_columns.append(bad_col)
+                        del record[bad_col]
+                        logger.warning(
+                            "Supabase schema missing column '%s' — retrying without it (attempt %d)",
+                            bad_col, attempt + 1
+                        )
+                        continue
+            raise
+    else:
+        raise RuntimeError("Supabase insert failed after stripping unknown columns.")
+
+    if stripped_columns:
+        logger.warning(
+            "Published property %s but %d column(s) missing from Supabase schema: %s. "
+            "Run the migration SQL in the Supabase SQL editor to add them.",
+            prop.id, len(stripped_columns), stripped_columns
+        )
 
     if not result.data:
         raise RuntimeError(

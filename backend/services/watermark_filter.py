@@ -26,7 +26,6 @@ WATERMARKED_BRAND_TERMS = (
     "exit realty",
     "homes for heroes",
     "invitation homes",
-    "progress residential",
     "tricon",
     "american homes 4 rent",
 )
