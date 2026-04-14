@@ -4,7 +4,10 @@ A private, standalone property management tool for Choice Properties.
 
 ## Overview
 
-This app scrapes property listings from major platforms (Zillow, Realtor.com, Redfin), allows viewing and editing those listings in a private dashboard, and eventually publishes them to a live website.
+This app scrapes property listings from major platforms (Zillow, Realtor.com, Redfin), allows viewing and editing those listings in a private dashboard, and publishes them to the live Choice Properties website.
+
+**Live Website:** https://choice-properties-site.pages.dev/
+**Property page format:** https://choice-properties-site.pages.dev/property.html?id={PROP-ID}
 
 ## Architecture
 
