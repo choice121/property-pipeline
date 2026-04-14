@@ -33,19 +33,22 @@ FIELD_FALLBACKS = {
 }
 
 WEIGHTED_QUALITY_FIELDS = {
-    "address":      {"weight": 10, "group": "location"},
-    "city":         {"weight": 5,  "group": "location"},
-    "state":        {"weight": 5,  "group": "location"},
-    "zip":          {"weight": 5,  "group": "location"},
-    "monthly_rent": {"weight": 20, "group": "rent"},
-    "bedrooms":     {"weight": 8,  "group": "beds_baths"},
-    "bathrooms":    {"weight": 7,  "group": "beds_baths"},
-    "photos":       {"weight": 15, "group": "photos"},
-    "description":  {"weight": 10, "group": "description"},
-    "property_type":{"weight": 5,  "group": "type"},
-    "available_date":{"weight": 5, "group": "date"},
-    "amenities":    {"weight": 3,  "group": "amenities"},
-    "appliances":   {"weight": 2,  "group": "amenities"},
+    "address":           {"weight": 10, "group": "location"},
+    "city":              {"weight": 5,  "group": "location"},
+    "state":             {"weight": 5,  "group": "location"},
+    "zip":               {"weight": 3,  "group": "location"},
+    "monthly_rent":      {"weight": 20, "group": "rent"},
+    "bedrooms":          {"weight": 8,  "group": "beds_baths"},
+    "bathrooms":         {"weight": 6,  "group": "beds_baths"},
+    "photos":            {"weight": 15, "group": "photos"},
+    "description":       {"weight": 10, "group": "description"},
+    "property_type":     {"weight": 4,  "group": "type"},
+    "available_date":    {"weight": 4,  "group": "date"},
+    "square_footage":    {"weight": 3,  "group": "size"},
+    "laundry_type":      {"weight": 2,  "group": "amenities"},
+    "heating_type":      {"weight": 2,  "group": "amenities"},
+    "amenities":         {"weight": 2,  "group": "amenities"},
+    "appliances":        {"weight": 1,  "group": "amenities"},
 }
 
 
@@ -59,19 +62,22 @@ def _calculate_weighted_quality(prop: dict, image_urls: list) -> tuple[int, list
     total_weight = sum(f["weight"] for f in WEIGHTED_QUALITY_FIELDS.values())
 
     checks = {
-        "address":       prop.get("address"),
-        "city":          prop.get("city"),
-        "state":         prop.get("state"),
-        "zip":           prop.get("zip"),
-        "monthly_rent":  prop.get("monthly_rent"),
-        "bedrooms":      prop.get("bedrooms"),
-        "bathrooms":     prop.get("bathrooms") or prop.get("total_bathrooms"),
-        "photos":        image_urls if len(image_urls) >= 3 else None,
-        "description":   prop.get("description") if prop.get("description") and len(str(prop.get("description", ""))) >= 50 else None,
-        "property_type": prop.get("property_type"),
-        "available_date":prop.get("available_date"),
-        "amenities":     prop.get("amenities") if prop.get("amenities") and prop.get("amenities") != "[]" else None,
-        "appliances":    prop.get("appliances") if prop.get("appliances") and prop.get("appliances") != "[]" else None,
+        "address":        prop.get("address"),
+        "city":           prop.get("city"),
+        "state":          prop.get("state"),
+        "zip":            prop.get("zip"),
+        "monthly_rent":   prop.get("monthly_rent"),
+        "bedrooms":       prop.get("bedrooms"),
+        "bathrooms":      prop.get("bathrooms") or prop.get("total_bathrooms"),
+        "photos":         image_urls if len(image_urls) >= 3 else None,
+        "description":    prop.get("description") if prop.get("description") and len(str(prop.get("description", ""))) >= 50 else None,
+        "property_type":  prop.get("property_type"),
+        "available_date": prop.get("available_date"),
+        "square_footage": prop.get("square_footage"),
+        "laundry_type":   prop.get("laundry_type"),
+        "heating_type":   prop.get("heating_type"),
+        "amenities":      prop.get("amenities") if prop.get("amenities") and prop.get("amenities") != "[]" else None,
+        "appliances":     prop.get("appliances") if prop.get("appliances") and prop.get("appliances") != "[]" else None,
     }
 
     for field, cfg in WEIGHTED_QUALITY_FIELDS.items():

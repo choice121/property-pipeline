@@ -36,17 +36,12 @@ WATERMARK_FIELD_HINTS = (
     "photo_credit",
     "image_credit",
     "copyright",
-    "broker",
-    "advertiser",
-    "provider",
-    "source",
-    "agent",
-    "office",
-    "realty",
-    "realtor",
+    "branding",
     "listed_by",
     "listing_agent",
-    "branding",
+    "broker_name",
+    "agent_name",
+    "office_name",
 )
 
 BROKER_FIELDS = (
@@ -91,82 +86,60 @@ def _loads_json(value: Any) -> Any:
         return value
 
 
-def _check_original_data(data: dict) -> list[str]:
-    """Scan original_data JSON for broker/agent brand names in known fields."""
-    reasons = []
-    raw = data.get("original_data")
-    if not raw:
-        return reasons
-    try:
-        original = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception:
-        return reasons
 
-    def extract_text_from(obj, depth=0):
-        if depth > 6 or obj is None:
-            return []
-        texts = []
-        if isinstance(obj, str):
-            texts.append(obj.lower())
-        elif isinstance(obj, dict):
-            for k, v in obj.items():
-                if any(f in k.lower() for f in BROKER_FIELDS):
-                    texts.extend(extract_text_from(v, depth + 1))
-                else:
-                    texts.extend(extract_text_from(v, depth + 1))
-        elif isinstance(obj, list):
-            for item in obj:
-                texts.extend(extract_text_from(item, depth + 1))
-        return texts
 
-    all_text = " ".join(extract_text_from(original))
-    for brand in WATERMARKED_BRAND_TERMS:
-        normalized = _normalize(brand)
-        compact = normalized.replace(" ", "")
-        norm_text = _normalize(all_text)
-        if normalized in norm_text or compact in norm_text.replace(" ", ""):
-            reason = f"blocked watermark brand in listing data: {brand}"
-            if reason not in reasons:
-                reasons.append(reason)
+SAFE_SKIP_KEYS = frozenset({
+    "source", "source_url", "source_listing_id", "original_data",
+    "status", "id", "scraped_at", "updated_at", "edited_fields",
+    "inferred_features", "missing_fields", "data_quality_score",
+})
 
-    return reasons
+BRANDED_CONTENT_KEYS = frozenset({
+    "description", "title", "text", "remarks", "public_remarks",
+    "agent_remarks", "property_description", "notes",
+})
 
 
 def watermark_reasons(data: dict) -> list[str]:
-    reasons = []
-    searchable_values = []
+    """
+    Only flag a listing as watermarked when a blocked brand name appears in a
+    field that is either:
+      (a) a branded-content field (description, remarks, title, notes), or
+      (b) a watermark-hint field (listing_agent, branding, photo_credit, etc.)
 
-    for key, value in data.items():
-        key_text = _normalize(str(key))
-        parsed = _loads_json(value)
+    We deliberately skip metadata-only fields (source, source_url, original_data,
+    etc.) to avoid false positives where "realtor" or "remax" appears only because
+    it is the platform name or URL, not because the listing is watermarked.
+    """
+    reasons = []
+
+    for key, raw_value in data.items():
+        key_lower = key.lower()
+
+        if key_lower in SAFE_SKIP_KEYS:
+            continue
+
+        is_branded_content = key_lower in BRANDED_CONTENT_KEYS
+        is_watermark_field = any(hint in key_lower for hint in WATERMARK_FIELD_HINTS)
+
+        if not is_branded_content and not is_watermark_field:
+            continue
+
+        parsed = _loads_json(raw_value)
         for item in _iter_values(parsed):
             text = _normalize(item)
             if not text:
                 continue
-            searchable_values.append((key_text, text))
-
-    for brand in WATERMARKED_BRAND_TERMS:
-        normalized_brand = _normalize(brand)
-        compact_brand = normalized_brand.replace(" ", "")
-        for key_text, text in searchable_values:
             compact_text = text.replace(" ", "")
-            if normalized_brand in text or compact_brand in compact_text:
-                if any(hint in key_text for hint in WATERMARK_FIELD_HINTS) or normalized_brand in text or compact_brand in compact_text:
+            for brand in WATERMARKED_BRAND_TERMS:
+                normalized_brand = _normalize(brand)
+                compact_brand = normalized_brand.replace(" ", "")
+                if normalized_brand in text or compact_brand in compact_text:
                     reason = f"blocked watermark brand: {brand}"
                     if reason not in reasons:
                         reasons.append(reason)
 
-    reasons.extend(_check_original_data(data))
-
-    deduped = []
-    seen_brands = set()
-    for r in reasons:
-        brand_key = r.split(":")[-1].strip()
-        if brand_key not in seen_brands:
-            seen_brands.add(brand_key)
-            deduped.append(r)
-
-    return deduped
+    return reasons
 
 
 def is_watermarked(data: dict) -> bool:

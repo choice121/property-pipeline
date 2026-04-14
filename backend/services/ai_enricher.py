@@ -128,8 +128,9 @@ def _generate_description(prop) -> str:
     ptype = (prop.property_type or "property").lower().replace("_", " ")
     city  = prop.city or ""
     state = prop.state or ""
+    address = prop.address or ""
 
-    bed_str  = f"{bed}-bedroom" if bed else ""
+    bed_str = "Studio" if bed == 0 else (f"{bed}-bedroom" if bed else "")
     if bath:
         bath_val = int(bath) if bath == int(bath) else bath
         bath_str = f"{bath_val}-bathroom"
@@ -139,69 +140,124 @@ def _generate_description(prop) -> str:
     descriptor_parts = [p for p in [bed_str, bath_str, ptype] if p]
     descriptor = " ".join(descriptor_parts) if descriptor_parts else "rental property"
 
+    location = f"{city}, {state}" if city and state else city or state or ""
+
+    paragraphs = []
+
+    # ── Lead paragraph ────────────────────────────────────────────────────────
+    lead_parts = []
     if sqft:
-        lead = f"This {descriptor} offers {sqft:,} sq ft of living space"
+        lead_parts.append(f"This {descriptor} offers {sqft:,} sq ft of living space{(' in ' + location) if location else ''}.")
     else:
-        lead = f"This {descriptor} is available for rent"
-
-    if city and state:
-        lead += f" in {city}, {state}."
-    elif city:
-        lead += f" in {city}."
-    else:
-        lead += "."
-
-    sentences = [lead]
-
-    amenities  = _parse_json_list(prop.amenities)
-    appliances = _parse_json_list(prop.appliances)
-
-    if amenities:
-        sentences.append(f"Features include {', '.join(amenities[:5])}.")
-    if appliances:
-        sentences.append(f"The kitchen comes equipped with {', '.join(appliances[:4])}.")
-
-    highlights = []
-    if prop.has_basement:
-        highlights.append("a full basement")
-    if prop.has_central_air:
-        highlights.append("central air conditioning")
-    if prop.garage_spaces:
-        n = prop.garage_spaces
-        highlights.append(f"a {n}-car garage" if n > 1 else "garage parking")
-    if prop.laundry_type:
-        highlights.append(f"{prop.laundry_type.lower()} laundry")
-    if prop.heating_type:
-        highlights.append(f"{prop.heating_type.lower()} heat")
-    if prop.cooling_type and not prop.has_central_air:
-        highlights.append(f"{prop.cooling_type.lower()} cooling")
-
-    if highlights:
-        sentences.append(f"The home also features {', '.join(highlights)}.")
+        lead_parts.append(f"This {descriptor} is available for rent{(' in ' + location) if location else ''}.")
 
     if prop.year_built:
-        sentences.append(f"Built in {prop.year_built}.")
+        lead_parts.append(f"Built in {prop.year_built}.")
+    if prop.floors and prop.floors > 1:
+        lead_parts.append(f"The home spans {prop.floors} stories.")
+    if prop.lot_size_sqft:
+        acres = round(prop.lot_size_sqft / 43560, 2)
+        if acres >= 0.1:
+            lead_parts.append(f"The lot is {acres} acres ({prop.lot_size_sqft:,} sq ft).")
 
-    if prop.pets_allowed is True:
-        pet_types = _parse_json_list(prop.pet_types_allowed)
-        if pet_types:
-            sentences.append(f"Pets welcome — {', '.join(t.lower() for t in pet_types)} allowed.")
-        else:
-            sentences.append("Pets welcome.")
-    elif prop.pets_allowed is False:
-        sentences.append("No pets permitted.")
+    paragraphs.append(" ".join(lead_parts))
 
-    if prop.security_deposit:
-        sentences.append(f"Security deposit: ${prop.security_deposit:,}.")
+    # ── Interior features paragraph ───────────────────────────────────────────
+    interior = []
+    amenities  = _parse_json_list(prop.amenities)
+    appliances = _parse_json_list(prop.appliances)
+    flooring   = _parse_json_list(prop.flooring)
+
+    if amenities:
+        interior.append(f"Features include {', '.join(amenities[:6])}.")
+    if appliances:
+        interior.append(f"The kitchen comes equipped with {', '.join(appliances[:5])}.")
+    if flooring:
+        interior.append(f"Flooring: {', '.join(flooring)}.")
+    if prop.has_basement:
+        interior.append("The property includes a full basement.")
+    if prop.half_bathrooms:
+        interior.append(f"There {'is' if prop.half_bathrooms == 1 else 'are'} also {prop.half_bathrooms} half bath{'s' if prop.half_bathrooms > 1 else ''}.")
+
+    if interior:
+        paragraphs.append(" ".join(interior))
+
+    # ── Systems and utilities paragraph ──────────────────────────────────────
+    systems = []
+    if prop.heating_type:
+        systems.append(f"{prop.heating_type} heating")
+    if prop.cooling_type or prop.has_central_air:
+        systems.append(f"{prop.cooling_type or 'central air'} cooling")
+    if prop.laundry_type:
+        laundry_label = {
+            "In-unit": "in-unit washer/dryer",
+            "Hookups": "washer/dryer hookups",
+            "Shared":  "shared laundry on-site",
+        }.get(prop.laundry_type, prop.laundry_type.lower() + " laundry")
+        systems.append(laundry_label)
 
     utilities = _parse_json_list(prop.utilities_included)
+    if systems:
+        paragraphs.append(f"The home features {', '.join(systems)}.")
     if utilities:
-        sentences.append(f"Utilities included: {', '.join(utilities)}.")
+        paragraphs.append(f"Utilities included in rent: {', '.join(utilities)}.")
 
+    # ── Parking and outdoor paragraph ─────────────────────────────────────────
+    outdoor = []
+    if prop.garage_spaces:
+        n = prop.garage_spaces
+        outdoor.append(f"{'a ' + str(n) + '-car' if n > 1 else 'a'} garage")
+    elif prop.parking:
+        outdoor.append(f"parking: {prop.parking.lower()}")
+
+    if outdoor:
+        paragraphs.append(f"Outdoor amenities include {', '.join(outdoor)}.")
+
+    # ── Pet and lease policy paragraph ───────────────────────────────────────
+    policy = []
+    if prop.pets_allowed is True:
+        pet_types = _parse_json_list(prop.pet_types_allowed)
+        pet_str = f"Pets welcome ({', '.join(t.lower() for t in pet_types)})" if pet_types else "Pets welcome"
+        if prop.pet_weight_limit:
+            pet_str += f" — up to {prop.pet_weight_limit} lbs"
+        policy.append(pet_str + ".")
+    elif prop.pets_allowed is False:
+        policy.append("No pets permitted.")
+
+    if prop.smoking_allowed is False:
+        policy.append("Non-smoking property.")
+
+    if prop.minimum_lease_months:
+        policy.append(f"Minimum lease: {prop.minimum_lease_months} months.")
+    elif prop.lease_terms:
+        terms = _parse_json_list(prop.lease_terms)
+        if terms:
+            policy.append(f"Lease terms available: {', '.join(terms)}.")
+
+    if policy:
+        paragraphs.append(" ".join(policy))
+
+    # ── Financial summary paragraph ───────────────────────────────────────────
+    financial = []
+    if prop.security_deposit:
+        financial.append(f"Security deposit: ${prop.security_deposit:,}")
+    if prop.last_months_rent:
+        financial.append(f"last month's rent: ${prop.last_months_rent:,}")
+    if prop.pet_deposit:
+        financial.append(f"pet deposit: ${prop.pet_deposit:,}")
+    if prop.admin_fee:
+        financial.append(f"admin fee: ${prop.admin_fee:,}")
+    if prop.move_in_special:
+        financial.append(f"Move-in special: {prop.move_in_special}")
+
+    if financial:
+        paragraphs.append(". ".join(f.capitalize() for f in financial) + ".")
+
+    # ── Availability ──────────────────────────────────────────────────────────
     if prop.available_date:
-        sentences.append(f"Available {prop.available_date}.")
+        paragraphs.append(f"Available starting {prop.available_date}.")
 
-    return " ".join(sentences)
+    return "\n\n".join(p for p in paragraphs if p)
 
 
 # ── Feature extractor ─────────────────────────────────────────────────────────

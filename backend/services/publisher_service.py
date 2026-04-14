@@ -31,14 +31,31 @@ PROPERTY_TYPE_MAP = {
 
 # ── PIPE-12 FIX: strip platform boilerplate from descriptions ──
 BOILERPLATE_PATTERNS = [
+    # TurboTenant
     r"To apply,?\s+visit\s+TurboTenant[^.]*\.",
-    r"Applications are only received through[^.]*\.",
-    r"search for Property ID\s+\d+",
-    r"Visit our website for more properties[^.]*\.",
-    r"Apply Now[^\n]*",
     r"apply here on TurboTenant[^.]*\.",
-    r"FOLLOW these STEPS to END YOUR SEARCH[\s\S]*?STEP\s+\d",  # truncate at first STEP block
-    r"-{10,}",  # long dashes used as separators
+    r"Applications are only received through\s+TurboTenant[^.]*\.",
+    r"search for Property ID\s+\d+[^.]*\.",
+    r"FOLLOW these STEPS to END YOUR SEARCH[\s\S]*?(?=\n\n|\Z)",
+    # Realtor.com / generic
+    r"For more information.*?call[^.]*\.",
+    r"Contact\s+(?:us|the agent|the landlord|your|our)[^.]*for (?:more|a) (?:info|showing|tour)[^.]*\.",
+    r"Visit our website for more properties[^.]*\.",
+    r"Schedule a tour (?:today|now)[^.]*\.",
+    r"Don['']t miss (?:this|out)[^!.]*[!.]",
+    r"This (?:won['']t|will not) last[^!.]*[!.]",
+    r"Call (?:today|now|us)[^!.]*[!.]",
+    r"Apply Now[^\n]*",
+    r"Apply (?:today|now|online)[^!.]*[!.]",
+    # Decorative separators
+    r"-{8,}",
+    r"={8,}",
+    r"\*{8,}",
+    r"_{8,}",
+    # Lease/application boilerplate
+    r"All applicants must[^.]*\.",
+    r"We (?:do not|don['']t) accept[^.]*applications[^.]*\.",
+    r"Background check(?:s)? required[^.]*\.",
 ]
 
 def _clean_description(text: str) -> str:
@@ -193,7 +210,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "county":               prop.county,
         "lat":                  prop.lat,
         "lng":                  prop.lng,
-        "property_type":        normalized_type,   # PIPE-1 FIX applied
+        "property_type":        normalized_type,
         "year_built":           prop.year_built,
         "floors":               prop.floors,
         "unit_number":          prop.unit_number,
@@ -201,9 +218,12 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "bedrooms":             prop.bedrooms,
         "bathrooms":            prop.bathrooms,
         "half_bathrooms":       prop.half_bathrooms,
+        "total_bathrooms":      prop.total_bathrooms,
         "square_footage":       prop.square_footage,
         "lot_size_sqft":        prop.lot_size_sqft,
         "garage_spaces":        prop.garage_spaces,
+        "has_basement":         prop.has_basement,
+        "has_central_air":      prop.has_central_air,
         "monthly_rent":         prop.monthly_rent,
         "security_deposit":     prop.security_deposit,
         "last_months_rent":     prop.last_months_rent,
@@ -214,7 +234,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "available_date":       prop.available_date,
         "lease_terms":          parse_json(prop.lease_terms),
         "minimum_lease_months": prop.minimum_lease_months,
-        "pets_allowed":         pets_allowed,       # PIPE-8 FIX: None preserved
+        "pets_allowed":         pets_allowed,
         "pet_types_allowed":    parse_json(prop.pet_types_allowed),
         "pet_weight_limit":     prop.pet_weight_limit,
         "pet_details":          prop.pet_details,
@@ -327,14 +347,28 @@ def sync_fields(prop, db) -> dict:
         "state":                prop.state,
         "zip":                  prop.zip,
         "county":               prop.county,
+        "lat":                  prop.lat,
+        "lng":                  prop.lng,
         "property_type":        normalized_type,
+        "year_built":           prop.year_built,
+        "floors":               prop.floors,
+        "unit_number":          prop.unit_number,
+        "total_units":          prop.total_units,
         "bedrooms":             prop.bedrooms,
         "bathrooms":            prop.bathrooms,
         "half_bathrooms":       prop.half_bathrooms,
+        "total_bathrooms":      prop.total_bathrooms,
         "square_footage":       prop.square_footage,
+        "lot_size_sqft":        prop.lot_size_sqft,
+        "garage_spaces":        prop.garage_spaces,
+        "has_basement":         prop.has_basement,
+        "has_central_air":      prop.has_central_air,
         "monthly_rent":         prop.monthly_rent,
         "security_deposit":     prop.security_deposit,
+        "last_months_rent":     prop.last_months_rent,
         "application_fee":      prop.application_fee if prop.application_fee is not None else 0,
+        "pet_deposit":          prop.pet_deposit,
+        "admin_fee":            prop.admin_fee,
         "available_date":       prop.available_date,
         "lease_terms":          parse_json(prop.lease_terms),
         "minimum_lease_months": prop.minimum_lease_months,
@@ -353,6 +387,7 @@ def sync_fields(prop, db) -> dict:
         "cooling_type":         prop.cooling_type,
         "laundry_type":         prop.laundry_type,
         "move_in_special":      prop.move_in_special,
+        "virtual_tour_url":     prop.virtual_tour_url,
     }
 
     update_payload = {k: v for k, v in update_payload.items() if v is not None}
