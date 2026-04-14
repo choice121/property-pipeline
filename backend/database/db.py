@@ -22,7 +22,7 @@ def get_db():
 
 
 def init_db():
-    from database.models import Property
+    from database.models import AiEnrichmentLog, Property
     Base.metadata.create_all(bind=engine)
     columns = {
         "floors": "INTEGER",

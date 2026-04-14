@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from database.db import get_db
 from database.models import Property
 from services import scraper_service, image_service
+from services.ai_enricher import enrich_property
 from services.detail_fetcher import fetch_missing_fields
 from services.enrichment_service import geocode_property, run_rule_based_enrichment
 from services.scraper_service import _calculate_weighted_quality, generate_property_id
@@ -68,6 +69,7 @@ def enrichment_background_task(property_id: str, db_session_factory):
     try:
         geocode_property(property_id, db)
         fetch_missing_fields(property_id, db)
+        enrich_property(property_id, db)
 
         prop = db.query(Property).filter(Property.id == property_id).first()
         if not prop:
@@ -98,7 +100,7 @@ def enrichment_background_task(property_id: str, db_session_factory):
         prop.missing_fields = json.dumps(missing)
         try:
             db.commit()
-            logger.info("Enrichment background task complete for %s — score now %d", property_id, score)
+            logger.info("Enrichment complete for %s — final score %d", property_id, score)
         except Exception as e:
             db.rollback()
             logger.error("Failed to update score after enrichment for %s: %s", property_id, e)

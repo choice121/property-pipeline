@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.db import get_db
-from database.models import Property
+from database.models import AiEnrichmentLog, Property
 
 router = APIRouter()
 
@@ -69,6 +69,7 @@ def update_property(id: str, body: dict, db: Session = Depends(get_db)):
     except Exception:
         edited_fields = []
 
+    ai_log_updates = []
     for key, value in body.items():
         if key in ("id", "scraped_at", "original_data", "source", "source_listing_id"):
             continue
@@ -76,7 +77,22 @@ def update_property(id: str, body: dict, db: Session = Depends(get_db)):
             orig_val = original.get(key)
             if str(value) != str(orig_val) and key not in edited_fields:
                 edited_fields.append(key)
+                log_entry = (
+                    db.query(AiEnrichmentLog)
+                    .filter(
+                        AiEnrichmentLog.property_id == id,
+                        AiEnrichmentLog.field == key,
+                        AiEnrichmentLog.was_overridden == False,
+                    )
+                    .first()
+                )
+                if log_entry:
+                    ai_log_updates.append((log_entry, str(value)))
             setattr(prop, key, value)
+
+    for log_entry, human_val in ai_log_updates:
+        log_entry.was_overridden = True
+        log_entry.human_value = human_val
 
     prop.edited_fields = json.dumps(edited_fields)
 

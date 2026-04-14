@@ -27,13 +27,13 @@
 
 ---
 
-## Phase 3 · AI Integration
-*Goal: Fill remaining gaps using Claude API for properties with score 40–79.*
+## Phase 3 · Enrichment Intelligence (Free, No APIs)
+*Goal: Fill remaining gaps using template-based generation and expanded rule extraction — zero cost, zero dependencies.*
 
-- [ ] **`services/ai_enricher.py`** — Claude Haiku API calls for description generation, amenity extraction, pet policy inference, and property type classification.
-- [ ] **`ANTHROPIC_API_KEY` env var** — Add to `.env.example`.
-- [ ] **Wire AI enricher** — Run for properties with quality score 40–79 as background task.
-- [ ] **`ai_enrichment_log` table** — Track AI-inferred vs human-corrected values per field for feedback loop.
+- [x] **`services/ai_enricher.py`** — Free enrichment engine: template-based description generator that assembles professional listing descriptions from all available property fields; expanded amenity/appliance extractor (30+ patterns); advanced pet policy text classifier; keyword-based property type classifier. Same interface as the proposal — swappable for a real LLM later with zero router changes.
+- [x] **`ai_enrichment_log` table** — New `AiEnrichmentLog` SQLite model tracking every auto-filled field (field name, method used, ai_value). Logs which method filled each field (`template`, `rule_extraction`, `rule_classification`).
+- [x] **Wire enricher into background task** — Runs automatically after geocoding and detail_fetcher in `enrichment_background_task`. Quality score recalculated one final time after all enrichment completes.
+- [x] **Override tracking in editor** — `PUT /api/properties/{id}` now detects when a field that was auto-enriched is manually edited, marks `was_overridden=True` in the log, and stores the human value. Feedback loop is live from day one.
 
 ---
 

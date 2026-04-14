@@ -3,6 +3,19 @@ from sqlalchemy.sql import func
 from database.db import Base
 
 
+class AiEnrichmentLog(Base):
+    __tablename__ = "ai_enrichment_log"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    property_id = Column(String, nullable=False, index=True)
+    field       = Column(String, nullable=False)
+    method      = Column(String, nullable=False)
+    ai_value    = Column(Text)
+    human_value = Column(Text)
+    was_overridden = Column(Boolean, default=False)
+    created_at  = Column(String, default=func.now())
+
+
 class Property(Base):
     __tablename__ = "properties"
 
