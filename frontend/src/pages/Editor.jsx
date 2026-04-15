@@ -222,6 +222,11 @@ export default function Editor() {
     try { return JSON.parse(property.original_data || '{}') } catch { return {} }
   })()
 
+  const pricingAdjusted = !!(originalData._pricing_adjusted)
+  const originalRent = originalData._original_rent
+  const rentDiscountRate = originalData._rent_discount_rate
+  const originalFee = originalData.application_fee
+
   const editedFields = (() => {
     try { return JSON.parse(form.edited_fields || '[]') } catch { return [] }
   })()
@@ -369,7 +374,56 @@ export default function Editor() {
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Pricing</h2>
           <div className="grid grid-cols-2 gap-4">
-            {['monthly_rent', 'security_deposit', 'last_months_rent', 'application_fee', 'admin_fee', 'pet_deposit', 'parking_fee'].map((key) => (
+
+            {/* Monthly Rent — with scraped vs platform comparison */}
+            <div className="col-span-2">
+              <Field label="Monthly Rent">
+                <input
+                  type="number"
+                  className={inputCls}
+                  value={form.monthly_rent ?? ''}
+                  onChange={(e) => set('monthly_rent', e.target.value)}
+                />
+              </Field>
+              {pricingAdjusted && originalRent != null && (
+                <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-800">
+                  <svg className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-amber-500" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M12 2a10 10 0 110 20A10 10 0 0112 2z" />
+                  </svg>
+                  <span>
+                    <strong>Platform price applied.</strong>{' '}
+                    Scraped listing: <span className="line-through">${Number(originalRent).toLocaleString()}/mo</span>
+                    {' '}→ {rentDiscountRate != null ? `${Math.round(rentDiscountRate * 100)}% discount` : 'reduced'} to{' '}
+                    <strong>${Number(form.monthly_rent).toLocaleString()}/mo</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Application Fee — with platform floor note */}
+            <div>
+              <Field label="Application Fee">
+                <input
+                  type="number"
+                  className={inputCls}
+                  value={form.application_fee ?? ''}
+                  onChange={(e) => set('application_fee', e.target.value)}
+                />
+              </Field>
+              {Number(form.application_fee) === 50 && (originalFee == null || Number(originalFee) < 50) && (
+                <p className="mt-1 text-xs text-blue-600 flex items-center gap-1">
+                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  Platform minimum applied
+                  {originalFee != null && ` (scraped: $${Number(originalFee).toLocaleString()})`}
+                  {originalFee == null && ' (none on original listing)'}
+                </p>
+              )}
+            </div>
+
+            {/* Remaining pricing fields */}
+            {['security_deposit', 'last_months_rent', 'admin_fee', 'pet_deposit', 'parking_fee'].map((key) => (
               <Field key={key} label={FIELD_LABELS[key] || key}>
                 <input type="number" className={inputCls} value={form[key] ?? ''} onChange={(e) => set(key, e.target.value)} />
               </Field>
