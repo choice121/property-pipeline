@@ -246,26 +246,50 @@ def normalize_row(row: dict) -> dict:
         return found
 
     appliances = extract_terms([
-        ("Refrigerator", ["refrigerator", "fridge"]),
-        ("Range/Oven", ["range", "oven", "stove"]),
-        ("Dishwasher", ["dishwasher"]),
-        ("Microwave", ["microwave"]),
-        ("Washer", ["washer"]),
-        ("Dryer", ["dryer"]),
-        ("Garbage Disposal", ["garbage disposal", "disposal"]),
-    ])
+          ("Refrigerator", ["refrigerator", "fridge"]),
+          ("Range / Oven", ["range", "oven", "stove"]),
+          ("Dishwasher", ["dishwasher"]),
+          ("Microwave", ["microwave"]),
+          ("Washer", ["washer", "washing machine"]),
+          ("Dryer", ["dryer"]),
+          ("Garbage Disposal", ["garbage disposal", "disposal"]),
+          ("Ice Maker", ["ice maker"]),
+          ("Wine Cooler", ["wine cooler", "wine refrigerator", "wine fridge"]),
+          ("Trash Compactor", ["trash compactor"]),
+          ("Double Oven", ["double oven"]),
+          ("Freezer", ["chest freezer", "standalone freezer"]),
+          ("Air Purifier", ["air purifier", "air filtration"]),
+      ])
 
     amenities = extract_terms([
-        ("Basement", ["basement", "finished basement", "lower level"]),
-        ("Central Air", ["central air", "central a/c", "central ac", "central cooling"]),
-        ("Garage", ["garage", "attached garage", "detached garage"]),
-        ("Fenced Yard", ["fenced yard", "fenced backyard"]),
-        ("Patio", ["patio"]),
-        ("Deck", ["deck"]),
-        ("Fireplace", ["fireplace"]),
-        ("Walk-in Closet", ["walk-in closet", "walk in closet"]),
-        ("Hardwood Floors", ["hardwood floor", "hardwood floors"]),
-    ])
+          ("Basement", ["basement", "finished basement", "lower level"]),
+          ("Central Air", ["central air", "central a/c", "central ac", "central cooling"]),
+          ("Garage", ["garage", "attached garage", "detached garage"]),
+          ("Fenced Yard", ["fenced yard", "fenced backyard"]),
+          ("Patio", ["patio"]),
+          ("Deck", ["deck"]),
+          ("Fireplace", ["fireplace"]),
+          ("Walk-in Closet", ["walk-in closet", "walk in closet"]),
+          ("Hardwood Floors", ["hardwood floor", "hardwood floors"]),
+          ("Swimming Pool", ["swimming pool", "community pool", "outdoor pool", "indoor pool"]),
+          ("Gym / Fitness Center", ["gym", "fitness center", "workout room", "fitness room", "exercise room"]),
+          ("Elevator", ["elevator", "lift"]),
+          ("Balcony", ["balcony", "private balcony"]),
+          ("In-Unit Laundry", ["in-unit laundry", "in unit laundry", "washer/dryer in unit", "washer dryer in unit", "laundry in unit", "w/d in unit"]),
+          ("EV Charging", ["ev charging", "ev charger", "electric vehicle charging", "tesla charger", "level 2 charger"]),
+          ("Storage Unit", ["storage unit", "private storage", "storage room", "storage locker"]),
+          ("Wheelchair Accessible", ["wheelchair accessible", "handicap accessible", "ada compliant", "ada accessible"]),
+          ("Smart Home", ["smart home", "smart thermostat", "nest thermostat", "smart lock", "keyless entry"]),
+          ("High-Speed Internet", ["high-speed internet", "fiber internet", "gigabit internet", "internet included", "high speed internet"]),
+          ("Cable / Satellite TV", ["cable tv", "cable included", "satellite tv", "cable and internet"]),
+          ("Rooftop Access", ["rooftop", "roof deck", "rooftop terrace", "rooftop access"]),
+          ("Concierge / Doorman", ["concierge", "doorman", "front desk", "24-hour concierge"]),
+          ("Dog Run", ["dog run", "dog park", "pet area", "pet play area"]),
+          ("Gated Community", ["gated community", "gated entrance", "gated access", "secure entry"]),
+          ("Intercom System", ["intercom", "video intercom", "buzzer"]),
+          ("Bike Storage", ["bike storage", "bicycle storage", "bike room"]),
+          ("Package Lockers", ["package locker", "amazon locker", "package room"]),
+      ])
 
     utilities_included = extract_terms([
         ("Water", ["water included"]),
@@ -333,17 +357,43 @@ def normalize_row(row: dict) -> dict:
     has_basement = any(term in searchable for term in ["basement", "finished basement", "lower level"])
     has_central_air = any(term in searchable for term in ["central air", "central a/c", "central ac", "central cooling"])
     cooling_type = first_value("cooling", "cooling_type", "cooling_system")
-    if not cooling_type and has_central_air:
-        cooling_type = "Central Air"
-    heating_type = first_value("heating", "heating_type", "heating_system")
-    laundry_type = first_value("laundry", "laundry_type")
-    if not laundry_type:
-        if "in-unit laundry" in searchable or "in unit laundry" in searchable or "washer dryer" in searchable or "washer/dryer" in searchable:
-            laundry_type = "In-unit"
-        elif "laundry hookups" in searchable or "washer dryer hookup" in searchable:
-            laundry_type = "Hookups"
-        elif "shared laundry" in searchable or "laundry room" in searchable:
-            laundry_type = "Shared"
+      if not cooling_type and has_central_air:
+          cooling_type = "Central Air"
+      if not cooling_type:
+          if "window ac" in searchable or "window unit" in searchable or "window air conditioner" in searchable:
+              cooling_type = "Window Units"
+          elif "mini split" in searchable or "mini-split" in searchable or "ductless" in searchable:
+              cooling_type = "Mini-Split"
+          elif "no ac" in searchable or "no air conditioning" in searchable or "no cooling" in searchable:
+              cooling_type = "None"
+
+      heating_type = first_value("heating", "heating_type", "heating_system")
+      if not heating_type:
+          if "forced air" in searchable or "forced-air" in searchable:
+              heating_type = "Forced Air"
+          elif "radiant heat" in searchable or "radiant floor" in searchable or "radiant heating" in searchable:
+              heating_type = "Radiant"
+          elif "baseboard heat" in searchable or "electric baseboard" in searchable:
+              heating_type = "Baseboard"
+          elif "heat pump" in searchable:
+              heating_type = "Heat Pump"
+          elif "gas heat" in searchable or "natural gas heat" in searchable:
+              heating_type = "Gas"
+          elif "electric heat" in searchable:
+              heating_type = "Electric"
+          elif "boiler" in searchable:
+              heating_type = "Boiler"
+
+      laundry_type = first_value("laundry", "laundry_type")
+      if not laundry_type:
+          if "in-unit laundry" in searchable or "in unit laundry" in searchable or "washer dryer" in searchable or "washer/dryer" in searchable:
+              laundry_type = "In-unit"
+          elif "laundry hookups" in searchable or "washer dryer hookup" in searchable or "w/d hookup" in searchable:
+              laundry_type = "Hookups"
+          elif "shared laundry" in searchable or "laundry room" in searchable or "coin laundry" in searchable or "on-site laundry" in searchable:
+              laundry_type = "Shared"
+          elif "no laundry" in searchable:
+              laundry_type = "None"
 
     inferred_features = []
     for label, value in [
