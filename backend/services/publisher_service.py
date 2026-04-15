@@ -141,6 +141,15 @@ def _check_duplicate_in_supabase(client, prop) -> str | None:
     return None
 
 
+
+def _build_amenities_list(prop, parse_json_fn) -> list:
+      """Merge scraped amenities with inferred boolean flags."""
+      amenities = parse_json_fn(prop.amenities)
+      if prop.has_basement and "Basement" not in amenities:
+          amenities.append("Basement")
+      if prop.has_central_air and "Central Air" not in amenities:
+          amenities.append("Central Air")
+      return amenities
 def _build_supabase_record(prop, imagekit_results: list) -> dict:
     def parse_json(val):
         if not val:
@@ -242,7 +251,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
-        "amenities":            parse_json(prop.amenities),
+        "amenities":            _build_amenities_list(prop, parse_json),
         "appliances":           parse_json(prop.appliances),
         "flooring":             parse_json(prop.flooring),
         "heating_type":         prop.heating_type,
