@@ -12,5 +12,5 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-cd "$APP_DIR"
-./node_modules/.bin/vite --host 0.0.0.0 --port 5000 --strictPort
+cd "$APP_DIR/frontend"
+"$APP_DIR/node_modules/.bin/vite" --host 0.0.0.0 --port 5000 --strictPort
