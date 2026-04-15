@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { getProperties, bulkAction } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
+import { computeCompleteness } from '../utils/completeness'
 
 export default function Library() {
   const navigate = useNavigate()
@@ -64,6 +65,10 @@ export default function Library() {
       list.sort((a, b) => (b.monthly_rent || 0) - (a.monthly_rent || 0))
     } else if (sort === 'bedrooms') {
       list.sort((a, b) => (b.bedrooms || 0) - (a.bedrooms || 0))
+    } else if (sort === 'completeness_asc') {
+      list.sort((a, b) => computeCompleteness(a).score - computeCompleteness(b).score)
+    } else if (sort === 'completeness_desc') {
+      list.sort((a, b) => computeCompleteness(b).score - computeCompleteness(a).score)
     }
 
     return list
@@ -217,6 +222,8 @@ export default function Library() {
           <option value="price_asc">Price: Low to High</option>
           <option value="price_desc">Price: High to Low</option>
           <option value="bedrooms">Most Bedrooms</option>
+          <option value="completeness_asc">Needs Attention First</option>
+          <option value="completeness_desc">Most Complete First</option>
         </select>
       </div>
 

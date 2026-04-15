@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import StatusBadge from './StatusBadge'
 import { downloadProperty } from '../api/client'
+import { computeCompleteness, completenessColor } from '../utils/completeness'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
@@ -35,6 +36,9 @@ function PlaceholderImage() {
 export default function PropertyCard({ property, onClick, selectable, selected, onSelect }) {
   const imageUrl = getImageUrl(property)
   const [downloading, setDownloading] = useState(false)
+  const [showMissing, setShowMissing] = useState(false)
+  const { score, missing } = computeCompleteness(property)
+  const { bar, text } = completenessColor(score)
 
   async function handleDownload(e) {
     e.stopPropagation()
@@ -139,6 +143,47 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
           <span>{property.bedrooms != null ? `${property.bedrooms} bd` : 'N/A'}</span>
           <span>{property.bathrooms != null ? `${property.bathrooms} ba` : 'N/A'}</span>
           <span>{property.square_footage != null ? `${Number(property.square_footage).toLocaleString()} sqft` : 'N/A'}</span>
+        </div>
+
+        {/* Completeness bar */}
+        <div className="mt-3 relative">
+          <div
+            className="flex items-center justify-between mb-1 cursor-pointer select-none"
+            onClick={(e) => { e.stopPropagation(); setShowMissing(v => !v) }}
+          >
+            <span className="text-xs font-medium" style={{ color: text }}>
+              {score}% complete
+            </span>
+            {missing.length > 0 && (
+              <span className="text-xs text-gray-400 hover:text-gray-600">
+                {missing.length} missing ▾
+              </span>
+            )}
+          </div>
+          <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ width: `${score}%`, backgroundColor: bar }}
+            />
+          </div>
+
+          {/* Tooltip dropdown */}
+          {showMissing && missing.length > 0 && (
+            <div
+              className="absolute bottom-full mb-2 left-0 right-0 bg-gray-900 text-white text-xs rounded-lg p-2.5 shadow-lg z-30"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <p className="font-semibold mb-1.5 text-gray-300">Missing fields:</p>
+              <ul className="space-y-0.5">
+                {missing.map(m => (
+                  <li key={m} className="flex items-center gap-1.5">
+                    <span className="w-1 h-1 rounded-full bg-amber-400 flex-shrink-0" />
+                    {m}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>
