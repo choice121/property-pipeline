@@ -433,6 +433,36 @@ def sync_fields(prop, repo) -> dict:
     }
 
 
+def set_listing_status(prop, status: str, repo) -> dict:
+    valid = {"active", "rented", "archived", "inactive"}
+    if status not in valid:
+        raise ValueError(f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid))}")
+    if not prop.choice_property_id:
+        raise ValueError("Property has not been published yet.")
+
+    client = _get_supabase()
+    result = (
+        client.table("properties")
+        .update({"status": status})
+        .eq("id", prop.choice_property_id)
+        .execute()
+    )
+    if not result.data:
+        raise RuntimeError("Failed to update listing status on live site.")
+
+    if status in ("rented", "archived"):
+        prop.status = status
+        repo.save(prop)
+
+    logger.info("Listing status for %s set to '%s' on live site", prop.choice_property_id, status)
+    return {
+        "ok":                True,
+        "choice_property_id": prop.choice_property_id,
+        "listing_status":    status,
+        "message":           f"Listing marked as '{status}' on live site",
+    }
+
+
 BLOCKING_RULES = [
     ("address",   lambda p: bool(p.address),                               "Address is required"),
     ("city_state",lambda p: bool(p.city and p.state),                      "City and state are required"),
@@ -545,7 +575,7 @@ def publish(prop, repo) -> dict:
 
     logger.info("Property %s published successfully as %s", prop.id, choice_property_id)
     return {
-        "ok":                True,
+        "ok":                 True,
         "choice_property_id": str(choice_property_id),
         "message":           "Published successfully",
         "was_duplicate":     False,

@@ -92,3 +92,28 @@ def sync_published_fields(id: str, repo: Repository = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
     return result
+
+
+@router.post("/publish/{id}/set-listing-status")
+def set_listing_status(id: str, body: dict, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    status = body.get("status", "")
+    try:
+        result = publisher_service.set_listing_status(prop, status, repo)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except KeyError as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Missing environment variable: {e}. Check that all credentials are configured."
+        )
+    except Exception as e:
+        logger.exception("Unexpected error setting listing status for property %s", id)
+        raise HTTPException(status_code=500, detail=f"Status update failed: {str(e)}")
+
+    return result

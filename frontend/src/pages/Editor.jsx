@@ -6,6 +6,7 @@ import ImageGallery from '../components/ImageGallery'
 import StatusBadge from '../components/StatusBadge'
 import PublishButton from '../components/PublishButton'
 import AiAssistant from '../components/AiAssistant'
+import TagInput from '../components/TagInput'
 
 const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
@@ -28,6 +29,30 @@ const FIELD_LABELS = {
   showing_instructions: 'Showing Instructions', move_in_special: 'Move-in Special',
 }
 
+const PROPERTY_TYPES = [
+  '', 'house', 'apartment', 'condo', 'townhouse', 'duplex', 'studio',
+  'multi_family', 'mobile', 'land', 'commercial',
+]
+
+const HEATING_OPTIONS = ['', 'Gas', 'Electric', 'Heat Pump', 'Radiant', 'Baseboard', 'Forced Air', 'Other']
+const COOLING_OPTIONS = ['', 'Central Air', 'Window Units', 'Mini-Split', 'None', 'Other']
+const LAUNDRY_OPTIONS = ['', 'In Unit', 'In Building', 'Hookups', 'Shared', 'None']
+
+const AMENITY_SUGGESTIONS = [
+  'Pool', 'Gym', 'Parking', 'Storage', 'Balcony', 'Patio', 'Yard', 'Garage',
+  'Elevator', 'Doorman', 'Rooftop', 'Bike Storage', 'EV Charging', 'Concierge',
+]
+const APPLIANCE_SUGGESTIONS = [
+  'Dishwasher', 'Refrigerator', 'Microwave', 'Oven', 'Stove', 'Washer', 'Dryer',
+  'Garbage Disposal', 'Ice Maker', 'Wine Fridge',
+]
+const UTILITIES_SUGGESTIONS = [
+  'Water', 'Trash', 'Gas', 'Electric', 'Internet', 'Cable', 'Sewer', 'Heat',
+]
+const FLOORING_SUGGESTIONS = [
+  'Hardwood', 'Carpet', 'Tile', 'Laminate', 'Vinyl', 'Concrete', 'Bamboo',
+]
+
 function Field({ label, children }) {
   return (
     <div>
@@ -38,6 +63,7 @@ function Field({ label, children }) {
 }
 
 const inputCls = 'w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400'
+const selectCls = 'w-full border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white'
 
 function arrayToInput(value) {
   try {
@@ -61,6 +87,9 @@ function parseArray(value) {
   }
 }
 
+const isPublished = (form) =>
+  form.status === 'published' || form.status === 'rented' || form.status === 'archived' || !!form.choice_property_id
+
 export default function Editor() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -70,6 +99,7 @@ export default function Editor() {
   const [form, setForm] = useState(null)
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
+  const [savedAfterPublish, setSavedAfterPublish] = useState(false)
   const isDirty = useRef(false)
 
   const { data: property, isLoading } = useQuery({
@@ -98,9 +128,11 @@ export default function Editor() {
   const saveMutation = useMutation({
     mutationFn: (data) => updateProperty(id, data).then((r) => r.data),
     onSuccess: (data) => {
+      const wasPublished = isPublished(form)
       setForm(data)
       isDirty.current = false
       setSaved(true)
+      if (wasPublished) setSavedAfterPublish(true)
       queryClient.invalidateQueries({ queryKey: ['properties'] })
       queryClient.setQueryData(['property', id], data)
       setTimeout(() => setSaved(false), 3000)
@@ -197,6 +229,7 @@ export default function Editor() {
 
   const missingFields = parseArray(form.missing_fields)
   const inferredFeatures = parseArray(form.inferred_features)
+  const published = isPublished(form)
 
   return (
     <div className="max-w-3xl">
@@ -265,13 +298,21 @@ export default function Editor() {
               {showOriginal && <p className="text-xs text-gray-400 mt-0.5">Original: {originalData.title || '—'}</p>}
             </Field>
             <Field label="Property Type">
-              <input className={inputCls} value={form.property_type || ''} onChange={(e) => set('property_type', e.target.value)} />
+              <select
+                className={selectCls}
+                value={form.property_type || ''}
+                onChange={(e) => set('property_type', e.target.value)}
+              >
+                {PROPERTY_TYPES.map(t => (
+                  <option key={t} value={t}>{t ? t.replace('_', ' ').replace(/\b\w/g, c => c.toUpperCase()) : '— Select type —'}</option>
+                ))}
+              </select>
             </Field>
             <Field label="Status">
-              {form.status === 'published' || form.choice_property_id ? (
-                <div className={inputCls + ' bg-gray-50 text-green-700 font-medium'}>Published</div>
+              {published ? (
+                <div className={inputCls + ' bg-gray-50 text-green-700 font-medium capitalize'}>{form.status}</div>
               ) : (
-                <select className={inputCls} value={form.status || 'scraped'} onChange={(e) => set('status', e.target.value)}>
+                <select className={selectCls} value={form.status || 'scraped'} onChange={(e) => set('status', e.target.value)}>
                   <option value="scraped">Scraped</option>
                   <option value="edited">Edited</option>
                   <option value="ready">Ready to Publish</option>
@@ -355,21 +396,18 @@ export default function Editor() {
             <Field label="Pet Weight Limit">
               <input type="number" className={inputCls} value={form.pet_weight_limit ?? ''} onChange={(e) => set('pet_weight_limit', e.target.value)} />
             </Field>
-            <div className="flex items-center gap-2 mt-1">
-              <input type="checkbox" id="pets" checked={!!form.pets_allowed} onChange={(e) => set('pets_allowed', e.target.checked)} />
-              <label htmlFor="pets" className="text-sm text-gray-700">Pets Allowed</label>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <input type="checkbox" id="smoking" checked={!!form.smoking_allowed} onChange={(e) => set('smoking_allowed', e.target.checked)} />
-              <label htmlFor="smoking" className="text-sm text-gray-700">Smoking Allowed</label>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <input type="checkbox" id="basement" checked={!!form.has_basement} onChange={(e) => set('has_basement', e.target.checked)} />
-              <label htmlFor="basement" className="text-sm text-gray-700">Basement</label>
-            </div>
-            <div className="flex items-center gap-2 mt-1">
-              <input type="checkbox" id="central-air" checked={!!form.has_central_air} onChange={(e) => set('has_central_air', e.target.checked)} />
-              <label htmlFor="central-air" className="text-sm text-gray-700">Central Air</label>
+            <div className="col-span-2 grid grid-cols-2 gap-2 mt-1">
+              {[
+                ['pets_allowed', 'Pets Allowed'],
+                ['smoking_allowed', 'Smoking Allowed'],
+                ['has_basement', 'Basement'],
+                ['has_central_air', 'Central Air'],
+              ].map(([key, label]) => (
+                <label key={key} className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={!!form[key]} onChange={(e) => set(key, e.target.checked)} className="rounded" />
+                  <span className="text-sm text-gray-700">{label}</span>
+                </label>
+              ))}
             </div>
           </div>
         </section>
@@ -403,16 +441,56 @@ export default function Editor() {
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Features</h2>
           <div className="grid grid-cols-2 gap-4">
-            {['heating_type', 'cooling_type', 'laundry_type'].map((key) => (
-              <Field key={key} label={FIELD_LABELS[key] || key}>
-                <input className={inputCls} value={form[key] || ''} onChange={(e) => set(key, e.target.value)} />
-              </Field>
-            ))}
-            {['amenities', 'appliances', 'utilities_included', 'flooring'].map((key) => (
-              <Field key={key} label={`${FIELD_LABELS[key] || key} (comma-separated)`}>
-                <input className={inputCls} value={arrayToInput(form[key])} onChange={(e) => set(key, inputToArrayJson(e.target.value))} />
-              </Field>
-            ))}
+            <Field label="Heating Type">
+              <select className={selectCls} value={form.heating_type || ''} onChange={(e) => set('heating_type', e.target.value)}>
+                {HEATING_OPTIONS.map(o => <option key={o} value={o}>{o || '— Select —'}</option>)}
+              </select>
+            </Field>
+            <Field label="Cooling Type">
+              <select className={selectCls} value={form.cooling_type || ''} onChange={(e) => set('cooling_type', e.target.value)}>
+                {COOLING_OPTIONS.map(o => <option key={o} value={o}>{o || '— Select —'}</option>)}
+              </select>
+            </Field>
+            <Field label="Laundry">
+              <select className={selectCls} value={form.laundry_type || ''} onChange={(e) => set('laundry_type', e.target.value)}>
+                {LAUNDRY_OPTIONS.map(o => <option key={o} value={o}>{o || '— Select —'}</option>)}
+              </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 mt-4">
+            <Field label="Amenities">
+              <TagInput
+                value={form.amenities}
+                onChange={(v) => set('amenities', v)}
+                suggestions={AMENITY_SUGGESTIONS}
+                placeholder="Type an amenity and press Enter…"
+              />
+            </Field>
+            <Field label="Appliances">
+              <TagInput
+                value={form.appliances}
+                onChange={(v) => set('appliances', v)}
+                suggestions={APPLIANCE_SUGGESTIONS}
+                placeholder="Type an appliance and press Enter…"
+              />
+            </Field>
+            <Field label="Utilities Included">
+              <TagInput
+                value={form.utilities_included}
+                onChange={(v) => set('utilities_included', v)}
+                suggestions={UTILITIES_SUGGESTIONS}
+                placeholder="Type a utility and press Enter…"
+              />
+            </Field>
+            <Field label="Flooring">
+              <TagInput
+                value={form.flooring}
+                onChange={(v) => set('flooring', v)}
+                suggestions={FLOORING_SUGGESTIONS}
+                placeholder="Type a flooring type and press Enter…"
+              />
+            </Field>
           </div>
         </section>
 
@@ -435,7 +513,7 @@ export default function Editor() {
         >
           {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
         </button>
-        {form.status !== 'published' && !form.choice_property_id && (
+        {!published && (
           <button
             onClick={handleMarkReady}
             disabled={saveMutation.isPending}
@@ -444,12 +522,6 @@ export default function Editor() {
             Mark as Ready
           </button>
         )}
-        <PublishButton
-          property={form}
-          onPublished={(data) => {
-            queryClient.invalidateQueries({ queryKey: ['property', id] })
-          }}
-        />
         <button
           onClick={handleDownload}
           disabled={downloading}
@@ -465,13 +537,25 @@ export default function Editor() {
           disabled={deleteMutation.isPending}
           className="bg-red-500 text-white px-5 py-2 rounded-lg font-medium hover:bg-red-600 disabled:opacity-50 transition-colors"
         >
-          Delete Property
+          Delete
         </button>
+      </div>
+
+      <div className="mt-6">
+        <PublishButton
+          property={form}
+          savedAfterPublish={savedAfterPublish}
+          onSynced={() => setSavedAfterPublish(false)}
+          onPublished={(data) => {
+            setSavedAfterPublish(false)
+            queryClient.invalidateQueries({ queryKey: ['property', id] })
+          }}
+        />
       </div>
 
       {saved && (
         <div className="mt-3 text-sm text-green-600 bg-green-50 px-3 py-2 rounded">
-          Saved successfully.
+          Saved successfully.{published ? ' Use "Sync Fields" to push changes to the live site.' : ''}
         </div>
       )}
       {saveMutation.isError && (

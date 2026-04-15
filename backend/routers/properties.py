@@ -88,3 +88,42 @@ def delete_property(id: str, repo: Repository = Depends(get_db)):
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to delete property")
     return {"ok": True}
+
+
+@router.post("/properties/bulk-action")
+def bulk_action(body: dict, repo: Repository = Depends(get_db)):
+    ids = body.get("ids", [])
+    action = body.get("action", "")
+    valid_actions = {"ready", "delete", "archive"}
+
+    if not ids:
+        raise HTTPException(status_code=400, detail="No property IDs provided")
+    if action not in valid_actions:
+        raise HTTPException(status_code=400, detail=f"Invalid action '{action}'. Must be one of: {', '.join(sorted(valid_actions))}")
+
+    results = {"success": 0, "failed": 0, "errors": []}
+    for prop_id in ids:
+        try:
+            prop = repo.get(prop_id)
+            if not prop:
+                results["failed"] += 1
+                results["errors"].append(f"{prop_id}: not found")
+                continue
+
+            if action == "ready":
+                prop.status = "ready"
+                prop.updated_at = datetime.utcnow().isoformat()
+                repo.save(prop)
+            elif action == "delete":
+                repo.delete(prop_id)
+            elif action == "archive":
+                prop.status = "archived"
+                prop.updated_at = datetime.utcnow().isoformat()
+                repo.save(prop)
+
+            results["success"] += 1
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append(f"{prop_id}: {str(e)}")
+
+    return results

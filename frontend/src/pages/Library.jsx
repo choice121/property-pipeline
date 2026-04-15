@@ -1,14 +1,18 @@
 import { useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties } from '../api/client'
+import { getProperties, bulkAction } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 
 export default function Library() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sort, setSort] = useState('scraped_at')
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [bulkResult, setBulkResult] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
@@ -20,6 +24,17 @@ export default function Library() {
         (p) => p.status === 'scraped' && (!p.local_image_paths || p.local_image_paths === '[]')
       )
       return hasDownloading ? 4000 : false
+    },
+  })
+
+  const bulkMutation = useMutation({
+    mutationFn: ({ ids, action }) => bulkAction([...ids], action).then(r => r.data),
+    onSuccess: (result) => {
+      setBulkResult(result)
+      setSelectedIds(new Set())
+      setSelectMode(false)
+      queryClient.invalidateQueries({ queryKey: ['properties'] })
+      setTimeout(() => setBulkResult(null), 4000)
     },
   })
 
@@ -53,6 +68,37 @@ export default function Library() {
     return list
   }, [data, search, statusFilter, sort])
 
+  function toggleSelect(id) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(p => p.id)))
+    }
+  }
+
+  function exitSelectMode() {
+    setSelectMode(false)
+    setSelectedIds(new Set())
+  }
+
+  function handleBulkAction(action) {
+    if (selectedIds.size === 0) return
+    const label = action === 'delete'
+      ? `Delete ${selectedIds.size} propert${selectedIds.size === 1 ? 'y' : 'ies'}? This cannot be undone.`
+      : `Apply "${action}" to ${selectedIds.size} propert${selectedIds.size === 1 ? 'y' : 'ies'}?`
+    if (!window.confirm(label)) return
+    bulkMutation.mutate({ ids: selectedIds, action })
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -62,13 +108,64 @@ export default function Library() {
             ({filtered.length} {filtered.length === 1 ? 'property' : 'properties'})
           </span>
         </h1>
-        <Link
-          to="/scraper"
-          className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
-        >
-          + Scrape More
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
+            className={`text-sm px-3 py-2 rounded-lg border transition-colors ${selectMode ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+          >
+            {selectMode ? 'Cancel' : 'Select'}
+          </button>
+          <Link
+            to="/scraper"
+            className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+          >
+            + Scrape More
+          </Link>
+        </div>
       </div>
+
+      {/* Bulk action bar */}
+      {selectMode && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 bg-gray-900 text-white px-4 py-3 rounded-lg">
+          <button
+            onClick={toggleSelectAll}
+            className="text-sm text-gray-300 hover:text-white underline"
+          >
+            {selectedIds.size === filtered.length ? 'Deselect All' : `Select All (${filtered.length})`}
+          </button>
+          <span className="text-gray-400 text-sm">{selectedIds.size} selected</span>
+          <div className="flex gap-2 ml-auto">
+            <button
+              onClick={() => handleBulkAction('ready')}
+              disabled={selectedIds.size === 0 || bulkMutation.isPending}
+              className="text-xs bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40 transition-colors"
+            >
+              Mark Ready
+            </button>
+            <button
+              onClick={() => handleBulkAction('archive')}
+              disabled={selectedIds.size === 0 || bulkMutation.isPending}
+              className="text-xs bg-gray-600 hover:bg-gray-500 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40 transition-colors"
+            >
+              Archive
+            </button>
+            <button
+              onClick={() => handleBulkAction('delete')}
+              disabled={selectedIds.size === 0 || bulkMutation.isPending}
+              className="text-xs bg-red-600 hover:bg-red-500 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40 transition-colors"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk action result */}
+      {bulkResult && (
+        <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${bulkResult.failed > 0 ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
+          {bulkResult.success} succeeded{bulkResult.failed > 0 ? `, ${bulkResult.failed} failed` : ''}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-3 mb-6">
         <input
@@ -88,6 +185,8 @@ export default function Library() {
           <option value="edited">Edited</option>
           <option value="ready">Ready</option>
           <option value="published">Published</option>
+          <option value="rented">Rented</option>
+          <option value="archived">Archived</option>
         </select>
         <select
           value={sort}
@@ -124,7 +223,10 @@ export default function Library() {
             <PropertyCard
               key={property.id}
               property={property}
-              onClick={() => navigate(`/edit/${property.id}`)}
+              onClick={() => !selectMode && navigate(`/edit/${property.id}`)}
+              selectable={selectMode}
+              selected={selectedIds.has(property.id)}
+              onSelect={() => toggleSelect(property.id)}
             />
           ))}
         </div>

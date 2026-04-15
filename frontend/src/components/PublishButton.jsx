@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { publishProperty, syncFields, refreshImages } from '../api/client'
+import { publishProperty, syncFields, refreshImages, setListingStatus } from '../api/client'
+
+const LIVE_SITE_BASE = 'https://choice-properties-site.pages.dev/property.html'
 
 function parseArray(value) {
   try {
@@ -11,11 +13,18 @@ function parseArray(value) {
   }
 }
 
-export default function PublishButton({ property, onPublished }) {
+const LISTING_STATUS_OPTIONS = [
+  { value: 'active',   label: 'Active',   color: 'text-green-700 bg-green-50 border-green-200' },
+  { value: 'rented',   label: 'Rented',   color: 'text-purple-700 bg-purple-50 border-purple-200' },
+  { value: 'archived', label: 'Archived', color: 'text-gray-600 bg-gray-50 border-gray-200' },
+]
+
+export default function PublishButton({ property, onPublished, savedAfterPublish, onSynced }) {
   const queryClient = useQueryClient()
   const [confirming, setConfirming] = useState(false)
   const [syncDone, setSyncDone] = useState(false)
   const [refreshDone, setRefreshDone] = useState(false)
+  const [statusDone, setStatusDone] = useState(false)
   const missingFields = parseArray(property.missing_fields)
   const qualityScore = property.data_quality_score
 
@@ -33,28 +42,54 @@ export default function PublishButton({ property, onPublished }) {
     },
   })
 
-  // PIPE-10 FIX: sync edited fields back to live Supabase record
   const syncMutation = useMutation({
     mutationFn: () => syncFields(property.id).then((r) => r.data),
-    onSuccess: () => { setSyncDone(true); invalidate(); setTimeout(() => setSyncDone(false), 3000) },
+    onSuccess: () => {
+      setSyncDone(true)
+      invalidate()
+      if (onSynced) onSynced()
+      setTimeout(() => setSyncDone(false), 3000)
+    },
   })
 
-  // Refresh images on already-published listing
   const refreshMutation = useMutation({
     mutationFn: () => refreshImages(property.id).then((r) => r.data),
     onSuccess: () => { setRefreshDone(true); invalidate(); setTimeout(() => setRefreshDone(false), 3000) },
   })
 
+  const statusMutation = useMutation({
+    mutationFn: (status) => setListingStatus(property.id, status).then((r) => r.data),
+    onSuccess: () => { setStatusDone(true); invalidate(); setTimeout(() => setStatusDone(false), 3000) },
+  })
+
   // ── Already published ──────────────────────────────────────────────────────
-  if (property.status === 'published' || property.choice_property_id) {
+  if (property.status === 'published' || property.status === 'rented' || property.status === 'archived' || property.choice_property_id) {
+    const liveUrl = property.choice_property_id
+      ? `${LIVE_SITE_BASE}?id=${property.choice_property_id}`
+      : null
+
     return (
-      <div className="flex flex-col gap-2">
-        {/* Published status badge */}
+      <div className="flex flex-col gap-2 w-full">
+        {/* Sync banner — shown when there are unsaved changes after publishing */}
+        {savedAfterPublish && (
+          <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+            <p className="text-xs font-medium text-amber-800">Changes saved — push them to the live site</p>
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+            >
+              {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}
+            </button>
+          </div>
+        )}
+
+        {/* Published info */}
         <div className="flex items-center gap-2 px-4 py-2 bg-green-50 border border-green-200 rounded-lg">
           <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
           </svg>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-green-700">Published to Choice Properties</p>
             {property.choice_property_id && (
               <p className="text-xs text-green-500 font-mono">{property.choice_property_id}</p>
@@ -63,9 +98,48 @@ export default function PublishButton({ property, onPublished }) {
               <p className="text-xs text-green-500">{new Date(property.published_at).toLocaleString()}</p>
             )}
           </div>
+          {liveUrl && (
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 text-xs font-medium text-green-700 hover:text-green-900 underline"
+            >
+              View Live ↗
+            </a>
+          )}
         </div>
 
-        {/* Sync fields button */}
+        {/* Listing status controls */}
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-gray-500">Listing Status on Live Site</p>
+          <div className="flex gap-2">
+            {LISTING_STATUS_OPTIONS.map(opt => {
+              const isCurrent = property.status === opt.value ||
+                (opt.value === 'active' && property.status === 'published')
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => !isCurrent && statusMutation.mutate(opt.value)}
+                  disabled={statusMutation.isPending || isCurrent}
+                  className={`flex-1 text-xs font-medium px-2 py-1.5 rounded-md border transition-colors disabled:cursor-default
+                    ${isCurrent
+                      ? opt.color + ' opacity-100 font-semibold ring-1 ring-offset-0 ring-current'
+                      : 'border-gray-200 text-gray-500 hover:bg-gray-50 disabled:opacity-50'
+                    }`}
+                >
+                  {statusMutation.isPending && statusMutation.variables === opt.value ? '…' : opt.label}
+                </button>
+              )
+            })}
+          </div>
+          {statusDone && <p className="text-xs text-green-600">Listing status updated on live site.</p>}
+          {statusMutation.isError && (
+            <p className="text-xs text-red-600">{statusMutation.error?.response?.data?.detail || 'Status update failed.'}</p>
+          )}
+        </div>
+
+        {/* Sync fields + refresh photos */}
         <div className="flex gap-2">
           <button
             onClick={() => syncMutation.mutate()}
@@ -77,7 +151,7 @@ export default function PublishButton({ property, onPublished }) {
             ) : syncDone ? (
               <><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/></svg> Synced!</>
             ) : (
-              <><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Sync Fields to Live Site</>
+              <><svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg> Sync Fields</>
             )}
           </button>
 
@@ -96,7 +170,6 @@ export default function PublishButton({ property, onPublished }) {
           </button>
         </div>
 
-        {/* Error states */}
         {syncMutation.isError && (
           <p className="text-xs text-red-600">{syncMutation.error?.response?.data?.detail || 'Sync failed.'}</p>
         )}

@@ -32,7 +32,7 @@ function PlaceholderImage() {
   )
 }
 
-export default function PropertyCard({ property, onClick }) {
+export default function PropertyCard({ property, onClick, selectable, selected, onSelect }) {
   const imageUrl = getImageUrl(property)
   const [downloading, setDownloading] = useState(false)
 
@@ -59,32 +59,65 @@ export default function PropertyCard({ property, onClick }) {
     }
   }
 
+  function handleCardClick() {
+    if (selectable) {
+      onSelect && onSelect()
+    } else {
+      onClick && onClick()
+    }
+  }
+
   return (
     <div
-      onClick={onClick}
-      className="bg-white rounded-lg shadow hover:shadow-md border border-gray-100 cursor-pointer transition-shadow overflow-hidden relative"
+      onClick={handleCardClick}
+      className={`bg-white rounded-lg shadow border cursor-pointer transition-all overflow-hidden relative
+        ${selectable
+          ? selected
+            ? 'border-gray-900 ring-2 ring-gray-900 shadow-md'
+            : 'border-gray-200 hover:border-gray-400'
+          : 'border-gray-100 hover:shadow-md'
+        }`}
     >
-      <div className="absolute top-2 left-2 z-10">
+      {/* Selection checkbox */}
+      {selectable && (
+        <div className="absolute top-2 left-2 z-20">
+          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors
+            ${selected ? 'bg-gray-900 border-gray-900' : 'bg-white border-gray-400'}`}
+          >
+            {selected && (
+              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Status badge */}
+      <div className={`absolute z-10 ${selectable ? 'top-2 left-9' : 'top-2 left-2'}`}>
         <StatusBadge status={property.status} />
       </div>
 
-      <button
-        onClick={handleDownload}
-        disabled={downloading}
-        title="Download ZIP"
-        className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-1.5 shadow transition-colors disabled:opacity-50"
-      >
-        {downloading ? (
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-        ) : (
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-          </svg>
-        )}
-      </button>
+      {/* Download button */}
+      {!selectable && (
+        <button
+          onClick={handleDownload}
+          disabled={downloading}
+          title="Download ZIP"
+          className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-1.5 shadow transition-colors disabled:opacity-50"
+        >
+          {downloading ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+            </svg>
+          )}
+        </button>
+      )}
 
       {imageUrl ? (
         <img
