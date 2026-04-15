@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
 import { getProperties, bulkAction } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
+import SyncStatus from '../components/SyncStatus'
 
 export default function Library() {
   const navigate = useNavigate()
@@ -101,7 +102,7 @@ export default function Library() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-3">
         <h1 className="text-2xl font-bold text-gray-900">
           Property Library
           <span className="ml-2 text-base font-normal text-gray-500">
@@ -128,6 +129,10 @@ export default function Library() {
             + Scrape
           </Link>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between mb-4">
+        <SyncStatus />
       </div>
 
       {/* Bulk action bar */}

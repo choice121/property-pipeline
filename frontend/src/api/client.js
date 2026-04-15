@@ -25,4 +25,12 @@ export const aiSuggestField = (data) => api.post('/ai/suggest-field', data)
 export const aiChat = (data) => api.post('/ai/chat', data)
 export const aiAutoFill = (data) => api.post('/ai/autofill', data)
 
+export const getLiveImages = (id) => api.get('/live-images/' + id)
+export const deleteLiveImage = (id, fileId) => api.delete('/live-images/' + id + '/' + encodeURIComponent(fileId))
+export const reorderLiveImages = (id, order) => api.put('/live-images/' + id + '/reorder', { order })
+export const uploadLiveImage = (id, formData) => api.post('/live-images/' + id + '/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+
+export const syncFromLive = () => api.post('/sync/from-live')
+export const getSyncStatus = () => api.get('/sync/status')
+
 export default api

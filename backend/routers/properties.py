@@ -1,15 +1,25 @@
 import json
+import logging
 import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from database.db import get_db
 from database.repository import Repository, PropertyRecord
 from services import publisher_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _auto_sync_to_live(prop, repo):
+    try:
+        publisher_service.sync_fields(prop, repo)
+        logger.info('Auto-synced property %s to live site', prop.id)
+    except Exception as e:
+        logger.warning('Auto-sync failed for property %s: %s', prop.id, e)
 
 
 @router.post("/properties")
@@ -71,7 +81,7 @@ def get_property(id: str, repo: Repository = Depends(get_db)):
 
 
 @router.put("/properties/{id}")
-def update_property(id: str, body: dict, repo: Repository = Depends(get_db)):
+def update_property(id: str, body: dict, background_tasks: BackgroundTasks, repo: Repository = Depends(get_db)):
     prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -116,6 +126,10 @@ def update_property(id: str, body: dict, repo: Repository = Depends(get_db)):
         repo.save(prop)
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to save property")
+
+    if prop.choice_property_id:
+        background_tasks.add_task(_auto_sync_to_live, prop, repo)
+
     return prop.to_dict()
 
 

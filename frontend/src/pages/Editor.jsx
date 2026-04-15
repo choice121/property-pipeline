@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty } from '../api/client'
 import ImageGallery from '../components/ImageGallery'
+import LiveImageGallery from '../components/LiveImageGallery'
 import StatusBadge from '../components/StatusBadge'
 import PublishButton from '../components/PublishButton'
 import AiAssistant from '../components/AiAssistant'
@@ -232,6 +233,7 @@ export default function Editor() {
   const missingFields = parseArray(form.missing_fields)
   const inferredFeatures = parseArray(form.inferred_features)
   const published = isPublished(form)
+  const isLive = !!(form.choice_property_id)
 
   return (
     <div className="max-w-3xl">
@@ -254,6 +256,11 @@ export default function Editor() {
           >
             {showOriginal ? 'Hide Original' : 'Compare with Original'}
           </button>
+          {isLive && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+              LIVE
+            </span>
+          )}
           <StatusBadge status={form.status} />
         </div>
       </div>
@@ -509,12 +516,16 @@ export default function Editor() {
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Photos</h2>
-          <ImageGallery
-            propertyId={id}
-            images={images}
-            onDelete={(index) => deleteImgMutation.mutate(index)}
-            onReorder={(order) => reorderMutation.mutate(order)}
-          />
+          {isLive ? (
+            <LiveImageGallery propertyId={id} />
+          ) : (
+            <ImageGallery
+              propertyId={id}
+              images={images}
+              onDelete={(index) => deleteImgMutation.mutate(index)}
+              onReorder={(order) => reorderMutation.mutate(order)}
+            />
+          )}
         </section>
       </div>
 
@@ -524,9 +535,9 @@ export default function Editor() {
           disabled={saveMutation.isPending}
           className="bg-gray-900 text-white px-5 py-2 rounded-lg font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
         >
-          {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
+          {saveMutation.isPending ? 'Saving...' : isLive ? 'Save & Sync' : 'Save Changes'}
         </button>
-        {!published && (
+        {!published && !isLive && (
           <button
             onClick={handleMarkReady}
             disabled={saveMutation.isPending}
@@ -568,7 +579,7 @@ export default function Editor() {
 
       {saved && (
         <div className="mt-3 text-sm text-green-600 bg-green-50 px-3 py-2 rounded">
-          Saved successfully.{published ? ' Use "Sync Fields" to push changes to the live site.' : ''}
+          {isLive ? 'Saved & synced to live site.' : `Saved successfully.${published ? ' Use "Sync Fields" to push changes to the live site.' : ''}`}
         </div>
       )}
       {saveMutation.isError && (

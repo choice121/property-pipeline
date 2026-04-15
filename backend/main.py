@@ -1,4 +1,7 @@
+import asyncio
+import logging
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -7,13 +10,45 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
-from routers import health, scraper, properties, images, publisher, download, search, ai
+from routers import health, scraper, properties, images, publisher, download, search, ai, sync, live_images
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "storage", "images"), exist_ok=True)
 
-app = FastAPI(title="Property Pipeline API")
+
+async def _background_sync_loop():
+    await asyncio.sleep(10)
+    while True:
+        try:
+            from database.repository import Repository
+            from services import live_sync_service
+            repo = Repository()
+            live_sync_service.sync_from_live(repo)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.warning('Background sync error (will retry in 60s): %s', e)
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            break
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(_background_sync_loop())
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="Property Pipeline API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -31,6 +66,8 @@ app.include_router(publisher.router, prefix="/api")
 app.include_router(download.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
 app.include_router(ai.router, prefix="/api")
+app.include_router(sync.router, prefix="/api")
+app.include_router(live_images.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
