@@ -3,6 +3,7 @@ import Layout from './components/Layout'
 import Library from './pages/Library'
 import Scraper from './pages/Scraper'
 import Editor from './pages/Editor'
+import CreateListing from './pages/CreateListing'
 import ErrorBoundary from './components/ErrorBoundary'
 
 const router = createBrowserRouter([
@@ -11,6 +12,7 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <Library /> },
       { path: '/scraper', element: <Scraper /> },
+      { path: '/create', element: <CreateListing /> },
       { path: '/edit/:id', element: <Editor /> },
     ],
   },

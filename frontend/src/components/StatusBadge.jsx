@@ -1,4 +1,5 @@
 const STATUS_STYLES = {
+  draft:    'bg-slate-100 text-slate-600',
   scraped:  'bg-gray-200 text-gray-700',
   edited:   'bg-blue-100 text-blue-700',
   ready:    'bg-amber-100 text-amber-700',
@@ -8,6 +9,7 @@ const STATUS_STYLES = {
 }
 
 const STATUS_LABELS = {
+  draft:    'Draft',
   scraped:  'Scraped',
   edited:   'Edited',
   ready:    'Ready',

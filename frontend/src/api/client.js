@@ -2,6 +2,7 @@ import axios from 'axios'
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
 
+export const createProperty = (data) => api.post('/properties', data)
 export const scrapeProperties = (data) => api.post('/scrape', data)
 export const getProperties = (params) => api.get('/properties', { params })
 export const getProperty = (id) => api.get('/properties/' + id)

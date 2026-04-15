@@ -1,13 +1,54 @@
 import json
+import uuid
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database.db import get_db
-from database.repository import Repository
+from database.repository import Repository, PropertyRecord
+from services import publisher_service
 
 router = APIRouter()
+
+
+@router.post("/properties")
+def create_property(body: dict, repo: Repository = Depends(get_db)):
+    prop_id = str(uuid.uuid4())
+    now = datetime.utcnow().isoformat()
+
+    allowed = {
+        "title", "property_type", "address", "city", "state", "zip", "county",
+        "bedrooms", "bathrooms", "half_bathrooms", "total_bathrooms", "square_footage",
+        "lot_size_sqft", "year_built", "floors", "unit_number", "total_units",
+        "monthly_rent", "security_deposit", "last_months_rent", "application_fee",
+        "pet_deposit", "admin_fee", "parking_fee", "move_in_special",
+        "parking", "garage_spaces", "pets_allowed", "pet_details", "pet_types_allowed",
+        "pet_weight_limit", "smoking_allowed", "description", "virtual_tour_url",
+        "available_date", "lease_terms", "minimum_lease_months", "showing_instructions",
+        "amenities", "appliances", "utilities_included", "flooring",
+        "heating_type", "cooling_type", "laundry_type",
+        "has_basement", "has_central_air",
+    }
+
+    fields = {k: v for k, v in body.items() if k in allowed and v not in (None, "", [])}
+
+    prop = PropertyRecord(
+        id=prop_id,
+        source="manual",
+        status="draft",
+        scraped_at=now,
+        updated_at=now,
+        original_data="{}",
+        **fields,
+    )
+
+    try:
+        repo.save(prop)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create property: {e}")
+
+    return prop.to_dict()
 
 
 @router.get("/properties")
@@ -94,7 +135,7 @@ def delete_property(id: str, repo: Repository = Depends(get_db)):
 def bulk_action(body: dict, repo: Repository = Depends(get_db)):
     ids = body.get("ids", [])
     action = body.get("action", "")
-    valid_actions = {"ready", "delete", "archive"}
+    valid_actions = {"ready", "delete", "archive", "sync"}
 
     if not ids:
         raise HTTPException(status_code=400, detail="No property IDs provided")
@@ -120,6 +161,12 @@ def bulk_action(body: dict, repo: Repository = Depends(get_db)):
                 prop.status = "archived"
                 prop.updated_at = datetime.utcnow().isoformat()
                 repo.save(prop)
+            elif action == "sync":
+                if not prop.choice_property_id:
+                    results["failed"] += 1
+                    results["errors"].append(f"{prop_id}: not published yet")
+                    continue
+                publisher_service.sync_fields(prop, repo)
 
             results["success"] += 1
         except Exception as e:

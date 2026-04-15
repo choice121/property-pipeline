@@ -7,6 +7,7 @@ import StatusBadge from '../components/StatusBadge'
 import PublishButton from '../components/PublishButton'
 import AiAssistant from '../components/AiAssistant'
 import TagInput from '../components/TagInput'
+import ListingPreview from '../components/ListingPreview'
 
 const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
@@ -96,6 +97,7 @@ export default function Editor() {
   const queryClient = useQueryClient()
 
   const [showOriginal, setShowOriginal] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [form, setForm] = useState(null)
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -237,6 +239,16 @@ export default function Editor() {
         <button onClick={handleBackToLibrary} className="text-sm text-gray-500 hover:text-gray-700">← Back to Library</button>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowPreview(true)}
+            className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+            </svg>
+            Preview
+          </button>
+          <button
             onClick={() => setShowOriginal(!showOriginal)}
             className={`text-xs px-3 py-1.5 rounded border ${showOriginal ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
           >
@@ -312,7 +324,8 @@ export default function Editor() {
               {published ? (
                 <div className={inputCls + ' bg-gray-50 text-green-700 font-medium capitalize'}>{form.status}</div>
               ) : (
-                <select className={selectCls} value={form.status || 'scraped'} onChange={(e) => set('status', e.target.value)}>
+                <select className={selectCls} value={form.status || 'draft'} onChange={(e) => set('status', e.target.value)}>
+                  <option value="draft">Draft</option>
                   <option value="scraped">Scraped</option>
                   <option value="edited">Edited</option>
                   <option value="ready">Ready to Publish</option>
@@ -562,6 +575,10 @@ export default function Editor() {
         <div className="mt-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
           Save failed: {saveMutation.error?.response?.data?.detail || saveMutation.error?.message}
         </div>
+      )}
+
+      {showPreview && (
+        <ListingPreview property={form} onClose={() => setShowPreview(false)} />
       )}
     </div>
   )

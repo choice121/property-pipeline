@@ -116,10 +116,16 @@ export default function Library() {
             {selectMode ? 'Cancel' : 'Select'}
           </button>
           <Link
+            to="/create"
+            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+          >
+            + Create
+          </Link>
+          <Link
             to="/scraper"
             className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
           >
-            + Scrape More
+            + Scrape
           </Link>
         </div>
       </div>
@@ -134,13 +140,21 @@ export default function Library() {
             {selectedIds.size === filtered.length ? 'Deselect All' : `Select All (${filtered.length})`}
           </button>
           <span className="text-gray-400 text-sm">{selectedIds.size} selected</span>
-          <div className="flex gap-2 ml-auto">
+          <div className="flex gap-2 ml-auto flex-wrap">
             <button
               onClick={() => handleBulkAction('ready')}
               disabled={selectedIds.size === 0 || bulkMutation.isPending}
               className="text-xs bg-amber-500 hover:bg-amber-400 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40 transition-colors"
             >
               Mark Ready
+            </button>
+            <button
+              onClick={() => handleBulkAction('sync')}
+              disabled={selectedIds.size === 0 || bulkMutation.isPending}
+              title="Sync field changes to the live site for all selected published listings"
+              className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-md font-medium disabled:opacity-40 transition-colors"
+            >
+              Sync to Live
             </button>
             <button
               onClick={() => handleBulkAction('archive')}
@@ -181,6 +195,7 @@ export default function Library() {
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
         >
           <option value="">All Statuses</option>
+          <option value="draft">Draft</option>
           <option value="scraped">Scraped</option>
           <option value="edited">Edited</option>
           <option value="ready">Ready</option>
