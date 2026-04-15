@@ -72,6 +72,11 @@ class ChatRequest(BaseModel):
     history: list[dict] | None = None
 
 
+class AutoFillRequest(BaseModel):
+    property: PropertyContext
+    fields: list[str]
+
+
 def _build_property_summary(prop: PropertyContext) -> str:
     parts = []
     if prop.address:
