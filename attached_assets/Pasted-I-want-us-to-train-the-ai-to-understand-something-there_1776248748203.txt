@@ -1,0 +1,60 @@
+I want us to train the ai to understand something, there are some certain rules set by the landlords on original listings, I want the ai to be able to understand that rules such that limits many tenants from applying or something should be detected and set to change to something more flexible, after scraping, before poublishing, Dey application fees to 50$ if the property original application fee is less than 50$ or it's not available on the property , all properties prices are going to be adjusted based on the suggestions but to look more affordable before posting on the website, ai should be adding some kind of interesting or yet benefits or kind of like a little promo on properties but not all and not static but random, ai should  add to every properties 
+Information about the applications so applicants understands the process from the start. Default rules and requirements for every property: 
+
+TASK: Implement a global, default policy called "Application Requirement & Eligibility Policy" across the entire platform.
+
+GOAL:
+This policy must appear consistently on:
+- Every property listing page (above or near the “Apply” button)
+- The application form page (as a required acknowledgment)
+- Any pre-approval or onboarding flow
+- Footer or global “Terms Preview” section (short version with link to full policy)
+
+This is a STANDARD PLATFORM-WIDE RULE and should NOT be editable per property.
+
+---
+
+POLICY TITLE:
+Application Requirement & Eligibility Policy
+
+POLICY CONTENT:
+
+To ensure a secure, fair, and streamlined rental experience for all applicants, the following application guidelines apply to every property listed on our platform:
+
+1. Mandatory Application Before Any Next Step  
+All prospective tenants are required to complete a formal application for a property before proceeding to any additional steps. This includes, but is not limited to, property inquiries, reservations, or viewing considerations.  
+This process ensures that all applicants are properly reviewed and qualified before moving forward.
+
+2. Application Fee Requirement  
+Each application must be submitted along with the applicable application fee as clearly displayed on the property listing.  
+This fee covers the cost of processing, verification, and evaluation of the applicant’s information.
+
+3. Fair Opportunity Policy (Re-Application Benefit)  
+In the event that an application is not approved, the applicant will be granted the opportunity to submit up to two (2) additional applications for other properties on the platform without being required to pay an additional application fee.  
+This ensures that every applicant is given a fair and extended opportunity to secure a suitable property.
+
+4. Structured Process Assurance  
+Our application-first approach is designed to protect both applicants and property providers by ensuring that only serious and qualified inquiries proceed through the system.  
+Each step following the application will be clearly guided, with full transparency and support provided throughout the process.
+
+---
+
+UX / DESIGN REQUIREMENTS:
+
+- Display a SHORT SUMMARY version:
+  "Application required before proceeding. Application fee applies. Up to 2 free re-applications if not approved."
+
+- Include a “Learn More” or “View Full Policy” expandable section or modal.
+
+- Add a required checkbox on the application form:
+  "I understand and agree to the Application Requirement & Eligibility Policy."
+
+- Keep tone:
+  Professional, reassuring, transparent, and trust-building (NOT aggressive or restrictive).
+
+- Ensure this policy is reusable as a global component so updates reflect everywhere automatically.
+
+---
+
+IMPORTANT:
+This policy should feel supportive and fair, not restrictive. It must build trust, reduce hesitation, and clearly guide the applicant through the process.
