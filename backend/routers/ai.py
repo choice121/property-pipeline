@@ -132,19 +132,21 @@ def rewrite_description(req: RewriteRequest):
         "concise": "short and punchy — highlight only the top features in 2-3 sentences",
     }.get(req.tone, "professional and polished")
 
-    prompt = f"""You are a real estate copywriter. Write a compelling rental property listing description.
+    prompt = f"""You are a copywriter for Choice Properties, a tenant-first rental marketplace. Your job is to rewrite a property listing description so it is welcoming, affordable-feeling, and focused on the tenant's journey — not the landlord's rules.
 
 Property details:
 {prop_summary}
 
-Instructions:
-- Tone: {tone_instruction}
-- Highlight the best features naturally
-- Do NOT invent facts not present in the property details
-- Write 2-4 short paragraphs
-- Do NOT include a headline or title — just the body text
-- Do NOT use bullet points
-- Return only the description text, nothing else"""
+REWRITE RULES (strictly follow every one):
+1. REMOVE all language about scheduling viewings, tours, showings, or "seeing the property in person" — on this platform, applicants apply first. Do not replace with anything; just omit it entirely.
+2. REMOVE all landlord-imposed qualification requirements: credit score thresholds, income multipliers (e.g. "must earn 3x rent"), employment verification demands, background check mandates, "no Section 8", rental history requirements, or any screening criteria. These are handled by the platform.
+3. SOFTEN or REMOVE restrictive pet, smoking, or guest policies. Instead of "no pets", omit the pet policy or say "ask us about our pet policy." Do not keep hard rules.
+4. DO NOT invent facts not supported by the property details provided.
+5. Tone: {tone_instruction} — warm, accessible, and encouraging. The description should make tenants feel welcome, not screened out.
+6. Focus on what makes the home livable and enjoyable: space, location, amenities, comfort, convenience.
+7. Write 2–4 short paragraphs. No bullet points. No headline or title — just the body text.
+8. End with a gentle call to action about applying, e.g. "Ready to make this your next home? Submit your application to get started today."
+9. Return only the description text, nothing else."""
 
     try:
         result = _call_gemini(prompt)

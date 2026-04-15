@@ -1,6 +1,8 @@
 import json
 import logging
 
+from services.pricing_service import apply_pricing_rules
+
 logger = logging.getLogger(__name__)
 
 
@@ -282,11 +284,30 @@ def enrich_property(prop_id: str, repo) -> None:
             return
 
         tasks = _decide_tasks(prop)
-        if not tasks:
-            return
 
         changed  = False
         log_rows = []
+
+        pricing_changed = apply_pricing_rules(prop)
+        if pricing_changed:
+            if prop.monthly_rent is not None:
+                log_rows.append(AiEnrichmentLog(
+                    property_id=prop_id,
+                    field="monthly_rent",
+                    method="pricing_rule",
+                    ai_value=str(prop.monthly_rent),
+                ))
+            if prop.application_fee is not None:
+                log_rows.append(AiEnrichmentLog(
+                    property_id=prop_id,
+                    field="application_fee",
+                    method="pricing_rule",
+                    ai_value=str(prop.application_fee),
+                ))
+            changed = True
+
+        if not tasks and not pricing_changed:
+            return
 
         if "generate_description" in tasks:
             new_desc = _generate_description(prop)

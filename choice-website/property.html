@@ -33,6 +33,20 @@
   <link rel="stylesheet" href="/css/property.css?v=1775137055043">
   <!-- Styles in property.css -->
 <style>
+/* Application Policy Banner */
+.app-policy-banner{background:#f0f7ff;border:1px solid #c7dffe;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:0.8rem}
+.app-policy-summary{display:flex;gap:8px;align-items:flex-start;color:#1d4ed8;line-height:1.5}
+.app-policy-summary p{margin:0;flex:1}
+.app-policy-icon{margin-top:2px;flex-shrink:0;font-size:13px}
+.app-policy-toggle{background:none;border:none;color:#2563eb;font-size:0.78rem;font-weight:600;cursor:pointer;padding:6px 0 0;display:flex;align-items:center;gap:5px;width:100%}
+.app-policy-toggle i{transition:transform 180ms ease;font-size:10px}
+.app-policy-toggle[aria-expanded="true"] i{transform:rotate(180deg)}
+.app-policy-full{padding:10px 0 4px;color:#374151;line-height:1.6}
+.app-policy-full strong{display:block;font-size:0.8rem;font-weight:700;color:#1e3a6e;margin-bottom:8px}
+.app-policy-full ol{padding-left:1.2rem;margin:0 0 10px;font-size:0.78rem}
+.app-policy-full li{margin-bottom:5px}
+.app-policy-link{font-size:0.78rem;color:#2563eb;text-decoration:none;font-weight:600}
+.app-policy-link:hover{text-decoration:underline}
 /* Mobile sticky Apply CTA — hidden on desktop */
 #mobile-apply-bar{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;background:#0a1628;border-top:1px solid rgba(255,255,255,.12);padding:12px 16px;padding-bottom:calc(12px + env(safe-area-inset-bottom));align-items:center;justify-content:space-between;gap:12px;box-shadow:0 -4px 24px rgba(0,0,0,.35)}
 #mobile-apply-bar .mob-price{color:rgba(255,255,255,.65);font-size:.75rem;line-height:1.2}
@@ -295,6 +309,27 @@
           <span class="apply-cost-label">Move-in Special</span>
           <span class="apply-cost-value" id="sidebarMoveInSpecial" style="color:var(--color-success)">—</span>
         </div>
+        <!-- Application Policy Banner -->
+        <div class="app-policy-banner">
+          <div class="app-policy-summary">
+            <i class="fas fa-shield-alt app-policy-icon"></i>
+            <p>Application required before any next step. Application fee applies. If not approved, get up to 2 free re-applications on other listings.</p>
+          </div>
+          <button class="app-policy-toggle" onclick="toggleAppPolicy(this)" aria-expanded="false">
+            View Full Policy <i class="fas fa-chevron-down"></i>
+          </button>
+          <div class="app-policy-full" hidden>
+            <strong>Application Requirement &amp; Eligibility Policy</strong>
+            <ol>
+              <li><strong>Apply First</strong> — All prospective tenants must complete a formal application before any next step, including inquiries or reservations.</li>
+              <li><strong>Application Fee</strong> — A fee applies as shown on the listing. It covers processing and evaluation.</li>
+              <li><strong>Fair Re-Application</strong> — If not approved, you may apply to up to 2 other listings at no additional fee.</li>
+              <li><strong>Guided Process</strong> — Every step after your application is clearly guided with full transparency and support.</li>
+            </ol>
+            <a href="/rental-application-policy.html" class="app-policy-link">Read the complete policy →</a>
+          </div>
+        </div>
+
         <a href="#" class="apply-btn" id="applyBtn">
           Apply Now <i class="fas fa-paper-plane" style="font-size:14px"></i>
         </a>
@@ -1494,6 +1529,19 @@ function showToast(msg, type = 'info') {
     t.style.transition = 'all 280ms';
     setTimeout(() => t.remove(), 280);
   }, duration);
+}
+
+function toggleAppPolicy(btn) {
+  const expanded = btn.getAttribute('aria-expanded') === 'true';
+  btn.setAttribute('aria-expanded', String(!expanded));
+  const full = btn.nextElementSibling;
+  if (expanded) {
+    full.hidden = true;
+    btn.innerHTML = 'View Full Policy <i class="fas fa-chevron-down"></i>';
+  } else {
+    full.hidden = false;
+    btn.innerHTML = 'Hide Policy <i class="fas fa-chevron-up"></i>';
+  }
 }
 
 </script>
