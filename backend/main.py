@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from routers import health, scraper, properties, images, publisher, download, search
+from routers import health, scraper, properties, images, publisher, download, search, ai
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 os.makedirs(os.path.join(BASE_DIR, "data"), exist_ok=True)
@@ -29,6 +29,7 @@ app.include_router(images.router, prefix="/api")
 app.include_router(publisher.router, prefix="/api")
 app.include_router(download.router, prefix="/api")
 app.include_router(search.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn

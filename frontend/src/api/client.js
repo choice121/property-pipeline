@@ -16,4 +16,9 @@ export const downloadProperty = (id) => api.get('/properties/' + id + '/download
 export const searchProperties = (data) => api.post('/search', data)
 export const saveProperty = (data) => api.post('/save-property', data)
 
+export const aiRewriteDescription = (data) => api.post('/ai/rewrite-description', data)
+export const aiDetectIssues = (data) => api.post('/ai/detect-issues', data)
+export const aiSuggestField = (data) => api.post('/ai/suggest-field', data)
+export const aiChat = (data) => api.post('/ai/chat', data)
+
 export default api

@@ -5,6 +5,7 @@ import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages
 import ImageGallery from '../components/ImageGallery'
 import StatusBadge from '../components/StatusBadge'
 import PublishButton from '../components/PublishButton'
+import AiAssistant from '../components/AiAssistant'
 
 const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
@@ -389,6 +390,11 @@ export default function Editor() {
             </Field>
           </div>
         </section>
+
+        <AiAssistant
+          form={form}
+          onApplyDescription={(desc) => set('description', desc)}
+        />
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Features</h2>
