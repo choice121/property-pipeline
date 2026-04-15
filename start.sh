@@ -4,7 +4,7 @@ set -e
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 cd "$APP_DIR/backend"
-BACKEND_PORT=8000 python3 main.py &
+"$APP_DIR/.venv/bin/python" main.py &
 BACKEND_PID=$!
 
 cleanup() {
@@ -13,4 +13,4 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$APP_DIR/frontend"
-"$APP_DIR/node_modules/.bin/vite" --host 0.0.0.0 --port 5000 --strictPort
+"$APP_DIR/frontend/node_modules/.bin/vite" --host 0.0.0.0 --port 5000 --strictPort

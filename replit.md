@@ -47,8 +47,10 @@ property-pipeline/
 ## Running the App
 
 The workflow runs `bash start.sh` which:
-1. Starts the FastAPI backend (`python3 main.py`) on port 8000 in the background using `BACKEND_PORT=8000`
-2. Starts the Vite dev server from the repository root on port 5000, serving the `frontend/` app through the root Vite config
+1. Starts the FastAPI backend using `.venv/bin/python main.py` on port 8000 in the background
+2. Starts the Vite dev server from `frontend/` on port 5000, proxying `/api` calls to the backend
+
+Python packages are installed in `.venv/` (created via `uv venv` + `uv pip install`). Frontend packages are in `frontend/node_modules/`.
 
 ## Replit Migration Notes
 
