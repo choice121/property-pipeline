@@ -251,3 +251,66 @@ Instructions:
     except Exception as e:
         logger.error("AI chat failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+AUTOFILL_FIELD_DESCRIPTIONS = {
+    "heating_type": "Type of heating system (e.g. 'Forced Air', 'Baseboard', 'Radiant', 'Heat Pump')",
+    "cooling_type": "Type of cooling system (e.g. 'Central Air', 'Window Units', 'Mini-Split')",
+    "laundry_type": "Laundry situation (e.g. 'In-unit', 'Hookups', 'Shared', 'None')",
+    "parking": "Parking description (e.g. '1-car garage', 'Street parking', '2 reserved spots')",
+    "flooring": "Comma-separated list of flooring types (e.g. 'Hardwood, Tile, Carpet')",
+    "lease_terms": "Comma-separated lease options (e.g. '12-month, Month-to-month')",
+    "showing_instructions": "Short instructions for scheduling a showing (e.g. 'Call to schedule', 'Self-guided tours available')",
+    "pet_details": "Short description of pet policy details (e.g. 'Dogs and cats welcome, max 50 lbs')",
+    "pet_types_allowed": "Comma-separated pet types (e.g. 'Dogs, Cats')",
+    "amenities": "Comma-separated list of property amenities",
+    "appliances": "Comma-separated list of included appliances",
+    "description": "A full 2-4 paragraph rental listing description",
+    "move_in_special": "Any move-in special or promotion (e.g. 'First month free', 'Reduced deposit')",
+    "utilities_included": "Comma-separated utilities included in rent (e.g. 'Water, Trash')",
+}
+
+
+@router.post("/ai/autofill")
+def autofill_fields(req: AutoFillRequest):
+    prop_summary = _build_property_summary(req.property)
+    valid_fields = [f for f in req.fields if f in AUTOFILL_FIELD_DESCRIPTIONS]
+    if not valid_fields:
+        return {"suggestions": {}}
+
+    fields_block = "\n".join(
+        f'- "{f}": {AUTOFILL_FIELD_DESCRIPTIONS[f]}' for f in valid_fields
+    )
+
+    prompt = f"""You are a real estate data assistant. Based on the property details below, suggest values for the following empty fields.
+
+Property details:
+{prop_summary}
+
+Fields to fill in:
+{fields_block}
+
+Instructions:
+- Return a JSON object where each key is a field name and the value is your suggestion
+- Only include fields you can reasonably infer from the property details
+- For comma-separated fields, return a plain comma-separated string (not a JSON array)
+- For description, write 2-4 paragraphs of professional listing copy
+- Do NOT invent facts not supported by the property details
+- Keep non-description values short and practical
+- Return ONLY a raw JSON object, no markdown, no explanation"""
+
+    try:
+        raw = _call_gemini(prompt)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        suggestions = json.loads(raw)
+        filtered = {k: v for k, v in suggestions.items() if k in valid_fields}
+        return {"suggestions": filtered}
+    except json.JSONDecodeError:
+        return {"suggestions": {}, "raw": raw}
+    except Exception as e:
+        logger.error("AI autofill failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))

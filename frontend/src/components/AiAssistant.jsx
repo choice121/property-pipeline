@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { aiRewriteDescription, aiDetectIssues, aiChat } from '../api/client'
+import { aiRewriteDescription, aiDetectIssues, aiChat, aiAutoFill } from '../api/client'
 
 const SEVERITY_STYLES = {
   error: 'bg-red-50 border-red-200 text-red-800',
@@ -7,6 +7,28 @@ const SEVERITY_STYLES = {
   suggestion: 'bg-blue-50 border-blue-200 text-blue-700',
 }
 const SEVERITY_ICON = { error: '✕', warning: '⚠', suggestion: '💡' }
+
+const AUTOFILL_FIELDS = [
+  'description', 'heating_type', 'cooling_type', 'laundry_type',
+  'parking', 'flooring', 'lease_terms', 'showing_instructions',
+  'pet_details', 'pet_types_allowed', 'amenities', 'appliances',
+  'utilities_included', 'move_in_special',
+]
+
+const ARRAY_FIELDS = new Set([
+  'flooring', 'lease_terms', 'pet_types_allowed',
+  'amenities', 'appliances', 'utilities_included',
+])
+
+const FIELD_LABELS = {
+  description: 'Description', heating_type: 'Heating Type',
+  cooling_type: 'Cooling Type', laundry_type: 'Laundry Type',
+  parking: 'Parking', flooring: 'Flooring',
+  lease_terms: 'Lease Terms', showing_instructions: 'Showing Instructions',
+  pet_details: 'Pet Details', pet_types_allowed: 'Pet Types Allowed',
+  amenities: 'Amenities', appliances: 'Appliances',
+  utilities_included: 'Utilities Included', move_in_special: 'Move-in Special',
+}
 
 function buildPropertyContext(form) {
   const tryParseArray = (val) => {
@@ -38,6 +60,21 @@ function buildPropertyContext(form) {
   }
 }
 
+function getEmptyFillableFields(form) {
+  return AUTOFILL_FIELDS.filter((field) => {
+    const val = form[field]
+    if (!val) return true
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val)
+        if (Array.isArray(parsed)) return parsed.length === 0
+      } catch {}
+      return val.trim() === ''
+    }
+    return false
+  })
+}
+
 function SparkleIcon() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -46,9 +83,10 @@ function SparkleIcon() {
   )
 }
 
-export default function AiAssistant({ form, onApplyDescription }) {
-  const [tab, setTab] = useState('rewrite')
+export default function AiAssistant({ form, onApplyDescription, onApplyFields }) {
+  const [tab, setTab] = useState('autofill')
   const [tone, setTone] = useState('professional')
+
   const [rewriting, setRewriting] = useState(false)
   const [rewriteResult, setRewriteResult] = useState(null)
   const [rewriteError, setRewriteError] = useState(null)
@@ -56,6 +94,11 @@ export default function AiAssistant({ form, onApplyDescription }) {
   const [detecting, setDetecting] = useState(false)
   const [issues, setIssues] = useState(null)
   const [issuesError, setIssuesError] = useState(null)
+
+  const [filling, setFilling] = useState(false)
+  const [fillSuggestions, setFillSuggestions] = useState(null)
+  const [fillError, setFillError] = useState(null)
+  const [selected, setSelected] = useState({})
 
   const [chatHistory, setChatHistory] = useState([])
   const [chatInput, setChatInput] = useState('')
@@ -94,6 +137,47 @@ export default function AiAssistant({ form, onApplyDescription }) {
     }
   }
 
+  async function handleAutoFill() {
+    const emptyFields = getEmptyFillableFields(form)
+    if (emptyFields.length === 0) {
+      setFillSuggestions({})
+      return
+    }
+    setFilling(true)
+    setFillSuggestions(null)
+    setFillError(null)
+    setSelected({})
+    try {
+      const res = await aiAutoFill({ property: buildPropertyContext(form), fields: emptyFields })
+      const suggestions = res.data.suggestions || {}
+      setFillSuggestions(suggestions)
+      const allSelected = {}
+      Object.keys(suggestions).forEach((k) => { allSelected[k] = true })
+      setSelected(allSelected)
+    } catch (e) {
+      setFillError(e.response?.data?.detail || e.message)
+    } finally {
+      setFilling(false)
+    }
+  }
+
+  function handleApplySelected() {
+    const toApply = {}
+    Object.entries(fillSuggestions).forEach(([field, value]) => {
+      if (!selected[field]) return
+      if (ARRAY_FIELDS.has(field)) {
+        toApply[field] = JSON.stringify(
+          value.split(',').map((s) => s.trim()).filter(Boolean)
+        )
+      } else {
+        toApply[field] = value
+      }
+    })
+    onApplyFields(toApply)
+    setFillSuggestions(null)
+    setSelected({})
+  }
+
   async function handleChatSend() {
     const message = chatInput.trim()
     if (!message || chatLoading) return
@@ -102,11 +186,7 @@ export default function AiAssistant({ form, onApplyDescription }) {
     setChatHistory(newHistory)
     setChatLoading(true)
     try {
-      const res = await aiChat({
-        property: buildPropertyContext(form),
-        message,
-        history: chatHistory,
-      })
+      const res = await aiChat({ property: buildPropertyContext(form), message, history: chatHistory })
       setChatHistory([...newHistory, { role: 'assistant', content: res.data.reply }])
     } catch (e) {
       setChatHistory([...newHistory, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
@@ -120,6 +200,8 @@ export default function AiAssistant({ form, onApplyDescription }) {
       tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
     }`
 
+  const emptyCount = getEmptyFillableFields(form).length
+
   return (
     <div className="bg-white rounded-lg border border-purple-200 overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100">
@@ -129,12 +211,87 @@ export default function AiAssistant({ form, onApplyDescription }) {
       </div>
 
       <div className="p-1 border-b border-gray-100 bg-gray-50 flex gap-1">
+        <button className={tabCls('autofill')} onClick={() => setTab('autofill')}>
+          Auto-Fill
+          {emptyCount > 0 && (
+            <span className="ml-1.5 bg-purple-100 text-purple-700 text-xs px-1.5 py-0.5 rounded-full">{emptyCount}</span>
+          )}
+        </button>
         <button className={tabCls('rewrite')} onClick={() => setTab('rewrite')}>Rewrite Description</button>
         <button className={tabCls('issues')} onClick={() => setTab('issues')}>Detect Issues</button>
         <button className={tabCls('chat')} onClick={() => setTab('chat')}>Chat</button>
       </div>
 
       <div className="p-4">
+
+        {tab === 'autofill' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Scan the listing for empty fields and let AI suggest values based on what you've already filled in.
+              {emptyCount > 0
+                ? <span className="ml-1 font-medium text-purple-700">{emptyCount} fillable field{emptyCount !== 1 ? 's' : ''} detected as empty.</span>
+                : <span className="ml-1 text-green-700 font-medium">All key fields are filled in.</span>
+              }
+            </p>
+            <button
+              onClick={handleAutoFill}
+              disabled={filling || emptyCount === 0}
+              className="flex items-center gap-2 bg-purple-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              <SparkleIcon />
+              {filling ? 'Scanning & Generating...' : 'Auto-Fill Missing Fields'}
+            </button>
+            {fillError && (
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-100">{fillError}</p>
+            )}
+            {fillSuggestions !== null && (
+              <div className="space-y-2">
+                {Object.keys(fillSuggestions).length === 0 ? (
+                  <p className="text-xs text-gray-500 bg-gray-50 px-3 py-2 rounded border border-gray-200">
+                    AI couldn't confidently suggest values for the remaining fields based on the available data.
+                  </p>
+                ) : (
+                  <>
+                    <p className="text-xs font-medium text-gray-600">Review suggestions — uncheck any you don't want to apply:</p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                      {Object.entries(fillSuggestions).map(([field, value]) => (
+                        <label key={field} className="flex items-start gap-2.5 p-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!!selected[field]}
+                            onChange={(e) => setSelected((prev) => ({ ...prev, [field]: e.target.checked }))}
+                            className="mt-0.5 accent-purple-600"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-700">{FIELD_LABELS[field] || field}</p>
+                            <p className="text-xs text-gray-500 mt-0.5 line-clamp-3 whitespace-pre-wrap">{value}</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={handleApplySelected}
+                        disabled={!Object.values(selected).some(Boolean)}
+                        className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+                      >
+                        Apply Selected ({Object.values(selected).filter(Boolean).length})
+                      </button>
+                      <button
+                        onClick={handleAutoFill}
+                        disabled={filling}
+                        className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+                      >
+                        Regenerate
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === 'rewrite' && (
           <div className="space-y-3">
             <p className="text-xs text-gray-500">Generate a polished listing description from the property data you've filled in.</p>

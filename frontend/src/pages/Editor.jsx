@@ -394,6 +394,10 @@ export default function Editor() {
         <AiAssistant
           form={form}
           onApplyDescription={(desc) => set('description', desc)}
+          onApplyFields={(fields) => {
+            isDirty.current = true
+            setForm((prev) => ({ ...prev, ...fields }))
+          }}
         />
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">

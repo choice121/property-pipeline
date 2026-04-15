@@ -20,5 +20,6 @@ export const aiRewriteDescription = (data) => api.post('/ai/rewrite-description'
 export const aiDetectIssues = (data) => api.post('/ai/detect-issues', data)
 export const aiSuggestField = (data) => api.post('/ai/suggest-field', data)
 export const aiChat = (data) => api.post('/ai/chat', data)
+export const aiAutoFill = (data) => api.post('/ai/autofill', data)
 
 export default api
