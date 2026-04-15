@@ -1,0 +1,13 @@
+frontend/
+node_modules/
+.local/
+.cache/
+*.md
+*.sql
+__pycache__/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/data/
+backend/storage/images/
+.env
+.git/

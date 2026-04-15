@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
 
 export const scrapeProperties = (data) => api.post('/scrape', data)
 export const getProperties = (params) => api.get('/properties', { params })
