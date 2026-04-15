@@ -73,6 +73,44 @@ def _get_supabase():
     return create_client(url, key)
 
 
+_cached_landlord_id: str | None = None
+
+def _get_landlord_id() -> str | None:
+    global _cached_landlord_id
+
+    env_id = os.environ.get("CHOICE_LANDLORD_ID", "").strip()
+    if env_id:
+        return env_id
+
+    if _cached_landlord_id:
+        return _cached_landlord_id
+
+    try:
+        client = _get_supabase()
+        result = (
+            client.table("landlords")
+            .select("id, contact_name, business_name, email")
+            .execute()
+        )
+        rows = result.data or []
+        for row in rows:
+            name = (row.get("business_name") or row.get("contact_name") or "").lower()
+            email = (row.get("email") or "").lower()
+            if "choice" in name or "choice" in email:
+                _cached_landlord_id = row["id"]
+                logger.info("Auto-resolved landlord ID from Supabase: %s (%s)", row["id"], name or email)
+                return _cached_landlord_id
+        if rows:
+            _cached_landlord_id = rows[0]["id"]
+            logger.info("No 'Choice' landlord found — using first landlord: %s", _cached_landlord_id)
+            return _cached_landlord_id
+    except Exception as e:
+        logger.warning("Could not auto-resolve landlord ID from Supabase: %s", e)
+
+    logger.warning("No landlord ID found. Published listing will have landlord_id=null.")
+    return None
+
+
 def _upload_images_to_imagekit(property_id: str, local_image_paths: list) -> list:
     MAX_PHOTOS = 25
     paths_to_upload = local_image_paths[:MAX_PHOTOS]
@@ -153,11 +191,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
             return [item.strip() for item in val.split(",") if item.strip()]
         return []
 
-    landlord_id = os.environ.get("CHOICE_LANDLORD_ID") or None
-    if not landlord_id:
-        logger.warning(
-            "CHOICE_LANDLORD_ID is not set. Published listing will have landlord_id=null."
-        )
+    landlord_id = _get_landlord_id()
 
     def _generate_title(prop) -> str:
         if prop.title:
