@@ -13,20 +13,25 @@ This app scrapes property listings from major platforms (Zillow, Realtor.com, Re
 
 - **Backend**: Python FastAPI running on port 8000
 - **Frontend**: React 18 + Vite running on port 5000 (proxies /api to backend)
-- **Database**: SQLite stored at `backend/data/pipeline.db` for local staging; Supabase is used for live publishing
-- **Image storage**: Local at `backend/storage/images/`; ImageKit is used for live publishing
+- **Pipeline Database**: Supabase (`pipeline_properties` and `pipeline_enrichment_log` tables) — data persists across any Replit account
+- **Live Publishing**: Supabase (`properties` table) + ImageKit CDN for the Choice Properties website
+- **Image storage**: Local at `backend/storage/images/` (temporary; images are re-downloadable from source URLs stored in Supabase)
 
 ## Project Structure
 
 ```
 property-pipeline/
 ├── backend/
-│   ├── data/               # SQLite database (pipeline.db)
-│   ├── database/           # SQLAlchemy models and DB config (db.py, models.py)
+│   ├── database/           # Supabase client, repository pattern, model aliases
+│   │   ├── supabase_client.py  # Lazy Supabase connection singleton
+│   │   ├── repository.py       # PropertyRecord, AiEnrichmentLog, Repository class
+│   │   ├── db.py               # get_db() dependency for FastAPI routers
+│   │   └── models.py           # Re-exports PropertyRecord as Property for compatibility
 │   ├── routers/            # API endpoints (health, scraper, properties, images, publisher)
 │   ├── services/           # Business logic (scraping, image handling, watermark filtering, publishing)
-│   ├── storage/images/     # Local property photo storage
+│   ├── storage/images/     # Local property photo storage (temporary, re-downloadable)
 │   └── main.py             # FastAPI entry point
+├── supabase_migration.sql  # Run once in Supabase SQL Editor to create pipeline tables
 ├── frontend/
 │   ├── src/
 │   │   ├── api/            # Axios client and API definitions
@@ -56,7 +61,7 @@ The workflow runs `bash start.sh` which:
 
 ### Backend (Python)
 - FastAPI + Uvicorn
-- SQLAlchemy (SQLite)
+- supabase-py (pipeline database — replaces SQLite/SQLAlchemy)
 - HomeHarvest (property scraping)
 - Pillow + httpx (image processing)
 - python-dotenv

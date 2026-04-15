@@ -8,26 +8,26 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from database.db import get_db
-from database.models import Property
+from database.repository import Repository
 from services import image_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 REFERER_MAP = {
-    "rdcpix.com": "https://www.realtor.com/",
-    "realtor.com": "https://www.realtor.com/",
+    "rdcpix.com":       "https://www.realtor.com/",
+    "realtor.com":      "https://www.realtor.com/",
     "zillowstatic.com": "https://www.zillow.com/",
-    "zillow.com": "https://www.zillow.com/",
-    "cdn-redfin.com": "https://www.redfin.com/",
-    "redfin.com": "https://www.redfin.com/",
-    "trulia.com": "https://www.trulia.com/",
-    "cloudinary.com": None,
-    "amazonaws.com": None,
+    "zillow.com":       "https://www.zillow.com/",
+    "cdn-redfin.com":   "https://www.redfin.com/",
+    "redfin.com":       "https://www.redfin.com/",
+    "trulia.com":       "https://www.trulia.com/",
+    "cloudinary.com":   None,
+    "amazonaws.com":    None,
 }
+
 
 def _get_referer(url: str) -> str | None:
     try:
@@ -38,6 +38,7 @@ def _get_referer(url: str) -> str | None:
     except Exception:
         pass
     return None
+
 
 def _is_allowed_domain(url: str) -> bool:
     try:
@@ -52,12 +53,9 @@ def _is_allowed_domain(url: str) -> bool:
         pass
     return False
 
+
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STORAGE_DIR = os.path.realpath(os.path.join(BASE_DIR, "storage", "images"))
-
-
-def prop_to_dict(prop: Property) -> dict:
-    return {c.name: getattr(prop, c.name) for c in prop.__table__.columns}
 
 
 @router.get("/proxy-image")
@@ -120,20 +118,18 @@ def serve_image(property_id: str, filename: str):
 
 
 @router.delete("/properties/{id}/images/{index}")
-def delete_image(id: str, index: int, db: Session = Depends(get_db)):
-    prop = db.query(Property).filter(Property.id == id).first()
+def delete_image(id: str, index: int, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
     new_paths = image_service.delete_image(id, index)
     prop.local_image_paths = json.dumps(new_paths)
     try:
-        db.commit()
-        db.refresh(prop)
+        repo.save(prop)
     except Exception:
-        db.rollback()
         raise HTTPException(status_code=500, detail="Failed to update image list")
-    return prop_to_dict(prop)
+    return prop.to_dict()
 
 
 class ReorderRequest(BaseModel):
@@ -141,17 +137,15 @@ class ReorderRequest(BaseModel):
 
 
 @router.put("/properties/{id}/images/reorder")
-def reorder_images(id: str, body: ReorderRequest, db: Session = Depends(get_db)):
-    prop = db.query(Property).filter(Property.id == id).first()
+def reorder_images(id: str, body: ReorderRequest, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
     new_paths = image_service.reorder_images(id, body.order)
     prop.local_image_paths = json.dumps(new_paths)
     try:
-        db.commit()
-        db.refresh(prop)
+        repo.save(prop)
     except Exception:
-        db.rollback()
         raise HTTPException(status_code=500, detail="Failed to save new image order")
-    return prop_to_dict(prop)
+    return prop.to_dict()

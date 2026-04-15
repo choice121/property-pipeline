@@ -59,28 +59,28 @@ EXTRACTORS = {
         r"(?i)communal laundry",
     ],
     "heating_types": {
-        "Forced Air":     [r"(?i)forced[- ]air", r"(?i)gas forced"],
-        "Electric":       [r"(?i)electric heat", r"(?i)electric baseboard"],
-        "Baseboard":      [r"(?i)baseboard heat"],
-        "Radiant":        [r"(?i)radiant heat", r"(?i)in[- ]floor heat"],
-        "Gas":            [r"(?i)gas heat(?!er)", r"(?i)natural gas heat"],
-        "Heat Pump":      [r"(?i)heat pump"],
-        "Steam":          [r"(?i)steam heat", r"(?i)steam radiator"],
+        "Forced Air":  [r"(?i)forced[- ]air", r"(?i)gas forced"],
+        "Electric":    [r"(?i)electric heat", r"(?i)electric baseboard"],
+        "Baseboard":   [r"(?i)baseboard heat"],
+        "Radiant":     [r"(?i)radiant heat", r"(?i)in[- ]floor heat"],
+        "Gas":         [r"(?i)gas heat(?!er)", r"(?i)natural gas heat"],
+        "Heat Pump":   [r"(?i)heat pump"],
+        "Steam":       [r"(?i)steam heat", r"(?i)steam radiator"],
     },
     "cooling_types": {
-        "Central Air":    [r"(?i)central air", r"(?i)central a/c", r"(?i)central cooling"],
-        "Window Units":   [r"(?i)window a/?c", r"(?i)window air"],
-        "Mini-Split":     [r"(?i)mini[- ]split", r"(?i)ductless"],
-        "Heat Pump":      [r"(?i)heat pump cooling"],
+        "Central Air":  [r"(?i)central air", r"(?i)central a/c", r"(?i)central cooling"],
+        "Window Units": [r"(?i)window a/?c", r"(?i)window air"],
+        "Mini-Split":   [r"(?i)mini[- ]split", r"(?i)ductless"],
+        "Heat Pump":    [r"(?i)heat pump cooling"],
     },
     "utilities_included": {
-        "Water":     [r"(?i)water\s+included", r"(?i)water\s+paid"],
-        "Sewer":     [r"(?i)sewer\s+included", r"(?i)sewer\s+paid"],
-        "Trash":     [r"(?i)trash\s+included", r"(?i)garbage\s+included", r"(?i)refuse\s+included"],
-        "Gas":       [r"(?i)gas\s+included", r"(?i)gas\s+paid"],
-        "Electric":  [r"(?i)electric\s+included", r"(?i)electricity\s+included", r"(?i)electric\s+paid"],
-        "Internet":  [r"(?i)internet\s+included", r"(?i)wifi?\s+included", r"(?i)wi-fi\s+included"],
-        "Cable":     [r"(?i)cable\s+included", r"(?i)cable\s+tv\s+included"],
+        "Water":    [r"(?i)water\s+included", r"(?i)water\s+paid"],
+        "Sewer":    [r"(?i)sewer\s+included", r"(?i)sewer\s+paid"],
+        "Trash":    [r"(?i)trash\s+included", r"(?i)garbage\s+included", r"(?i)refuse\s+included"],
+        "Gas":      [r"(?i)gas\s+included", r"(?i)gas\s+paid"],
+        "Electric": [r"(?i)electric\s+included", r"(?i)electricity\s+included", r"(?i)electric\s+paid"],
+        "Internet": [r"(?i)internet\s+included", r"(?i)wifi?\s+included", r"(?i)wi-fi\s+included"],
+        "Cable":    [r"(?i)cable\s+included", r"(?i)cable\s+tv\s+included"],
     },
     "parking": [
         r"(?i)(\d+)\s+(?:car|vehicle)\s+garage",
@@ -99,15 +99,8 @@ def _re_search_any(patterns, text):
     return None
 
 
-def fetch_missing_fields(prop_id: str, db) -> None:
-    """
-    For properties with data_quality_score < 70, fetch the listing's source URL
-    and extract missing fields via regex patterns.
-    Updates the DB record in place — never raises.
-    """
-    from database.models import Property
-
-    prop = db.query(Property).filter(Property.id == prop_id).first()
+def fetch_missing_fields(prop_id: str, repo) -> None:
+    prop = repo.get(prop_id)
     if not prop:
         return
     if (prop.data_quality_score or 0) >= 70:
@@ -131,7 +124,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
     except Exception:
         inferred = []
 
-    # ── Available date ─────────────────────────────────────────────────────────
     if not prop.available_date:
         m = _re_search_any(EXTRACTORS["available_date"], html)
         if m:
@@ -139,7 +131,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             inferred.append("available_date_from_html")
             changed = True
 
-    # ── Security deposit ───────────────────────────────────────────────────────
     if not prop.security_deposit:
         m = _re_search_any(EXTRACTORS["security_deposit"], html)
         if m:
@@ -150,7 +141,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             except ValueError:
                 pass
 
-    # ── Lease terms ────────────────────────────────────────────────────────────
     current_terms = []
     try:
         current_terms = json.loads(prop.lease_terms or "[]")
@@ -169,7 +159,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             inferred.append("lease_terms_from_html")
             changed = True
 
-    # ── Pet policy ─────────────────────────────────────────────────────────────
     if prop.pets_allowed is None:
         if _re_search_any(EXTRACTORS["pets_allowed_no"], html):
             prop.pets_allowed = False
@@ -180,7 +169,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             inferred.append("pets_allowed_from_html")
             changed = True
 
-    # ── Laundry type ───────────────────────────────────────────────────────────
     if not prop.laundry_type:
         if _re_search_any(EXTRACTORS["laundry_in_unit"], html):
             prop.laundry_type = "In-unit"
@@ -195,7 +183,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             inferred.append("laundry_from_html")
             changed = True
 
-    # ── Heating type ───────────────────────────────────────────────────────────
     if not prop.heating_type:
         for heat_label, patterns in EXTRACTORS["heating_types"].items():
             if _re_search_any(patterns, html):
@@ -204,7 +191,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
                 changed = True
                 break
 
-    # ── Cooling type ───────────────────────────────────────────────────────────
     if not prop.cooling_type:
         for cool_label, patterns in EXTRACTORS["cooling_types"].items():
             if _re_search_any(patterns, html):
@@ -215,7 +201,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
                 changed = True
                 break
 
-    # ── Utilities included ─────────────────────────────────────────────────────
     try:
         current_utils = json.loads(prop.utilities_included or "[]")
     except Exception:
@@ -230,7 +215,6 @@ def fetch_missing_fields(prop_id: str, db) -> None:
             inferred.append("utilities_from_html")
             changed = True
 
-    # ── Parking ────────────────────────────────────────────────────────────────
     if not prop.parking:
         m = _re_search_any(EXTRACTORS["parking"], html)
         if m:
@@ -247,8 +231,7 @@ def fetch_missing_fields(prop_id: str, db) -> None:
     if changed:
         prop.inferred_features = json.dumps(inferred)
         try:
-            db.commit()
+            repo.save(prop)
             logger.info("detail_fetcher: enriched fields for property %s", prop_id)
         except Exception as e:
-            db.rollback()
-            logger.warning("detail_fetcher: commit failed for %s: %s", prop_id, e)
+            logger.warning("detail_fetcher: save failed for %s: %s", prop_id, e)

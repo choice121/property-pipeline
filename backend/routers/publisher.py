@@ -1,23 +1,18 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
 
 from database.db import get_db
-from database.models import Property
+from database.repository import Repository
 from services import publisher_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def prop_to_dict(prop: Property) -> dict:
-    return {c.name: getattr(prop, c.name) for c in prop.__table__.columns}
-
-
 @router.post("/publish/{id}")
-def publish_property(id: str, db: Session = Depends(get_db)):
-    prop = db.query(Property).filter(Property.id == id).first()
+def publish_property(id: str, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -28,7 +23,7 @@ def publish_property(id: str, db: Session = Depends(get_db)):
         )
 
     try:
-        result = publisher_service.publish(prop, db)
+        result = publisher_service.publish(prop, repo)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -46,8 +41,8 @@ def publish_property(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/publish/{id}/refresh-images")
-def refresh_published_images(id: str, db: Session = Depends(get_db)):
-    prop = db.query(Property).filter(Property.id == id).first()
+def refresh_published_images(id: str, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -55,7 +50,7 @@ def refresh_published_images(id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Property has not been published yet")
 
     try:
-        result = publisher_service.refresh_images(prop, db)
+        result = publisher_service.refresh_images(prop, repo)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -73,12 +68,8 @@ def refresh_published_images(id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/publish/{id}/sync-fields")
-def sync_published_fields(id: str, db: Session = Depends(get_db)):
-    """
-    PIPE-10 FIX: Push all edited fields back to the live Supabase record.
-    Use this after editing a published property in the Editor.
-    """
-    prop = db.query(Property).filter(Property.id == id).first()
+def sync_published_fields(id: str, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -86,7 +77,7 @@ def sync_published_fields(id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Property has not been published yet")
 
     try:
-        result = publisher_service.sync_fields(prop, db)
+        result = publisher_service.sync_fields(prop, repo)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

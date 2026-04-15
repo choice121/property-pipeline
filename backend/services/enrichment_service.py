@@ -71,11 +71,6 @@ def infer_pet_policy(prop: dict) -> dict:
 
 
 def run_rule_based_enrichment(prop: dict) -> dict:
-    """
-    Run all rule-based enrichers in dependency order.
-    Pure Python — no network calls. Safe to run inline before saving.
-    Order matters: title needs bedrooms/type, deposit needs monthly_rent.
-    """
     prop = infer_title(prop)
     prop = infer_available_date(prop)
     prop = infer_security_deposit(prop)
@@ -83,15 +78,8 @@ def run_rule_based_enrichment(prop: dict) -> dict:
     return prop
 
 
-def geocode_property(prop_id: str, db) -> None:
-    """
-    Geocode missing lat/lng using Nominatim (OpenStreetMap). Free, no key required.
-    Reads from and writes directly to the DB record.
-    Rate-limited to 1 req/sec per OSM policy.
-    """
-    from database.models import Property
-
-    prop = db.query(Property).filter(Property.id == prop_id).first()
+def geocode_property(prop_id: str, repo) -> None:
+    prop = repo.get(prop_id)
     if not prop:
         return
     if prop.lat and prop.lng:
@@ -118,7 +106,7 @@ def geocode_property(prop_id: str, db) -> None:
                     inferred = []
                 inferred.append("geocoded_nominatim")
                 prop.inferred_features = json.dumps(inferred)
-                db.commit()
+                repo.save(prop)
                 logger.info(
                     "Geocoded property %s → %.4f, %.4f",
                     prop_id, prop.lat, prop.lng,

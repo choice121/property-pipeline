@@ -4,11 +4,10 @@ import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 from typing import List, Optional
 
 from database.db import get_db
-from database.models import Property
+from database.repository import PropertyRecord, Repository, get_repo, PROPERTY_FIELDS
 from services import scraper_service, image_service
 from services.scraper_service import generate_property_id
 from services.watermark_filter import filter_watermarked, watermark_reasons
@@ -16,19 +15,12 @@ from services.watermark_filter import filter_watermarked, watermark_reasons
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-VALID_COLUMNS = None
-
-
-def get_valid_columns():
-    global VALID_COLUMNS
-    if VALID_COLUMNS is None:
-        VALID_COLUMNS = set(c.name for c in Property.__table__.columns)
-    return VALID_COLUMNS
+VALID_COLUMNS = set(PROPERTY_FIELDS)
 
 
 class SearchRequest(BaseModel):
     location: str
-    source: Optional[str] = "realtor"  # PIPE-3 FIX: "zillow" | "realtor" | "redfin"
+    source: Optional[str] = "realtor"
     listing_type: Optional[str] = "for_rent"
     property_type: Optional[List[str]] = None
     min_price: Optional[int] = None
@@ -56,22 +48,19 @@ class SearchRequest(BaseModel):
     sort_direction: Optional[str] = "desc"
 
 
-def _download_images_task(property_id: str, image_urls: list, db_session_factory):
-    db = db_session_factory()
+def _download_images_task(property_id: str, image_urls: list):
+    repo = get_repo()
     try:
         paths = image_service.download_images(property_id, image_urls)
-        prop = db.query(Property).filter(Property.id == property_id).first()
+        prop = repo.get(property_id)
         if prop:
             prop.local_image_paths = json.dumps(paths)
             try:
-                db.commit()
+                repo.save(prop)
             except Exception as e:
-                db.rollback()
                 logger.error("Failed to save image paths for %s: %s", property_id, e)
     except Exception as e:
         logger.error("Image download task failed for %s: %s", property_id, e)
-    finally:
-        db.close()
 
 
 @router.post("/search")
@@ -108,7 +97,6 @@ def search_properties(req: SearchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
-    # PIPE-3 FIX: stamp actual source onto every result
     results = scraper_service._inject_source(results, req.source or "realtor")
     filtered_results, blocked_results = filter_watermarked(results)
 
@@ -125,10 +113,10 @@ def search_properties(req: SearchRequest):
         enriched.append(r)
 
     return {
-        "count": len(enriched),
-        "results": enriched,
+        "count":                  len(enriched),
+        "results":                enriched,
         "blocked_watermark_count": len(blocked_results),
-        "blocked_watermarks": blocked_results,
+        "blocked_watermarks":      blocked_results,
     }
 
 
@@ -136,7 +124,7 @@ def search_properties(req: SearchRequest):
 def save_property(
     data: dict,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    repo: Repository = Depends(get_db),
 ):
     reasons = watermark_reasons(data)
     if reasons:
@@ -148,26 +136,20 @@ def save_property(
     source_listing_id = data.get("source_listing_id")
 
     if source_listing_id:
-        existing = db.query(Property).filter(
-            Property.source_listing_id == source_listing_id
-        ).first()
+        existing = repo.get_by_source_listing_id(source_listing_id)
         if existing:
             return {"already_exists": True, "id": existing.id}
 
-    valid_cols = get_valid_columns()
     save_data = {
         k: v for k, v in data.items()
-        if k in valid_cols and k != "id" and not k.startswith("_")
+        if k in VALID_COLUMNS and k != "id" and not k.startswith("_")
     }
 
     prop_id = generate_property_id()
-    prop = Property(id=prop_id, **save_data)
-    db.add(prop)
+    prop = PropertyRecord(id=prop_id, **save_data)
     try:
-        db.commit()
-        db.refresh(prop)
+        repo.save(prop)
     except Exception as e:
-        db.rollback()
         logger.error("Failed to save property %s: %s", prop_id, e)
         raise HTTPException(status_code=500, detail="Failed to save property")
 
@@ -178,9 +160,6 @@ def save_property(
         pass
 
     if image_urls:
-        from database.db import SessionLocal
-        background_tasks.add_task(
-            _download_images_task, prop_id, image_urls, SessionLocal
-        )
+        background_tasks.add_task(_download_images_task, prop_id, image_urls)
 
     return {"already_exists": False, "id": prop_id}

@@ -7,10 +7,9 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 
 from database.db import get_db
-from database.models import Property
+from database.repository import PropertyRecord, Repository
 
 router = APIRouter()
 
@@ -30,7 +29,7 @@ def fmt_price(val):
     return f"${int(val):,}/mo"
 
 
-def build_details_txt(p: Property) -> str:
+def build_details_txt(p: PropertyRecord) -> str:
     lines = [
         "PROPERTY DETAILS",
         "=" * 48,
@@ -102,7 +101,7 @@ def build_details_txt(p: Property) -> str:
     return "\n".join(lines)
 
 
-def build_property_html(p: Property, image_data: list) -> str:
+def build_property_html(p: PropertyRecord, image_data: list) -> str:
     def safe(val, fallback="—"):
         return str(val) if val is not None else fallback
 
@@ -122,31 +121,43 @@ def build_property_html(p: Property, image_data: list) -> str:
 
     amenity_html = ""
     if amenities:
-        items = "".join(f'<span style="display:inline-block;background:#f3f4f6;border-radius:999px;padding:4px 12px;font-size:13px;margin:3px;">{a}</span>' for a in amenities)
-        amenity_html = f'<div style="margin-top:24px"><h3 style="font-size:14px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Amenities</h3><div>{items}</div></div>'
+        items = "".join(
+            f'<span style="display:inline-block;background:#f3f4f6;border-radius:999px;'
+            f'padding:4px 12px;font-size:13px;margin:3px;">{a}</span>'
+            for a in amenities
+        )
+        amenity_html = (
+            f'<div style="margin-top:24px"><h3 style="font-size:14px;font-weight:600;'
+            f'color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">'
+            f'Amenities</h3><div>{items}</div></div>'
+        )
 
     images_html = ""
     for i, (mime, b64) in enumerate(image_data):
         label = "Hero Photo" if i == 0 else f"Photo {i + 1}"
-        images_html += f'''
-        <div style="margin-bottom:12px">
-            <img src="data:{mime};base64,{b64}"
-                 alt="{label}"
-                 style="width:100%;border-radius:10px;display:block;max-height:420px;object-fit:cover;" />
-        </div>'''
+        images_html += (
+            f'<div style="margin-bottom:12px">'
+            f'<img src="data:{mime};base64,{b64}" alt="{label}" '
+            f'style="width:100%;border-radius:10px;display:block;max-height:420px;object-fit:cover;" />'
+            f'</div>'
+        )
 
     source_link = ""
     if p.source_url:
-        source_link = f'<p style="margin-top:8px;font-size:13px;color:#6b7280">Source: <a href="{p.source_url}" style="color:#2563eb">{p.source_url}</a></p>'
+        source_link = (
+            f'<p style="margin-top:8px;font-size:13px;color:#6b7280">Source: '
+            f'<a href="{p.source_url}" style="color:#2563eb">{p.source_url}</a></p>'
+        )
 
     description_html = ""
     if p.description:
         desc = p.description.replace("<", "&lt;").replace(">", "&gt;")
-        description_html = f'''
-        <div style="margin-top:24px">
-            <h3 style="font-size:14px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Description</h3>
-            <p style="font-size:15px;line-height:1.7;color:#374151">{desc}</p>
-        </div>'''
+        description_html = (
+            f'<div style="margin-top:24px">'
+            f'<h3 style="font-size:14px;font-weight:600;color:#6b7280;'
+            f'text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Description</h3>'
+            f'<p style="font-size:15px;line-height:1.7;color:#374151">{desc}</p></div>'
+        )
 
     policies = []
     if p.pets_allowed is not None:
@@ -158,8 +169,16 @@ def build_property_html(p: Property, image_data: list) -> str:
 
     policies_html = ""
     if policies:
-        items = "".join(f'<li style="padding:6px 0;border-bottom:1px solid #f3f4f6;font-size:14px;color:#374151">{po}</li>' for po in policies)
-        policies_html = f'<div style="margin-top:24px"><h3 style="font-size:14px;font-weight:600;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Policies</h3><ul style="list-style:none;padding:0;margin:0">{items}</ul></div>'
+        items = "".join(
+            f'<li style="padding:6px 0;border-bottom:1px solid #f3f4f6;'
+            f'font-size:14px;color:#374151">{po}</li>'
+            for po in policies
+        )
+        policies_html = (
+            f'<div style="margin-top:24px"><h3 style="font-size:14px;font-weight:600;'
+            f'color:#6b7280;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">'
+            f'Policies</h3><ul style="list-style:none;padding:0;margin:0">{items}</ul></div>'
+        )
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -177,10 +196,8 @@ def build_property_html(p: Property, image_data: list) -> str:
 <body>
 <div class="container">
   <span class="badge">{safe(p.status)}</span>
-
   <h1 style="font-size:22px;font-weight:700;line-height:1.3;margin-bottom:4px">{address_line or 'Property'}</h1>
   <p style="font-size:26px;font-weight:800;color:#111827;margin:8px 0">{price}</p>
-
   <div style="display:flex;flex-wrap:wrap;gap:16px;margin:14px 0 20px;font-size:15px;color:#374151">
     <span><strong>{beds}</strong></span>
     <span><strong>{baths}</strong></span>
@@ -188,15 +205,12 @@ def build_property_html(p: Property, image_data: list) -> str:
     <span style="color:#6b7280">{ptype}</span>
     <span style="color:#6b7280">Built {year}</span>
   </div>
-
   {images_html if images_html else '<div style="background:#f3f4f6;border-radius:10px;height:200px;display:flex;align-items:center;justify-content:center;color:#9ca3af;font-size:14px">No photos available</div>'}
-
   {description_html}
   {amenity_html}
   {policies_html}
-
   <div style="margin-top:32px;padding-top:16px;border-top:1px solid #e5e7eb">
-    <p style="font-size:13px;color:#9ca3af">Property ID: {p.id} &nbsp;·&nbsp; Scraped: {(p.scraped_at or '')[:10]}</p>
+    <p style="font-size:13px;color:#9ca3af">Property ID: {p.id} &nbsp;·&nbsp; Scraped: {(str(p.scraped_at) or '')[:10]}</p>
     {source_link}
     <p style="font-size:12px;color:#d1d5db;margin-top:6px">Downloaded {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')} · Choice Properties Pipeline</p>
   </div>
@@ -205,7 +219,7 @@ def build_property_html(p: Property, image_data: list) -> str:
 </html>"""
 
 
-def safe_zip_name(p: Property) -> str:
+def safe_zip_name(p: PropertyRecord) -> str:
     parts = []
     if p.bedrooms is not None:
         parts.append(f"{p.bedrooms}BR")
@@ -221,8 +235,8 @@ def safe_zip_name(p: Property) -> str:
 
 
 @router.get("/properties/{id}/download")
-def download_property(id: str, db: Session = Depends(get_db)):
-    prop = db.query(Property).filter(Property.id == id).first()
+def download_property(id: str, repo: Repository = Depends(get_db)):
+    prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
 
@@ -251,10 +265,7 @@ def download_property(id: str, db: Session = Depends(get_db)):
         for i, (mime, b64, filepath, filename) in enumerate(image_data):
             with open(filepath, "rb") as f:
                 raw = f.read()
-            if i == 0:
-                zip_filename = f"{folder_name}/hero.jpg"
-            else:
-                zip_filename = f"{folder_name}/photo-{i + 1:02d}.jpg"
+            zip_filename = f"{folder_name}/hero.jpg" if i == 0 else f"{folder_name}/photo-{i + 1:02d}.jpg"
             zf.writestr(zip_filename, raw)
 
         details_txt = build_details_txt(prop)

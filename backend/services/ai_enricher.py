@@ -1,19 +1,8 @@
-"""
-Free enrichment layer — no external APIs or paid services.
-
-Uses template-based description generation and expanded rule-based extraction
-to fill gaps that scraped data and the basic enrichers couldn't cover.
-Same interface as the original proposal (enrich_property / _decide_tasks)
-so it can be swapped for a real LLM later with zero router changes.
-"""
-
 import json
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-# ── Property type keyword classifier ──────────────────────────────────────────
 
 PROPERTY_TYPE_KEYWORDS = {
     "apartment":  ["apartment", "apt ", "flat ", "unit in building", "apartment complex",
@@ -26,9 +15,6 @@ PROPERTY_TYPE_KEYWORDS = {
                    "ranch", "colonial", "split level", "split-level", "bungalow",
                    "craftsman", "cape cod", "tudor", "victorian"],
 }
-
-
-# ── Extended amenity/appliance extraction patterns ─────────────────────────────
 
 EXTENDED_AMENITIES = [
     ("Pool",             ["pool", "swimming pool", "community pool"]),
@@ -57,21 +43,19 @@ EXTENDED_AMENITIES = [
 ]
 
 EXTENDED_APPLIANCES = [
-    ("Refrigerator",      ["refrigerator", "fridge"]),
-    ("Range/Oven",        ["range", "oven", "stove", "gas stove", "electric stove", "gas range"]),
-    ("Dishwasher",        ["dishwasher"]),
-    ("Microwave",         ["microwave", "built-in microwave"]),
-    ("Washer",            ["washer", "washing machine"]),
-    ("Dryer",             ["dryer", "clothes dryer"]),
-    ("Garbage Disposal",  ["garbage disposal", "disposal"]),
-    ("Trash Compactor",   ["trash compactor"]),
-    ("Freezer",           ["chest freezer", "standalone freezer"]),
-    ("Wine Cooler",       ["wine cooler", "wine fridge", "wine refrigerator"]),
-    ("Ice Maker",         ["ice maker", "ice machine"]),
+    ("Refrigerator",     ["refrigerator", "fridge"]),
+    ("Range/Oven",       ["range", "oven", "stove", "gas stove", "electric stove", "gas range"]),
+    ("Dishwasher",       ["dishwasher"]),
+    ("Microwave",        ["microwave", "built-in microwave"]),
+    ("Washer",           ["washer", "washing machine"]),
+    ("Dryer",            ["dryer", "clothes dryer"]),
+    ("Garbage Disposal", ["garbage disposal", "disposal"]),
+    ("Trash Compactor",  ["trash compactor"]),
+    ("Freezer",          ["chest freezer", "standalone freezer"]),
+    ("Wine Cooler",      ["wine cooler", "wine fridge", "wine refrigerator"]),
+    ("Ice Maker",        ["ice maker", "ice machine"]),
 ]
 
-
-# ── Helpers ────────────────────────────────────────────────────────────────────
 
 def _parse_json_list(val) -> list:
     if not val:
@@ -93,8 +77,6 @@ def _add_inferred_to_prop(prop, feature: str):
     existing.append(feature)
     prop.inferred_features = json.dumps(existing)
 
-
-# ── Task decision ──────────────────────────────────────────────────────────────
 
 def _decide_tasks(prop) -> list[str]:
     tasks = []
@@ -119,8 +101,6 @@ def _decide_tasks(prop) -> list[str]:
     return tasks
 
 
-# ── Description generator ──────────────────────────────────────────────────────
-
 def _generate_description(prop) -> str:
     bed   = prop.bedrooms
     bath  = prop.bathrooms or prop.total_bathrooms
@@ -128,7 +108,6 @@ def _generate_description(prop) -> str:
     ptype = (prop.property_type or "property").lower().replace("_", " ")
     city  = prop.city or ""
     state = prop.state or ""
-    address = prop.address or ""
 
     bed_str = "Studio" if bed == 0 else (f"{bed}-bedroom" if bed else "")
     if bath:
@@ -144,7 +123,6 @@ def _generate_description(prop) -> str:
 
     paragraphs = []
 
-    # ── Lead paragraph ────────────────────────────────────────────────────────
     lead_parts = []
     if sqft:
         lead_parts.append(f"This {descriptor} offers {sqft:,} sq ft of living space{(' in ' + location) if location else ''}.")
@@ -162,7 +140,6 @@ def _generate_description(prop) -> str:
 
     paragraphs.append(" ".join(lead_parts))
 
-    # ── Interior features paragraph ───────────────────────────────────────────
     interior = []
     amenities  = _parse_json_list(prop.amenities)
     appliances = _parse_json_list(prop.appliances)
@@ -182,7 +159,6 @@ def _generate_description(prop) -> str:
     if interior:
         paragraphs.append(" ".join(interior))
 
-    # ── Systems and utilities paragraph ──────────────────────────────────────
     systems = []
     if prop.heating_type:
         systems.append(f"{prop.heating_type} heating")
@@ -202,7 +178,6 @@ def _generate_description(prop) -> str:
     if utilities:
         paragraphs.append(f"Utilities included in rent: {', '.join(utilities)}.")
 
-    # ── Parking and outdoor paragraph ─────────────────────────────────────────
     outdoor = []
     if prop.garage_spaces:
         n = prop.garage_spaces
@@ -213,7 +188,6 @@ def _generate_description(prop) -> str:
     if outdoor:
         paragraphs.append(f"Outdoor amenities include {', '.join(outdoor)}.")
 
-    # ── Pet and lease policy paragraph ───────────────────────────────────────
     policy = []
     if prop.pets_allowed is True:
         pet_types = _parse_json_list(prop.pet_types_allowed)
@@ -237,7 +211,6 @@ def _generate_description(prop) -> str:
     if policy:
         paragraphs.append(" ".join(policy))
 
-    # ── Financial summary paragraph ───────────────────────────────────────────
     financial = []
     if prop.security_deposit:
         financial.append(f"Security deposit: ${prop.security_deposit:,}")
@@ -253,17 +226,13 @@ def _generate_description(prop) -> str:
     if financial:
         paragraphs.append(". ".join(f.capitalize() for f in financial) + ".")
 
-    # ── Availability ──────────────────────────────────────────────────────────
     if prop.available_date:
         paragraphs.append(f"Available starting {prop.available_date}.")
 
     return "\n\n".join(p for p in paragraphs if p)
 
 
-# ── Feature extractor ─────────────────────────────────────────────────────────
-
 def _extract_features_from_text(text: str) -> tuple[list, list]:
-    """Returns (new_amenities, new_appliances) found in text."""
     searchable = text.lower()
     found_amenities = [
         label for label, patterns in EXTENDED_AMENITIES
@@ -276,10 +245,7 @@ def _extract_features_from_text(text: str) -> tuple[list, list]:
     return found_amenities, found_appliances
 
 
-# ── Pet policy from text ───────────────────────────────────────────────────────
-
 def _infer_pet_policy(text: str):
-    """Returns True (allowed), False (denied), or None (unclear)."""
     t = text.lower()
     no_pets  = ["no pets", "no animals", "pet-free", "pets not allowed",
                 "no dogs allowed", "no cats allowed", "pet free building",
@@ -294,13 +260,7 @@ def _infer_pet_policy(text: str):
     return None
 
 
-# ── Property type classifier ───────────────────────────────────────────────────
-
 def _classify_property_type(prop) -> str | None:
-    """
-    Classify property type from title, description, and address keywords.
-    Returns a normalized type string or None if uncertain.
-    """
     searchable = " ".join(filter(None, [
         prop.description or "",
         prop.title or "",
@@ -313,18 +273,11 @@ def _classify_property_type(prop) -> str | None:
     return None
 
 
-# ── Main enrichment entry point ────────────────────────────────────────────────
-
-def enrich_property(prop_id: str, db) -> None:
-    """
-    Run free, rule-based enrichment on a property.
-    Reads from and writes directly to the DB record.
-    Never raises — always best-effort.
-    """
-    from database.models import AiEnrichmentLog, Property
+def enrich_property(prop_id: str, repo) -> None:
+    from database.repository import AiEnrichmentLog
 
     try:
-        prop = db.query(Property).filter(Property.id == prop_id).first()
+        prop = repo.get(prop_id)
         if not prop:
             return
 
@@ -332,8 +285,8 @@ def enrich_property(prop_id: str, db) -> None:
         if not tasks:
             return
 
-        changed   = False
-        log_rows  = []
+        changed  = False
+        log_rows = []
 
         if "generate_description" in tasks:
             new_desc = _generate_description(prop)
@@ -408,8 +361,8 @@ def enrich_property(prop_id: str, db) -> None:
                 changed = True
 
         if changed:
-            db.add_all(log_rows)
-            db.commit()
+            repo.save(prop)
+            repo.add_all_logs(log_rows)
             logger.info(
                 "ai_enricher: completed %d task(s) for %s",
                 len(tasks), prop_id,
@@ -417,7 +370,3 @@ def enrich_property(prop_id: str, db) -> None:
 
     except Exception as e:
         logger.warning("ai_enricher: failed for %s: %s", prop_id, e)
-        try:
-            db.rollback()
-        except Exception:
-            pass

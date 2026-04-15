@@ -4,10 +4,9 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
 
 from database.db import get_db
-from database.models import Property
+from database.repository import PropertyRecord, Repository, get_repo
 from services import scraper_service, image_service
 from services.ai_enricher import enrich_property
 from services.detail_fetcher import fetch_missing_fields
@@ -23,7 +22,7 @@ SUPPORTED_SOURCES = {"realtor"}
 
 class ScrapeRequest(BaseModel):
     location: str
-    source: Optional[str] = "realtor"  # PIPE-3 FIX: "zillow" | "realtor" | "redfin"
+    source: Optional[str] = "realtor"
     listing_type: Optional[str] = "for_rent"
     property_type: Optional[List[str]] = None
 
@@ -60,18 +59,14 @@ class ScrapeRequest(BaseModel):
     sort_direction: Optional[str] = "desc"
 
 
-def enrichment_background_task(property_id: str, db_session_factory):
-    """
-    Background task: geocode missing lat/lng, run detail_fetcher for sub-70 score
-    properties, then recalculate and persist the quality score.
-    """
-    db = db_session_factory()
+def enrichment_background_task(property_id: str):
+    repo = get_repo()
     try:
-        geocode_property(property_id, db)
-        fetch_missing_fields(property_id, db)
-        enrich_property(property_id, db)
+        geocode_property(property_id, repo)
+        fetch_missing_fields(property_id, repo)
+        enrich_property(property_id, repo)
 
-        prop = db.query(Property).filter(Property.id == property_id).first()
+        prop = repo.get(property_id)
         if not prop:
             return
 
@@ -82,57 +77,51 @@ def enrichment_background_task(property_id: str, db_session_factory):
             pass
 
         prop_dict = {
-            "address":       prop.address,
-            "city":          prop.city,
-            "state":         prop.state,
-            "zip":           prop.zip,
-            "monthly_rent":  prop.monthly_rent,
-            "bedrooms":      prop.bedrooms,
-            "bathrooms":     prop.bathrooms or prop.total_bathrooms,
-            "description":   prop.description,
-            "property_type": prop.property_type,
-            "available_date":prop.available_date,
-            "amenities":     prop.amenities,
-            "appliances":    prop.appliances,
+            "address":        prop.address,
+            "city":           prop.city,
+            "state":          prop.state,
+            "zip":            prop.zip,
+            "monthly_rent":   prop.monthly_rent,
+            "bedrooms":       prop.bedrooms,
+            "bathrooms":      prop.bathrooms or prop.total_bathrooms,
+            "description":    prop.description,
+            "property_type":  prop.property_type,
+            "available_date": prop.available_date,
+            "amenities":      prop.amenities,
+            "appliances":     prop.appliances,
         }
         score, missing = _calculate_weighted_quality(prop_dict, image_urls)
         prop.data_quality_score = score
         prop.missing_fields = json.dumps(missing)
         try:
-            db.commit()
+            repo.save(prop)
             logger.info("Enrichment complete for %s — final score %d", property_id, score)
         except Exception as e:
-            db.rollback()
             logger.error("Failed to update score after enrichment for %s: %s", property_id, e)
     except Exception as e:
         logger.error("Enrichment background task failed for %s: %s", property_id, e)
-    finally:
-        db.close()
 
 
-def download_images_task(property_id: str, image_urls: list, db_session_factory):
-    db = db_session_factory()
+def download_images_task(property_id: str, image_urls: list):
+    repo = get_repo()
     try:
         paths = image_service.download_images(property_id, image_urls)
-        prop = db.query(Property).filter(Property.id == property_id).first()
+        prop = repo.get(property_id)
         if prop:
             prop.local_image_paths = json.dumps(paths)
             try:
-                db.commit()
+                repo.save(prop)
             except Exception as e:
-                db.rollback()
                 logger.error("Failed to save image paths for %s: %s", property_id, e)
     except Exception as e:
         logger.error("Image download task failed for %s: %s", property_id, e)
-    finally:
-        db.close()
 
 
 @router.post("/scrape")
 def scrape_properties(
     req: ScrapeRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
+    repo: Repository = Depends(get_db),
 ):
     if (req.source or "realtor") not in SUPPORTED_SOURCES:
         raise HTTPException(
@@ -172,7 +161,6 @@ def scrape_properties(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
-    # PIPE-3 FIX: stamp actual source
     results = scraper_service._inject_source(results, req.source or "realtor")
 
     saved = []
@@ -190,16 +178,13 @@ def scrape_properties(
 
         existing = None
         if source_listing_id:
-            existing = db.query(Property).filter(
-                Property.source_listing_id == source_listing_id
-            ).first()
+            existing = repo.get_by_source_listing_id(source_listing_id)
 
         if existing:
             saved.append(existing)
             continue
 
         data = validate_and_warn(data)
-
         data = run_rule_based_enrichment(data)
 
         image_urls = []
@@ -213,30 +198,19 @@ def scrape_properties(
         data["missing_fields"] = json.dumps(missing)
 
         prop_id = generate_property_id()
-        valid_cols = {c.name for c in Property.__table__.columns}
+        from database.repository import PROPERTY_FIELDS
+        valid_cols = set(PROPERTY_FIELDS)
         prop_data = {k: v for k, v in data.items() if k in valid_cols}
-        prop = Property(id=prop_id, **prop_data)
-        db.add(prop)
+        prop = PropertyRecord(id=prop_id, **prop_data)
         try:
-            db.commit()
-            db.refresh(prop)
+            repo.save(prop)
         except Exception as e:
-            db.rollback()
             logger.error("Failed to save property %s: %s", prop_id, e)
             continue
         saved.append(prop)
 
-        from database.db import SessionLocal
         if image_urls:
-            background_tasks.add_task(
-                download_images_task, prop_id, image_urls, SessionLocal
-            )
-        background_tasks.add_task(
-            enrichment_background_task, prop_id, SessionLocal
-        )
+            background_tasks.add_task(download_images_task, prop_id, image_urls)
+        background_tasks.add_task(enrichment_background_task, prop_id)
 
-    return {"count": len(saved), "properties": [prop_to_dict(p) for p in saved]}
-
-
-def prop_to_dict(prop: Property) -> dict:
-    return {c.name: getattr(prop, c.name) for c in prop.__table__.columns}
+    return {"count": len(saved), "properties": [p.to_dict() for p in saved]}

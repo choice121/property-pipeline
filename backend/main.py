@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv()
 
-from database.db import init_db
 from routers import health, scraper, properties, images, publisher, download, search
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,8 +21,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-init_db()
 
 app.include_router(health.router, prefix="/api")
 app.include_router(scraper.router, prefix="/api")

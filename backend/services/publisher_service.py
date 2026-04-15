@@ -12,32 +12,28 @@ logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# ── PIPE-1 FIX: map HomeHarvest style values → Choice Properties property_type ──
 PROPERTY_TYPE_MAP = {
-    "SINGLE_FAMILY":    "house",
-    "APARTMENT":        "apartment",
-    "APARTMENTS":       "apartment",
-    "CONDO":            "condo",
-    "CONDOS":           "condo",
-    "CONDO_TOWNHOME":   "condo",
-    "TOWNHOMES":        "townhouse",
-    "TOWNHOME":         "townhouse",
-    "MULTI_FAMILY":     "house",
-    "DUPLEX_TRIPLEX":   "house",
-    "MOBILE":           "house",
-    "LAND":             "house",
-    "FARM":             "house",
+    "SINGLE_FAMILY":  "house",
+    "APARTMENT":      "apartment",
+    "APARTMENTS":     "apartment",
+    "CONDO":          "condo",
+    "CONDOS":         "condo",
+    "CONDO_TOWNHOME": "condo",
+    "TOWNHOMES":      "townhouse",
+    "TOWNHOME":       "townhouse",
+    "MULTI_FAMILY":   "house",
+    "DUPLEX_TRIPLEX": "house",
+    "MOBILE":         "house",
+    "LAND":           "house",
+    "FARM":           "house",
 }
 
-# ── PIPE-12 FIX: strip platform boilerplate from descriptions ──
 BOILERPLATE_PATTERNS = [
-    # TurboTenant
     r"To apply,?\s+visit\s+TurboTenant[^.]*\.",
     r"apply here on TurboTenant[^.]*\.",
     r"Applications are only received through\s+TurboTenant[^.]*\.",
     r"search for Property ID\s+\d+[^.]*\.",
     r"FOLLOW these STEPS to END YOUR SEARCH[\s\S]*?(?=\n\n|\Z)",
-    # Realtor.com / generic
     r"For more information.*?call[^.]*\.",
     r"Contact\s+(?:us|the agent|the landlord|your|our)[^.]*for (?:more|a) (?:info|showing|tour)[^.]*\.",
     r"Visit our website for more properties[^.]*\.",
@@ -47,23 +43,21 @@ BOILERPLATE_PATTERNS = [
     r"Call (?:today|now|us)[^!.]*[!.]",
     r"Apply Now[^\n]*",
     r"Apply (?:today|now|online)[^!.]*[!.]",
-    # Decorative separators
     r"-{8,}",
     r"={8,}",
     r"\*{8,}",
     r"_{8,}",
-    # Lease/application boilerplate
     r"All applicants must[^.]*\.",
     r"We (?:do not|don['']t) accept[^.]*applications[^.]*\.",
     r"Background check(?:s)? required[^.]*\.",
 ]
+
 
 def _clean_description(text: str) -> str:
     if not text:
         return text
     for pattern in BOILERPLATE_PATTERNS:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-    # Collapse excessive whitespace
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.strip()
     return text
@@ -74,15 +68,12 @@ def _get_imagekit():
 
 
 def _get_supabase():
-    # PIPE-11 FIX: removed _clean_jwt() — it was truncating valid JWT signatures.
-    # Service role keys from Supabase are always valid JWTs; no truncation needed.
     url = os.environ["SUPABASE_URL"].rstrip("/")
     key = os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip()
     return create_client(url, key)
 
 
 def _upload_images_to_imagekit(property_id: str, local_image_paths: list) -> list:
-    # PIPE-14 FIX: cap at 25 photos — prevents 50-photo listings from bloating the CDN
     MAX_PHOTOS = 25
     paths_to_upload = local_image_paths[:MAX_PHOTOS]
     if len(local_image_paths) > MAX_PHOTOS:
@@ -109,7 +100,7 @@ def _upload_images_to_imagekit(property_id: str, local_image_paths: list) -> lis
             )
 
         results.append({
-            "url": upload_result.url,
+            "url":     upload_result.url,
             "file_id": upload_result.file_id,
         })
         logger.info("Uploaded image to ImageKit: %s -> %s", file_name, upload_result.url)
@@ -118,10 +109,6 @@ def _upload_images_to_imagekit(property_id: str, local_image_paths: list) -> lis
 
 
 def _check_duplicate_in_supabase(client, prop) -> str | None:
-    """
-    PIPE-2 FIX: Check Supabase for an existing record with the same address+city+state
-    before inserting. Returns the existing choice_property_id if found, else None.
-    """
     if not prop.address or not prop.city or not prop.state:
         return None
     try:
@@ -141,15 +128,15 @@ def _check_duplicate_in_supabase(client, prop) -> str | None:
     return None
 
 
-
 def _build_amenities_list(prop, parse_json_fn) -> list:
-      """Merge scraped amenities with inferred boolean flags."""
-      amenities = parse_json_fn(prop.amenities)
-      if prop.has_basement and "Basement" not in amenities:
-          amenities.append("Basement")
-      if prop.has_central_air and "Central Air" not in amenities:
-          amenities.append("Central Air")
-      return amenities
+    amenities = parse_json_fn(prop.amenities)
+    if prop.has_basement and "Basement" not in amenities:
+        amenities.append("Basement")
+    if prop.has_central_air and "Central Air" not in amenities:
+        amenities.append("Central Air")
+    return amenities
+
+
 def _build_supabase_record(prop, imagekit_results: list) -> dict:
     def parse_json(val):
         if not val:
@@ -166,12 +153,10 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
             return [item.strip() for item in val.split(",") if item.strip()]
         return []
 
-    # PIPE-4 FIX: CHOICE_LANDLORD_ID must be set — warn loudly if missing
     landlord_id = os.environ.get("CHOICE_LANDLORD_ID") or None
     if not landlord_id:
         logger.warning(
-            "CHOICE_LANDLORD_ID is not set. Published listing will have landlord_id=null. "
-            "Set this env var to link listings to a landlord account."
+            "CHOICE_LANDLORD_ID is not set. Published listing will have landlord_id=null."
         )
 
     def _generate_title(prop) -> str:
@@ -192,18 +177,11 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
 
     choice_id = "PROP-" + uuid.uuid4().hex[:8].upper()
 
-    # PIPE-1 FIX: normalize property_type to Choice Properties expected values
     raw_type = (prop.property_type or "").upper()
     normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)
 
-    # PIPE-8 FIX: use None (unknown) instead of False when pet data is absent
-    # The scraper sets pets_allowed=None when no pet fields were found; preserve that.
-    pets_allowed = prop.pets_allowed  # could be True, False, or None — keep as-is
-
-    # PIPE-12 FIX: clean description before publishing
+    pets_allowed = prop.pets_allowed
     cleaned_description = _clean_description(prop.description)
-
-    # PIPE-13: application_fee — keep as 0 (Choice handles fees separately), just be explicit
     application_fee = prop.application_fee if prop.application_fee is not None else 0
 
     record = {
@@ -265,7 +243,6 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     if landlord_id:
         record["landlord_id"] = landlord_id
 
-    # Filter None values; also filter False booleans for fields that may not yet exist in Supabase schema
     SCHEMA_OPTIONAL_BOOLEANS = {"has_basement", "has_central_air", "smoking_allowed"}
     result = {}
     for k, v in record.items():
@@ -277,8 +254,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     return result
 
 
-def refresh_images(prop, db) -> dict:
-    """Re-upload all local images to ImageKit and update the live Supabase record."""
+def refresh_images(prop, repo) -> dict:
     local_paths = []
     try:
         local_paths = json.loads(prop.local_image_paths or "[]")
@@ -295,9 +271,7 @@ def refresh_images(prop, db) -> dict:
     imagekit_results = _upload_images_to_imagekit(prop.id, local_paths)
 
     if not imagekit_results:
-        raise RuntimeError(
-            "Image upload to ImageKit failed — no images were uploaded successfully."
-        )
+        raise RuntimeError("Image upload to ImageKit failed — no images were uploaded successfully.")
 
     client = _get_supabase()
     update_payload = {
@@ -329,11 +303,7 @@ def refresh_images(prop, db) -> dict:
     }
 
 
-def sync_fields(prop, db) -> dict:
-    """
-    PIPE-10 FIX: Re-sync all editable fields of a published property back to Supabase.
-    Does NOT re-upload images — use refresh_images() for that.
-    """
+def sync_fields(prop, repo) -> dict:
     if not prop.choice_property_id:
         raise ValueError("Property has not been published yet.")
 
@@ -352,7 +322,6 @@ def sync_fields(prop, db) -> dict:
             pass
         return []
 
-    # PIPE-1 FIX: normalize type on re-sync too
     raw_type = (prop.property_type or "").upper()
     normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)
 
@@ -431,20 +400,16 @@ def sync_fields(prop, db) -> dict:
 
 
 BLOCKING_RULES = [
-    ("address",   lambda p: bool(p.address),                              "Address is required"),
-    ("city_state",lambda p: bool(p.city and p.state),                     "City and state are required"),
-    ("rent",      lambda p: bool(p.monthly_rent),                         "Monthly rent must be set"),
-    ("bedrooms",  lambda p: p.bedrooms is not None,                       "Bedroom count is required"),
-    ("photos",    lambda p: bool(json.loads(p.local_image_paths or "[]")),"At least one image must be downloaded"),
-    ("quality",   lambda p: (p.data_quality_score or 0) >= 50,           "Quality score is below 50 — too many critical fields missing"),
+    ("address",   lambda p: bool(p.address),                               "Address is required"),
+    ("city_state",lambda p: bool(p.city and p.state),                      "City and state are required"),
+    ("rent",      lambda p: bool(p.monthly_rent),                          "Monthly rent must be set"),
+    ("bedrooms",  lambda p: p.bedrooms is not None,                        "Bedroom count is required"),
+    ("photos",    lambda p: bool(json.loads(p.local_image_paths or "[]")), "At least one image must be downloaded"),
+    ("quality",   lambda p: (p.data_quality_score or 0) >= 50,            "Quality score is below 50 — too many critical fields missing"),
 ]
 
 
 def pre_publish_checks(prop) -> list[str]:
-    """
-    Run hard blocking rules before any ImageKit upload.
-    Returns a list of error messages; empty list means all checks passed.
-    """
     errors = []
     for name, check, message in BLOCKING_RULES:
         try:
@@ -455,7 +420,7 @@ def pre_publish_checks(prop) -> list[str]:
     return errors
 
 
-def publish(prop, db) -> dict:
+def publish(prop, repo) -> dict:
     if prop.choice_property_id:
         raise ValueError(
             f"Property {prop.id} is already published (choice_property_id={prop.choice_property_id})"
@@ -474,7 +439,6 @@ def publish(prop, db) -> dict:
     if not local_paths:
         raise ValueError("No local images found. Download images before publishing.")
 
-    # PIPE-2 FIX: check for duplicate in Supabase before uploading images
     client = _get_supabase()
     existing_id = _check_duplicate_in_supabase(client, prop)
     if existing_id:
@@ -482,12 +446,10 @@ def publish(prop, db) -> dict:
             "Duplicate detected: property %s matches existing Supabase record %s (%s, %s, %s). Skipping.",
             prop.id, existing_id, prop.address, prop.city, prop.state
         )
-        # Mark local record as published pointing at the existing Choice record
         prop.status = "published"
         prop.published_at = datetime.now(timezone.utc).isoformat()
         prop.choice_property_id = existing_id
-        db.commit()
-        db.refresh(prop)
+        repo.save(prop)
         return {
             "ok":                True,
             "choice_property_id": existing_id,
@@ -499,14 +461,11 @@ def publish(prop, db) -> dict:
     imagekit_results = _upload_images_to_imagekit(prop.id, local_paths)
 
     if not imagekit_results:
-        raise RuntimeError(
-            "Image upload to ImageKit failed — no images were uploaded successfully."
-        )
+        raise RuntimeError("Image upload to ImageKit failed — no images were uploaded successfully.")
 
     logger.info("Inserting property into Supabase for property %s", prop.id)
     record = _build_supabase_record(prop, imagekit_results)
 
-    # Retry up to 15 times — each PGRST204 "column not found" strips one unknown column
     stripped_columns = []
     for attempt in range(15):
         try:
@@ -514,7 +473,6 @@ def publish(prop, db) -> dict:
             break
         except Exception as exc:
             err_str = str(exc)
-            # PGRST204: column does not exist in schema cache
             if "PGRST204" in err_str or "could not find" in err_str.lower():
                 import re as _re
                 col_match = _re.search(r"'(\w+)'\s+column", err_str, _re.IGNORECASE)
@@ -534,8 +492,7 @@ def publish(prop, db) -> dict:
 
     if stripped_columns:
         logger.warning(
-            "Published property %s but %d column(s) missing from Supabase schema: %s. "
-            "Run the migration SQL in the Supabase SQL editor to add them.",
+            "Published property %s but %d column(s) missing from Supabase schema: %s.",
             prop.id, len(stripped_columns), stripped_columns
         )
 
@@ -550,8 +507,7 @@ def publish(prop, db) -> dict:
     prop.status = "published"
     prop.published_at = now
     prop.choice_property_id = str(choice_property_id)
-    db.commit()
-    db.refresh(prop)
+    repo.save(prop)
 
     logger.info("Property %s published successfully as %s", prop.id, choice_property_id)
     return {
