@@ -357,43 +357,43 @@ def normalize_row(row: dict) -> dict:
     has_basement = any(term in searchable for term in ["basement", "finished basement", "lower level"])
     has_central_air = any(term in searchable for term in ["central air", "central a/c", "central ac", "central cooling"])
     cooling_type = first_value("cooling", "cooling_type", "cooling_system")
-      if not cooling_type and has_central_air:
-          cooling_type = "Central Air"
-      if not cooling_type:
-          if "window ac" in searchable or "window unit" in searchable or "window air conditioner" in searchable:
-              cooling_type = "Window Units"
-          elif "mini split" in searchable or "mini-split" in searchable or "ductless" in searchable:
-              cooling_type = "Mini-Split"
-          elif "no ac" in searchable or "no air conditioning" in searchable or "no cooling" in searchable:
-              cooling_type = "None"
+    if not cooling_type and has_central_air:
+        cooling_type = "Central Air"
+    if not cooling_type:
+        if "window ac" in searchable or "window unit" in searchable or "window air conditioner" in searchable:
+            cooling_type = "Window Units"
+        elif "mini split" in searchable or "mini-split" in searchable or "ductless" in searchable:
+            cooling_type = "Mini-Split"
+        elif "no ac" in searchable or "no air conditioning" in searchable or "no cooling" in searchable:
+            cooling_type = "None"
 
-      heating_type = first_value("heating", "heating_type", "heating_system")
-      if not heating_type:
-          if "forced air" in searchable or "forced-air" in searchable:
-              heating_type = "Forced Air"
-          elif "radiant heat" in searchable or "radiant floor" in searchable or "radiant heating" in searchable:
-              heating_type = "Radiant"
-          elif "baseboard heat" in searchable or "electric baseboard" in searchable:
-              heating_type = "Baseboard"
-          elif "heat pump" in searchable:
-              heating_type = "Heat Pump"
-          elif "gas heat" in searchable or "natural gas heat" in searchable:
-              heating_type = "Gas"
-          elif "electric heat" in searchable:
-              heating_type = "Electric"
-          elif "boiler" in searchable:
-              heating_type = "Boiler"
+    heating_type = first_value("heating", "heating_type", "heating_system")
+    if not heating_type:
+        if "forced air" in searchable or "forced-air" in searchable:
+            heating_type = "Forced Air"
+        elif "radiant heat" in searchable or "radiant floor" in searchable or "radiant heating" in searchable:
+            heating_type = "Radiant"
+        elif "baseboard heat" in searchable or "electric baseboard" in searchable:
+            heating_type = "Baseboard"
+        elif "heat pump" in searchable:
+            heating_type = "Heat Pump"
+        elif "gas heat" in searchable or "natural gas heat" in searchable:
+            heating_type = "Gas"
+        elif "electric heat" in searchable:
+            heating_type = "Electric"
+        elif "boiler" in searchable:
+            heating_type = "Boiler"
 
-      laundry_type = first_value("laundry", "laundry_type")
-      if not laundry_type:
-          if "in-unit laundry" in searchable or "in unit laundry" in searchable or "washer dryer" in searchable or "washer/dryer" in searchable:
-              laundry_type = "In-unit"
-          elif "laundry hookups" in searchable or "washer dryer hookup" in searchable or "w/d hookup" in searchable:
-              laundry_type = "Hookups"
-          elif "shared laundry" in searchable or "laundry room" in searchable or "coin laundry" in searchable or "on-site laundry" in searchable:
-              laundry_type = "Shared"
-          elif "no laundry" in searchable:
-              laundry_type = "None"
+    laundry_type = first_value("laundry", "laundry_type")
+    if not laundry_type:
+        if "in-unit laundry" in searchable or "in unit laundry" in searchable or "washer dryer" in searchable or "washer/dryer" in searchable:
+            laundry_type = "In-unit"
+        elif "laundry hookups" in searchable or "washer dryer hookup" in searchable or "w/d hookup" in searchable:
+            laundry_type = "Hookups"
+        elif "shared laundry" in searchable or "laundry room" in searchable or "coin laundry" in searchable or "on-site laundry" in searchable:
+            laundry_type = "Shared"
+        elif "no laundry" in searchable:
+            laundry_type = "None"
 
     inferred_features = []
     for label, value in [
