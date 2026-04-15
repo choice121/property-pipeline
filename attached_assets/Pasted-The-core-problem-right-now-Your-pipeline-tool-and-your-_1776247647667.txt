@@ -1,0 +1,45 @@
+The core problem right now
+Your pipeline tool and your live site exist as two separate worlds. The pipeline knows about properties it scraped or created manually. The live site (Supabase) knows about everything that's been published, plus anything landlords created through the landlord portal. There's no way right now to go the other direction — from live site back into the pipeline tool.
+What "full management" actually requires
+There are three distinct challenges:
+1. Importing live properties into the pipeline This is relatively straightforward — we add a "Sync from Live Site" action that reads all properties from your Supabase database and creates matching records in the pipeline. From that point, you can edit them like any other listing. This needs to happen carefully so it doesn't create duplicates.
+2. Image management for live properties This is the hardest part. Right now the pipeline works with images in two phases: download locally → upload to ImageKit on publish. But your live site properties already have their images on ImageKit. We'd need to change the image gallery to work with ImageKit-hosted images directly — showing them, reordering them, deleting them, and uploading new ones, all against ImageKit without needing a local copy first. This is a meaningful change to how the image system works.
+3. Making edits flow back to the live site This part actually already works well — the "Sync Fields" and "Refresh Photos" buttons handle it. The gap is just that live-imported properties need to be linked correctly so the pipeline knows which Supabase record to update.
+
+My recommendation
+Make the pipeline the single source of truth for all properties — scraped, manually created, and imported from the live site — with one unified editing experience. Concretely, that means:
+* A "Import from Live Site" button that pulls all Supabase properties into the pipeline with one click, linking them by their existing IDs so syncing back works cleanly
+* An ImageKit-native image panel alongside the current local-images panel — for live properties you see and manage their existing ImageKit images directly (reorder, delete, upload new ones), and those changes go straight to ImageKit and update the Supabase record
+* The full editor (all fields, AI assistant, descriptions, pricing, policies) working on imported properties exactly the same as it does for scraped ones
+* A "Push All Changes" sync that writes everything back to the live site
+
+Before I build, a few questions:
+1. Do your live site properties and pipeline properties share the same ImageKit credentials? (The landlord portal's Supabase Edge Function uses ImageKit — does the backend pipeline tool use the same ImageKit account and folder structure?)
+2. When you import from the live site, do you want it to be a one-time import you trigger manually, or do you want it to continuously stay in sync (so if a landlord updates something on the portal, the pipeline sees it too)?
+3. For images on live properties — when you reorder or delete in the pipeline tool, do you want that to immediately update the live site, or queue it up for a manual sync like the text fields?
+Your answers will shape how complex the image system needs to be and whether this is a 1-day build or a 3-day build.
+
+
+What I found about your setup
+Both your pipeline tool and your landlord portal use the same ImageKit account and same Supabase project. That's actually the best-case scenario — there's no cross-account complexity to deal with. Images for live properties already live at /properties/{id} in ImageKit, and Supabase stores them as two parallel arrays: photo_urls (CDN links) and photo_file_ids (needed for deletion).
+
+The real architecture question you need to answer
+With continuous two-way sync, there's an inevitable conflict situation: what happens if someone edits a property through the landlord portal on your website at the same moment you're editing it in the pipeline tool? One will overwrite the other.
+You need to pick a source of truth. My recommendation is that the pipeline tool wins — it becomes the master, and the website is just the display layer. Any edit in the pipeline immediately pushes to the live site. The website's admin/landlord editing still works but the next time the pipeline syncs, it would pull those changes in too.
+The alternative (letting both sources edit freely with merge logic) is significantly more complex and fragile. I'd avoid it.
+
+What the build actually looks like
+Here's what I'd build, in order:
+Phase 1 — Import & live image management (the core of what you want)
+* A background sync that runs every 60 seconds, fetching all properties from your Supabase properties table and importing any that don't exist in the pipeline yet
+* A "Sync from Live" button in the UI for an immediate manual pull
+* For live-imported properties, the image gallery shows their ImageKit-hosted photos directly (no local download needed) with full reorder, delete, and upload-new support — and every image action immediately updates ImageKit and Supabase
+* When you hit "Save Changes" on a live property, it auto-pushes to the live site — no separate "Sync" button needed
+Phase 2 — Unified editing experience
+* The editor detects whether a property is live-origin and adapts accordingly — "Save Changes" becomes "Save & Sync" for live properties
+* AI assistant, completeness score, and all field editing works identically for scraped vs. live-imported properties
+* A clear indicator in the Library shows which properties came from the live site vs. scraped
+
+What this will NOT do (to be clear)
+* It won't sync changes made on the landlord portal in real time — it will pick them up on the next 60-second poll. If you need sub-second sync, that requires Supabase Realtime websockets, which is more infrastructure than it's worth for a management tool.
+* It won't let you edit the same property in two places simultaneously without one overwriting the other — this is intentional, the pipeline is the master.
