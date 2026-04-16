@@ -207,7 +207,7 @@ export default function AiAssistant({ form, onApplyDescription, onApplyFields })
       <div className="flex items-center gap-2 px-4 py-3 bg-gradient-to-r from-purple-50 to-indigo-50 border-b border-purple-100">
         <span className="text-purple-600"><SparkleIcon /></span>
         <span className="text-sm font-semibold text-purple-900">AI Assistant</span>
-        <span className="text-xs text-purple-400 ml-1">powered by Gemini</span>
+        <span className="text-xs text-purple-400 ml-1">powered by DeepSeek</span>
       </div>
 
       <div className="p-1 border-b border-gray-100 bg-gray-50 flex gap-1">

@@ -9,6 +9,85 @@ from pydantic import BaseModel
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── Platform Knowledge ─────────────────────────────────────────────────────────
+# This context is injected into every AI call as the system message.
+# It teaches the AI everything it needs to know about Choice Properties,
+# the US rental market, and how to produce high-quality listing content.
+
+PLATFORM_CONTEXT = """
+You are an expert AI assistant embedded in the Choice Properties Property Pipeline — an internal tool used by property managers and landlords to prepare rental listings before publishing them on the Choice Properties marketplace.
+
+## About Choice Properties
+Choice Properties is a tenant-first rental marketplace. The platform's core philosophy is:
+- **Apply first, tour later** — tenants submit an application before scheduling a viewing. All language about "scheduling a showing", "contact us to see the unit", or "tours available" must be removed from listings.
+- **No gatekeeping language** — listings must never mention credit score minimums, income multipliers (e.g. "must earn 3x rent"), background check requirements, "no Section 8", or any screening criteria. These are handled transparently by the platform.
+- **Inclusive and welcoming** — listings should feel accessible and warm, not exclusive or intimidating.
+- **Honest and accurate** — never invent details. Only use facts supported by the data provided.
+
+## Your Role
+You help prepare listings that are complete, accurate, attractive, and tenant-friendly. You understand the full data lifecycle: properties are scraped from Zillow, Realtor.com, and Redfin, then enriched and edited before being published live.
+
+## US Rental Market Knowledge
+Use this knowledge when inferring fields or evaluating pricing:
+
+### Property Types and Typical Features
+- **Single Family Home**: Usually has a garage or driveway parking, often has a basement (especially in Midwest/Northeast), typically forced air heating, central air common in homes built after 1980, in-unit laundry common after 2000, private yard.
+- **Apartment / Multi-unit**: Usually shared laundry or no laundry (older buildings), window units or mini-splits, baseboard heat in older buildings, limited parking.
+- **Condo / Townhouse**: Often HOA amenities (gym, pool), in-unit laundry typical in newer builds, assigned parking common, central air standard in modern builds.
+- **Duplex/Triplex**: Often older buildings, shared laundry, may have yard access, parking varies.
+
+### Age-Based Inferences
+- Built before 1970: Likely radiator/baseboard heat, window AC units, no in-unit laundry, older appliances
+- Built 1970–1990: Forced air becoming standard, central air in warmer states, shared laundry
+- Built 1990–2010: Central HVAC standard, in-unit washer/dryer hookups common, dishwasher standard
+- Built after 2010: Modern finishes, in-unit laundry standard, stainless appliances, smart features possible
+
+### Lease Terms
+- Standard US lease: 12-month is the default. Month-to-month as a secondary option is common.
+- Short-term (3–6 month): Common in university towns, luxury units, and furnished rentals.
+
+### Utilities
+- Most US rentals: Tenant pays electric + gas. Landlord covers water, trash, sewer.
+- Apartments: Sometimes water/trash included. Rarely all utilities included.
+- Luxury rentals: May include more utilities as a differentiator.
+
+### Pricing Context
+- Evaluate rent reasonableness based on bedrooms and location (state/city if available).
+- Obvious red flags: A 3BR home for $400/mo (too low, likely an error) or a studio for $8,000/mo (too high unless luxury market).
+- When no city is available, use bedrooms and sqft as the main pricing signal.
+
+### Pet Policies
+- If pets_allowed is True: suggest "Dogs and cats welcome" or "Pet-friendly home — ask about our pet policy."
+- If pets_allowed is False or unknown: omit pet policy from descriptions. Never say "no pets" in listing copy.
+- Pet weight limits and breed restrictions are handled on the platform — do not include in copy.
+
+### Common Amenities by Property Type
+- Houses: yard, garage, driveway, storage, patio/deck
+- Apartments: gym, pool, rooftop, doorman, concierge, elevator, common areas
+- All: dishwasher, in-unit laundry, hardwood floors, high ceilings, natural light, updated kitchen/bath
+
+## Listing Quality Standards
+A great listing has:
+1. A compelling description (3–4 paragraphs, no bullet points, no headers)
+2. Accurate bedroom/bathroom counts
+3. A stated monthly rent
+4. At least one photo
+5. A complete address
+6. Key amenities and appliances listed
+7. Clear lease terms
+8. A welcoming, screening-free tone
+
+A poor listing has:
+- A generic or missing description
+- Missing rent
+- Boilerplate language copied from source sites
+- Gatekeeping language (income requirements, credit minimums)
+- Tour-first language
+- Contradictory data (e.g. 2 beds but description says 3)
+"""
+
+
+# ── Client & Error Handling ────────────────────────────────────────────────────
 
 def _get_client():
     api_key = os.environ.get("DEEPSEEK_API_KEY")
@@ -51,13 +130,16 @@ def _handle_deepseek_error(e: Exception):
     raise HTTPException(status_code=500, detail=str(e))
 
 
-def _call_deepseek(prompt: str) -> str:
+def _call_deepseek(system: str, user: str, temperature: float = 0.7) -> str:
     try:
         client = _get_client()
         response = client.chat.completions.create(
             model="deepseek-chat",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            temperature=temperature,
         )
         return response.choices[0].message.content.strip()
     except HTTPException:
@@ -65,6 +147,8 @@ def _call_deepseek(prompt: str) -> str:
     except Exception as e:
         _handle_deepseek_error(e)
 
+
+# ── Data Models ────────────────────────────────────────────────────────────────
 
 class PropertyContext(BaseModel):
     address: str | None = None
@@ -117,13 +201,18 @@ class AutoFillRequest(BaseModel):
     fields: list[str]
 
 
+# ── Property Summary Builder ───────────────────────────────────────────────────
+
 def _build_property_summary(prop: PropertyContext) -> str:
     parts = []
     if prop.address:
         location = ", ".join(filter(None, [prop.address, prop.city, prop.state]))
         parts.append(f"Address: {location}")
+    elif prop.city or prop.state:
+        location = ", ".join(filter(None, [prop.city, prop.state]))
+        parts.append(f"Location: {location}")
     if prop.property_type:
-        parts.append(f"Type: {prop.property_type}")
+        parts.append(f"Property type: {prop.property_type}")
     if prop.bedrooms is not None:
         parts.append(f"Bedrooms: {prop.bedrooms}")
     if prop.bathrooms is not None:
@@ -159,38 +248,55 @@ def _build_property_summary(prop: PropertyContext) -> str:
     if prop.lease_terms:
         parts.append(f"Lease terms: {prop.lease_terms}")
     if prop.description:
-        parts.append(f"\nCurrent description:\n{prop.description}")
-    return "\n".join(parts)
+        parts.append(f"\nExisting description (for reference only — rewrite from scratch):\n{prop.description}")
+    return "\n".join(parts) if parts else "No property details provided."
 
+
+# ── AI Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post("/ai/rewrite-description")
 def rewrite_description(req: RewriteRequest):
     prop_summary = _build_property_summary(req.property)
-    tone_instruction = {
-        "professional": "professional and polished, suitable for a premium rental marketplace",
-        "friendly": "warm and inviting, written in a conversational tone",
-        "concise": "short and punchy — highlight only the top features in 2-3 sentences",
-    }.get(req.tone, "professional and polished")
 
-    prompt = f"""You are a copywriter for Choice Properties, a tenant-first rental marketplace. Your job is to rewrite a property listing description so it is welcoming, affordable-feeling, and focused on the tenant's journey — not the landlord's rules.
+    tone_map = {
+        "professional": (
+            "professional and polished — confident, clean, and authoritative. "
+            "Use precise language. Avoid filler phrases. Read like a premium listing."
+        ),
+        "friendly": (
+            "warm, conversational, and inviting — like a trusted friend describing the home. "
+            "Use approachable language. Make the reader feel excited and welcome."
+        ),
+        "concise": (
+            "short and direct — maximum 3 sentences per paragraph, 2 paragraphs total. "
+            "Lead with the strongest features. Cut everything that isn't essential."
+        ),
+    }
+    tone_instruction = tone_map.get(req.tone, tone_map["professional"])
 
-Property details:
+    user_prompt = f"""Rewrite this rental listing description using the property details below.
+
+PROPERTY DATA:
 {prop_summary}
 
-REWRITE RULES (strictly follow every one):
-1. REMOVE all language about scheduling viewings, tours, showings, or "seeing the property in person" — on this platform, applicants apply first. Do not replace with anything; just omit it entirely.
-2. REMOVE all landlord-imposed qualification requirements: credit score thresholds, income multipliers (e.g. "must earn 3x rent"), employment verification demands, background check mandates, "no Section 8", rental history requirements, or any screening criteria. These are handled by the platform.
-3. SOFTEN or REMOVE restrictive pet, smoking, or guest policies. Instead of "no pets", omit the pet policy or say "ask us about our pet policy." Do not keep hard rules.
-4. DO NOT invent facts not supported by the property details provided.
-5. Tone: {tone_instruction} — warm, accessible, and encouraging. The description should make tenants feel welcome, not screened out.
-6. Focus on what makes the home livable and enjoyable: space, location, amenities, comfort, convenience.
-7. Write 2–4 short paragraphs. No bullet points. No headline or title — just the body text.
-8. End with a gentle call to action about applying, e.g. "Ready to make this your next home? Submit your application to get started today."
-9. Return only the description text, nothing else."""
+TONE: {tone_instruction}
+
+HARD RULES — follow every one without exception:
+1. NEVER mention tours, viewings, showings, or "seeing the property in person." Omit completely.
+2. NEVER include credit scores, income requirements, income multipliers, background check language, "no Section 8", rental history requirements, or any tenant screening criteria.
+3. NEVER say "no pets." Either omit the pet policy entirely or say "ask about our pet policy."
+4. NEVER invent facts. Only describe what is supported by the property data above.
+5. NEVER copy boilerplate phrases like "don't miss this gem", "call today", "motivated landlord."
+6. Focus on what makes this home livable and enjoyable: layout, light, space, comfort, location, amenities.
+7. Structure: 2–4 paragraphs. No bullet points. No headline or title. Body text only.
+8. End with a soft call to action about applying — e.g. "Ready to call this home? Submit your application today and take the first step."
+9. Return ONLY the description text. Nothing else — no labels, no preamble, no quotes."""
 
     try:
-        result = _call_deepseek(prompt)
+        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.75)
         return {"description": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("AI rewrite failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -200,27 +306,55 @@ REWRITE RULES (strictly follow every one):
 def detect_issues(req: IssuesRequest):
     prop_summary = _build_property_summary(req.property)
 
-    prompt = f"""You are a quality control assistant for rental property listings. Review the property below and identify any issues, inconsistencies, or things that could be improved before publishing.
+    user_prompt = f"""Perform a full quality control review of this rental listing before it is published.
 
-Property details:
+PROPERTY DATA:
 {prop_summary}
 
-Return a JSON array of issue objects. Each object must have:
-- "severity": "error", "warning", or "suggestion"
-- "field": the property field name the issue relates to (or "general")
-- "message": a short, clear description of the issue
+REVIEW CHECKLIST — evaluate every category below:
 
-Focus on:
-- Missing critical information (rent, beds/baths, address)
-- Inconsistencies (e.g. bathrooms don't add up)
-- Description quality problems (too short, generic, or vague)
-- Pricing anomalies (e.g. very high or low rent for the area/size)
-- Policy gaps (no pet policy, no lease terms)
+ERRORS (blocking issues — listing should not publish without fixing):
+- Missing rent amount
+- Missing address or location
+- Missing bedroom or bathroom count
+- Completely missing description
+- Contradictory data (e.g. description says 3 beds but field says 2)
+- Rent is implausibly low or high for the bedroom count and location
 
-Return ONLY a raw JSON array, no markdown, no explanation."""
+WARNINGS (should fix before publishing — affects quality or trust):
+- Description is too short (under 50 words)
+- Description is generic, templated, or reads like copy-pasted boilerplate
+- Description mentions tours, showings, or "contact to schedule" — violates platform rules
+- Description includes screening criteria (credit score, income, background check) — violates platform rules
+- Description includes hard "no pets" language — violates platform guidelines
+- Missing square footage for a home listing
+- No amenities listed at all
+- No appliances listed
+- Missing lease terms
+- Missing parking info for a house or condo
+
+SUGGESTIONS (nice to have — improves listing quality):
+- Description could benefit from stronger opening line
+- Amenities list seems incomplete for this property type/age
+- Pet policy not addressed (if pets_allowed is True)
+- Move-in special not mentioned (could attract more applicants)
+- Utilities policy unclear
+- Flooring not specified
+- Year built would strengthen the listing
+
+Return a JSON array. Each item must have exactly these keys:
+- "severity": one of "error", "warning", or "suggestion"
+- "field": the specific field name this relates to, or "general" for overall listing issues
+- "message": a clear, specific, actionable description of the issue (1–2 sentences max)
+
+Rules:
+- Only include real issues. Do not flag things that are fine.
+- Do not hallucinate issues that don't exist in the data.
+- Order by severity: errors first, then warnings, then suggestions.
+- Return ONLY a raw JSON array. No markdown, no explanation, no wrapper object."""
 
     try:
-        raw = _call_deepseek(prompt)
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -230,6 +364,8 @@ Return ONLY a raw JSON array, no markdown, no explanation."""
         return {"issues": issues}
     except json.JSONDecodeError:
         return {"issues": [], "raw": raw}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("AI issue detection failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -239,22 +375,26 @@ Return ONLY a raw JSON array, no markdown, no explanation."""
 def suggest_field(req: SuggestRequest):
     prop_summary = _build_property_summary(req.property)
 
-    prompt = f"""You are a real estate data assistant. Based on the property details below, suggest a good value for the field "{req.field}".
+    user_prompt = f"""Suggest the best value for the field "{req.field}" for this rental property.
 
-Property details:
+PROPERTY DATA:
 {prop_summary}
 
-{("Current value: " + req.current_value) if req.current_value else "This field is currently empty."}
+CURRENT VALUE FOR "{req.field}": {req.current_value if req.current_value else "Empty — needs a value."}
 
-Instructions:
-- Return only the suggested value as plain text
-- Keep it concise and realistic
-- Base your suggestion on the other property details
-- Do not include explanations or quotes"""
+INSTRUCTIONS:
+- Use the property type, year built, location, and other details to make an intelligent inference.
+- Apply your knowledge of typical US rental properties to suggest a realistic value.
+- Keep the suggestion concise and practical — just the value, no explanation.
+- If this is a list field (amenities, appliances, etc.), return a comma-separated list.
+- Do not guess wildly. If you cannot make a reasonable inference, return "Unknown".
+- Return ONLY the suggested value. No quotes, no labels, no explanation."""
 
     try:
-        result = _call_deepseek(prompt)
+        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
         return {"suggestion": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("AI suggest field failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -264,25 +404,28 @@ Instructions:
 def chat_with_property(req: ChatRequest):
     prop_summary = _build_property_summary(req.property)
 
-    messages = [
-        {
-            "role": "system",
-            "content": f"""You are a helpful assistant for a property manager using an internal listing tool called Property Pipeline. You have full context of the current property being edited.
+    system_message = f"""{PLATFORM_CONTEXT}
 
-Property details:
-{prop_summary}
+---
 
-Instructions:
-- Answer helpfully and concisely based on the property context
-- You can help edit descriptions, suggest values, flag issues, or answer questions
-- Stay focused on the property and listing tasks
-- If asked to write or rewrite something, provide the full text directly
-- Keep responses brief unless a longer answer is needed""",
-        }
-    ]
+## Your Current Task
+You are helping a property manager edit and improve a specific listing in the Property Pipeline. You have full context of the listing below. You can:
+- Answer questions about the listing
+- Rewrite or improve the description (provide the full text when asked)
+- Suggest values for specific fields
+- Flag issues or inconsistencies
+- Explain platform rules (why certain language should be removed, etc.)
+- Help think through pricing, amenities, or lease terms
+
+Always be direct and practical. If asked to rewrite something, provide the complete rewritten version immediately — don't ask clarifying questions unless truly necessary.
+
+## Current Property
+{prop_summary}"""
+
+    messages = [{"role": "system", "content": system_message}]
 
     if req.history:
-        for msg in req.history[-6:]:
+        for msg in req.history[-10:]:
             role = msg.get("role", "user")
             if role in ("user", "assistant"):
                 messages.append({"role": role, "content": msg.get("content", "")})
@@ -305,21 +448,23 @@ Instructions:
         _handle_deepseek_error(e)
 
 
+# ── Auto-Fill ──────────────────────────────────────────────────────────────────
+
 AUTOFILL_FIELD_DESCRIPTIONS = {
-    "heating_type": "Type of heating system (e.g. 'Forced Air', 'Baseboard', 'Radiant', 'Heat Pump')",
-    "cooling_type": "Type of cooling system (e.g. 'Central Air', 'Window Units', 'Mini-Split')",
-    "laundry_type": "Laundry situation (e.g. 'In-unit', 'Hookups', 'Shared', 'None')",
-    "parking": "Parking description (e.g. '1-car garage', 'Street parking', '2 reserved spots')",
-    "flooring": "Comma-separated list of flooring types (e.g. 'Hardwood, Tile, Carpet')",
-    "lease_terms": "Comma-separated lease options (e.g. '12-month, Month-to-month')",
-    "showing_instructions": "Short instructions for scheduling a showing (e.g. 'Call to schedule', 'Self-guided tours available')",
-    "pet_details": "Short description of pet policy details (e.g. 'Dogs and cats welcome, max 50 lbs')",
-    "pet_types_allowed": "Comma-separated pet types (e.g. 'Dogs, Cats')",
-    "amenities": "Comma-separated list of property amenities",
-    "appliances": "Comma-separated list of included appliances",
-    "description": "A full 2-4 paragraph rental listing description",
-    "move_in_special": "Any move-in special or promotion (e.g. 'First month free', 'Reduced deposit')",
-    "utilities_included": "Comma-separated utilities included in rent (e.g. 'Water, Trash')",
+    "heating_type": "Type of heating system. Common values: 'Forced Air', 'Baseboard', 'Radiant', 'Heat Pump', 'Boiler'. Infer from property type and year built.",
+    "cooling_type": "Type of cooling. Common values: 'Central Air', 'Window Units', 'Mini-Split', 'None'. Infer from year built and region.",
+    "laundry_type": "Laundry situation. Common values: 'In-unit', 'In-unit hookups', 'Shared laundry', 'None'. Infer from property type and year built.",
+    "parking": "Parking description. E.g. '1-car garage', '2-car garage', 'Driveway', 'Street parking', '1 assigned spot', '2 reserved spots'. Infer from property type.",
+    "flooring": "Comma-separated flooring types present in the home. E.g. 'Hardwood, Tile' or 'Carpet, Laminate, Tile'. Infer from property age and type.",
+    "lease_terms": "Comma-separated lease length options. E.g. '12-month' or '12-month, Month-to-month'. Standard is 12-month.",
+    "showing_instructions": "Short showing note. On Choice Properties, tenants apply first. Use: 'Apply online to schedule a showing' or 'Apply to get started — showings scheduled after application review.'",
+    "pet_details": "Pet policy summary if pets are allowed. E.g. 'Cats and small dogs welcome' or 'Pet-friendly — ask about our policy.' Never say 'no pets'.",
+    "pet_types_allowed": "Comma-separated pet types if pets are allowed. E.g. 'Dogs, Cats' or 'Cats only'.",
+    "amenities": "Comma-separated list of property amenities. Include relevant items from: Yard, Patio, Deck, Pool, Gym, Garage, Storage, Balcony, Fireplace, Basement, Dishwasher, High ceilings, Natural light, Smart thermostat.",
+    "appliances": "Comma-separated list of included appliances. Common: Refrigerator, Dishwasher, Stove, Oven, Microwave, Washer, Dryer, Garbage disposal.",
+    "description": "A full tenant-first listing description: 3–4 paragraphs, no bullet points, no headers, no tour language, no screening criteria. Warm, welcoming, and focused on livability.",
+    "move_in_special": "Any move-in promotion if applicable. E.g. 'First month free', 'Reduced security deposit', 'No application fee'. If none is apparent, omit this field.",
+    "utilities_included": "Comma-separated utilities included in rent. Common: Water, Trash, Sewer, Gas, Electric, Internet. Most US rentals include at minimum Water and Trash.",
 }
 
 
@@ -334,25 +479,26 @@ def autofill_fields(req: AutoFillRequest):
         f'- "{f}": {AUTOFILL_FIELD_DESCRIPTIONS[f]}' for f in valid_fields
     )
 
-    prompt = f"""You are a real estate data assistant. Based on the property details below, suggest values for the following empty fields.
+    user_prompt = f"""Fill in the missing fields for this rental property listing using intelligent inference.
 
-Property details:
+PROPERTY DATA:
 {prop_summary}
 
-Fields to fill in:
+FIELDS TO FILL IN:
 {fields_block}
 
-Instructions:
-- Return a JSON object where each key is a field name and the value is your suggestion
-- Only include fields you can reasonably infer from the property details
-- For comma-separated fields, return a plain comma-separated string (not a JSON array)
-- For description, write 2-4 paragraphs of professional listing copy
-- Do NOT invent facts not supported by the property details
-- Keep non-description values short and practical
-- Return ONLY a raw JSON object, no markdown, no explanation"""
+INSTRUCTIONS:
+- Use the property type, year built, location, bedroom count, and all other available data to make smart inferences.
+- Apply your knowledge of typical US rental market standards.
+- For the "description" field: write a full 3–4 paragraph tenant-first listing description. No bullet points. No tours. No screening language.
+- For "showing_instructions": always reference the apply-first model (e.g. "Apply online to schedule your showing").
+- For comma-separated fields: return a plain comma-separated string, not a JSON array.
+- Only include a field if you can provide a confident, realistic value. Skip fields you genuinely cannot infer.
+- Do NOT invent specific facts (square footage, rent, exact address) — only infer qualitative fields.
+- Return ONLY a raw JSON object. No markdown, no explanation, no wrapper."""
 
     try:
-        raw = _call_deepseek(prompt)
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -363,6 +509,8 @@ Instructions:
         return {"suggestions": filtered}
     except json.JSONDecodeError:
         return {"suggestions": {}, "raw": raw}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("AI autofill failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
