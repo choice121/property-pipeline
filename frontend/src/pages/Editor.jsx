@@ -9,6 +9,7 @@ import PublishButton from '../components/PublishButton'
 import AiAssistant from '../components/AiAssistant'
 import TagInput from '../components/TagInput'
 import ListingPreview from '../components/ListingPreview'
+import { computeCompleteness, completenessColor } from '../utils/completeness'
 
 const FIELD_LABELS = {
   title: 'Title', property_type: 'Property Type', status: 'Status',
@@ -679,7 +680,32 @@ export default function Editor() {
         </button>
       </div>
 
-      <div className="mt-6">
+      {/* Publish Readiness Bar (Phase 5A) */}
+      {(() => {
+        const { score, missing } = computeCompleteness(form)
+        const { bar, text } = completenessColor(score)
+        return (
+          <div className="mt-6 space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-medium text-gray-600">Publish Readiness</span>
+              <span style={{ color: text }} className="font-semibold">{score}%</span>
+            </div>
+            <div className="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+              <div
+                className="h-2 rounded-full transition-all duration-500"
+                style={{ width: `${score}%`, backgroundColor: bar }}
+              />
+            </div>
+            {missing.length > 0 && (
+              <p className="text-xs text-gray-400">
+                Missing: {missing.join(', ')}
+              </p>
+            )}
+          </div>
+        )
+      })()}
+
+      <div className="mt-4">
         <PublishButton
           property={form}
           savedAfterPublish={savedAfterPublish}
