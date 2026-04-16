@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { aiRewriteDescription, aiDetectIssues, aiChat, aiAutoFill, aiScore, aiPricingIntel, aiSeoOptimize, aiCleanProperty, aiGenerateTitle } from '../api/client'
+import { aiRewriteDescription, aiDetectIssues, aiChat, aiAutoFill, aiScore, aiPricingIntel, aiSeoOptimize, aiCleanProperty, aiGenerateTitle, aiNeighborhoodContext, aiSaveFeedback, aiDescriptionHistory } from '../api/client'
 
 const SEVERITY_STYLES = {
   error: 'bg-red-50 border-red-200 text-red-800',
@@ -144,24 +144,75 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
   const [titleResult, setTitleResult] = useState(null)
   const [titleError, setTitleError] = useState(null)
 
+  const [neighborhood, setNeighborhood] = useState(false)
+  const [neighborhoodResult, setNeighborhoodResult] = useState(null)
+  const [neighborhoodError, setNeighborhoodError] = useState(null)
+
+  const [feedbackSent, setFeedbackSent] = useState({})
+
+  const [descHistory, setDescHistory] = useState(null)
+  const [descHistoryLoading, setDescHistoryLoading] = useState(false)
+  const [showDescHistory, setShowDescHistory] = useState(false)
+
+  const streamingRewrite = useRef(false)
+  const streamingChat = useRef(false)
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [chatHistory])
 
   async function handleRewrite() {
+    if (streamingRewrite.current) return
+    streamingRewrite.current = true
     setRewriting(true)
-    setRewriteResult(null)
+    setRewriteResult('')
     setRewriteError(null)
     setViewingDraft(null)
+    let fullText = ''
     try {
-      const res = await aiRewriteDescription({ property: buildPropertyContext(form), tone })
-      const text = res.data.description
-      setRewriteResult(text)
-      setDraftHistory(prev => [{ text, tone, ts: new Date().toLocaleTimeString() }, ...prev].slice(0, 5))
+      const response = await fetch('/api/ai/rewrite-description/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ property: buildPropertyContext(form), tone }),
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${response.status}`)
+      }
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6)
+          if (data === '[DONE]') break
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.error) throw new Error(parsed.error)
+            if (parsed.content) {
+              fullText += parsed.content
+              setRewriteResult(fullText)
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr
+          }
+        }
+      }
+      if (fullText) {
+        setDraftHistory(prev => [{ text: fullText, tone, ts: new Date().toLocaleTimeString() }, ...prev].slice(0, 5))
+      }
     } catch (e) {
-      setRewriteError(e.response?.data?.detail || e.message)
+      setRewriteError(e.message)
+      setRewriteResult(null)
     } finally {
       setRewriting(false)
+      streamingRewrite.current = false
     }
   }
 
@@ -222,18 +273,108 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
 
   async function handleChatSend() {
     const message = chatInput.trim()
-    if (!message || chatLoading) return
+    if (!message || chatLoading || streamingChat.current) return
     setChatInput('')
+    streamingChat.current = true
     const newHistory = [...chatHistory, { role: 'user', content: message }]
     setChatHistory(newHistory)
     setChatLoading(true)
+    let assistantText = ''
     try {
-      const res = await aiChat({ property: buildPropertyContext(form), message, history: chatHistory })
-      setChatHistory([...newHistory, { role: 'assistant', content: res.data.reply }])
+      const response = await fetch('/api/ai/chat/stream', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message,
+          property: buildPropertyContext(form),
+          history: chatHistory,
+        }),
+      })
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}))
+        throw new Error(err.detail || `HTTP ${response.status}`)
+      }
+      setChatHistory([...newHistory, { role: 'assistant', content: '' }])
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop()
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const data = line.slice(6)
+          if (data === '[DONE]') break
+          try {
+            const parsed = JSON.parse(data)
+            if (parsed.error) throw new Error(parsed.error)
+            if (parsed.content) {
+              assistantText += parsed.content
+              setChatHistory(prev => {
+                const next = [...prev]
+                next[next.length - 1] = { role: 'assistant', content: assistantText }
+                return next
+              })
+            }
+          } catch (parseErr) {
+            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr
+          }
+        }
+      }
     } catch (e) {
-      setChatHistory([...newHistory, { role: 'assistant', content: 'Sorry, something went wrong. Please try again.' }])
+      setChatHistory(prev => {
+        const next = [...prev]
+        next[next.length - 1] = { role: 'assistant', content: '⚠️ Error: ' + e.message }
+        return next
+      })
     } finally {
       setChatLoading(false)
+      streamingChat.current = false
+    }
+  }
+
+  async function handleNeighborhoodContext() {
+    setNeighborhood(true)
+    setNeighborhoodResult(null)
+    setNeighborhoodError(null)
+    try {
+      const ctx = buildPropertyContext(form)
+      const res = await aiNeighborhoodContext({
+        city: ctx.city,
+        state: ctx.state,
+        property_type: ctx.property_type,
+        address: ctx.address,
+      })
+      setNeighborhoodResult(res.data.neighborhood_context)
+    } catch (e) {
+      setNeighborhoodError(e.response?.data?.detail || e.message)
+    } finally {
+      setNeighborhood(false)
+    }
+  }
+
+  async function handleFeedback(field, action, aiValue) {
+    const key = `${field}_${action}`
+    if (feedbackSent[key]) return
+    setFeedbackSent(prev => ({ ...prev, [key]: true }))
+    try {
+      await aiSaveFeedback({ property_id: form.id, field, action, ai_value: aiValue })
+    } catch (_) {}
+  }
+
+  async function handleLoadDescHistory() {
+    if (descHistory !== null || descHistoryLoading) return
+    setDescHistoryLoading(true)
+    try {
+      const res = await aiDescriptionHistory(form.id)
+      setDescHistory(res.data.history || [])
+    } catch (_) {
+      setDescHistory([])
+    } finally {
+      setDescHistoryLoading(false)
     }
   }
 
@@ -339,6 +480,7 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
         <button className={tabCls('rewrite')} onClick={() => setTab('rewrite')}>Rewrite</button>
         <button className={tabCls('clean')} onClick={() => setTab('clean')}>Clean</button>
         <button className={tabCls('title')} onClick={() => setTab('title')}>Title</button>
+        <button className={tabCls('neighborhood')} onClick={() => setTab('neighborhood')}>Neighborhood</button>
         <button className={tabCls('issues')} onClick={() => setTab('issues')}>Issues</button>
         <button className={tabCls('score')} onClick={() => setTab('score')}>Score</button>
         <button className={tabCls('pricing')} onClick={() => setTab('pricing')}>Pricing</button>
@@ -469,11 +611,13 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
               <div className="space-y-2">
                 <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
                   {displayDraft}
+                  {rewriting && <span className="inline-block w-1.5 h-4 ml-0.5 bg-purple-500 animate-pulse align-text-bottom" />}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => {
                       onApplyDescription(displayDraft)
+                      handleFeedback('description', 'accept', displayDraft)
                       setRewriteResult(null)
                       setViewingDraft(null)
                     }}
@@ -488,6 +632,125 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
                   >
                     Regenerate
                   </button>
+                  <div className="ml-auto flex items-center gap-1">
+                    <span className="text-xs text-gray-400">Was this helpful?</span>
+                    <button
+                      title="Good result"
+                      onClick={() => handleFeedback('description', 'accept', displayDraft)}
+                      className={`p-1 rounded transition-colors ${feedbackSent['description_accept'] ? 'text-green-600' : 'text-gray-400 hover:text-green-600'}`}
+                    >
+                      👍
+                    </button>
+                    <button
+                      title="Not helpful"
+                      onClick={() => handleFeedback('description', 'reject', displayDraft)}
+                      className={`p-1 rounded transition-colors ${feedbackSent['description_reject'] ? 'text-red-500' : 'text-gray-400 hover:text-red-500'}`}
+                    >
+                      👎
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Description History */}
+            <div className="border-t border-gray-100 pt-3 mt-1">
+              <button
+                className="text-xs text-purple-600 hover:underline"
+                onClick={() => {
+                  setShowDescHistory(v => !v)
+                  handleLoadDescHistory()
+                }}
+              >
+                {showDescHistory ? 'Hide' : 'Show'} description history
+              </button>
+              {showDescHistory && (
+                <div className="mt-2 space-y-2">
+                  {descHistoryLoading && <p className="text-xs text-gray-400">Loading...</p>}
+                  {!descHistoryLoading && descHistory !== null && descHistory.length === 0 && (
+                    <p className="text-xs text-gray-400">No previous descriptions saved yet.</p>
+                  )}
+                  {!descHistoryLoading && descHistory && descHistory.map((entry, i) => (
+                    <div key={entry.id || i} className="bg-gray-50 border border-gray-200 rounded p-2 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs text-gray-400">
+                          {entry.saved_at ? new Date(entry.saved_at).toLocaleString() : ''} · {entry.method}
+                        </span>
+                        <button
+                          className="text-xs text-purple-600 hover:underline"
+                          onClick={() => {
+                            onApplyDescription(entry.description)
+                          }}
+                        >
+                          Restore
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-700 whitespace-pre-wrap line-clamp-3">{entry.description}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === 'neighborhood' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Generate a short neighborhood context paragraph for this listing's location. Use it to enrich the description or give renters a sense of the area.
+            </p>
+            {(!form.city && !form.state) && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded">
+                Add a city or state to this listing to generate neighborhood context.
+              </p>
+            )}
+            <button
+              onClick={handleNeighborhoodContext}
+              disabled={neighborhood || (!form.city && !form.state)}
+              className="flex items-center gap-2 bg-purple-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              <SparkleIcon spin={neighborhood} />
+              {neighborhood ? 'Generating...' : 'Generate Neighborhood Context'}
+            </button>
+            {neighborhoodError && (
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-100">{neighborhoodError}</p>
+            )}
+            {neighborhoodResult && (
+              <div className="space-y-2">
+                <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                  {neighborhoodResult}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(neighborhoodResult)
+                    }}
+                    className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={handleNeighborhoodContext}
+                    disabled={neighborhood}
+                    className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    Regenerate
+                  </button>
+                  <div className="ml-auto flex items-center gap-1">
+                    <span className="text-xs text-gray-400">Helpful?</span>
+                    <button
+                      onClick={() => handleFeedback('neighborhood_context', 'accept', neighborhoodResult)}
+                      className={`p-1 rounded transition-colors ${feedbackSent['neighborhood_context_accept'] ? 'text-green-600' : 'text-gray-400 hover:text-green-600'}`}
+                    >
+                      👍
+                    </button>
+                    <button
+                      onClick={() => handleFeedback('neighborhood_context', 'reject', neighborhoodResult)}
+                      className={`p-1 rounded transition-colors ${feedbackSent['neighborhood_context_reject'] ? 'text-red-500' : 'text-gray-400 hover:text-red-500'}`}
+                    >
+                      👎
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
