@@ -72,9 +72,11 @@ function SetupScreen({ status, error, refetch, isFetching }) {
 
 function SetupBanner({ status }) {
   if (!status || status.fully_configured) return null
+  const publishingMissing = status.missing?.publishing || []
+  const missingText = publishingMissing.length ? ` Missing for publishing: ${publishingMissing.join(', ')}` : ''
   return (
     <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 text-sm text-amber-900">
-      {status.summary} Missing: {[...(status.missing?.publishing || []), ...(status.missing?.optional || [])].join(', ') || 'none'}
+      {status.summary}{missingText}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import StatusBadge from './StatusBadge'
 import { downloadProperty } from '../api/client'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
+import { resolveImageUrl } from '../utils/imageUrl'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
@@ -10,6 +11,8 @@ function formatPrice(price) {
 
 function getImageUrl(property) {
   try {
+    const originals = JSON.parse(property.original_image_urls || '[]')
+    if (originals.length > 0) return resolveImageUrl(originals[0])
     const paths = JSON.parse(property.local_image_paths || '[]')
     if (paths.length === 0) return null
     const path = paths[0]
