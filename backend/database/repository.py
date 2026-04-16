@@ -177,6 +177,23 @@ class Repository:
                 "Could not update inferred_features for %s: %s", prop_id, e
             )
 
+    def list_logs_by_field(self, prop_id: str, field: str, limit: int = 10) -> list[AiEnrichmentLog]:
+        try:
+            result = (
+                self._client.table("pipeline_enrichment_log")
+                .select("*")
+                .eq("property_id", prop_id)
+                .eq("field", field)
+                .order("created_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            if result.data:
+                return [AiEnrichmentLog(**row) for row in result.data]
+        except Exception:
+            pass
+        return []
+
     def commit(self):
         pass
 
