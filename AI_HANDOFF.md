@@ -144,7 +144,7 @@ frontend/
 
 ## Credentials & Environment
 
-All credentials are in Replit environment variables. DO NOT ask the owner for them.
+⚠️ **If this is a fresh Replit import:** The environment variables below are NOT transferred automatically. The project will fail to start until they are added as Replit Secrets in the new account. Ask the owner to provide the values from their original Replit project.
 
 | Variable | Purpose |
 |---|---|
@@ -154,28 +154,85 @@ All credentials are in Replit environment variables. DO NOT ask the owner for th
 | IMAGEKIT_PUBLIC_KEY | ImageKit uploads |
 | IMAGEKIT_PRIVATE_KEY | ImageKit uploads |
 | IMAGEKIT_URL_ENDPOINT | ImageKit CDN base URL |
+| GITHUB_TOKEN | GitHub personal access token for pushing (repo scope required) |
 
 Supabase project ID: `tlfmwetmhthpyrytrcfo`
 ImageKit account: `21rg7lvzo`
+GitHub repo: `choice121/property-pipeline`, branch: `main`
 
 ---
 
 ## GitHub Push Instructions
 
-The repo remote is: `https://github.com/choice121/property-pipeline`
-Current branch: `main`
+⚠️ **CRITICAL — do NOT use git CLI to push.** Replit's checkpoint system holds a `.git/config.lock` file that permanently blocks `git commit`, `git push`, and `git config` in the main agent. Any attempt will fail silently or with a lock error.
 
-To push after completing a phase:
-```bash
-git add -A
-git commit -m "Phase X complete: [short description of what was done]"
-git push origin main
-```
+**The only working push method is the GitHub REST API via code_execution.**
 
-The GITHUB_TOKEN is available as an environment variable. Configure git credentials before pushing:
-```bash
-git config user.email "agent@replit.com"
-git config user.name "Replit Agent"
-git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/choice121/property-pipeline.git
-git push origin main
+Use this exact pattern after completing each phase (replace `$TOKEN` with the GITHUB_TOKEN secret):
+
+```javascript
+// Run in code_execution
+const { readFileSync } = await import('fs');
+
+const token = process.env.GITHUB_TOKEN; // set as Replit Secret
+const repo = 'choice121/property-pipeline';
+const branch = 'main';
+const baseUrl = `https://api.github.com/repos/${repo}`;
+const headers = {
+    'Authorization': `token ${token}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'Content-Type': 'application/json',
+};
+
+// List every file that changed
+const files = [
+    { path: 'backend/routers/ai.py', localPath: '/home/runner/workspace/backend/routers/ai.py' },
+    // add more as needed
+];
+
+// 1. Get current HEAD
+const refRes = await fetch(`${baseUrl}/git/ref/heads/${branch}`, { headers });
+const headSha = (await refRes.json()).object.sha;
+
+// 2. Get current tree SHA
+const commitRes = await fetch(`${baseUrl}/git/commits/${headSha}`, { headers });
+const treeSha = (await commitRes.json()).tree.sha;
+
+// 3. Create blobs
+const blobs = [];
+for (const file of files) {
+    const content = readFileSync(file.localPath, 'utf8');
+    const blobRes = await fetch(`${baseUrl}/git/blobs`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ content, encoding: 'utf-8' }),
+    });
+    const blob = await blobRes.json();
+    blobs.push({ path: file.path, mode: '100644', type: 'blob', sha: blob.sha });
+    console.log(`Blob: ${file.path} → ${blob.sha?.slice(0,8)}`);
+}
+
+// 4. Create new tree
+const treeData = await (await fetch(`${baseUrl}/git/trees`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ base_tree: treeSha, tree: blobs }),
+})).json();
+
+// 5. Create commit
+const newCommit = await (await fetch(`${baseUrl}/git/commits`, {
+    method: 'POST', headers,
+    body: JSON.stringify({
+        message: 'Phase X complete: description of changes',
+        tree: treeData.sha,
+        parents: [headSha],
+        author: { name: 'Replit Agent', email: 'agent@replit.com' },
+    }),
+})).json();
+
+// 6. Update branch ref
+const update = await (await fetch(`${baseUrl}/git/refs/heads/${branch}`, {
+    method: 'PATCH', headers,
+    body: JSON.stringify({ sha: newCommit.sha }),
+})).json();
+
+console.log('Push:', update.object?.sha?.slice(0,8) === newCommit.sha?.slice(0,8) ? 'SUCCESS ✓' : update);
 ```
