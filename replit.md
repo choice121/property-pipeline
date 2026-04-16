@@ -24,22 +24,29 @@ All AI features use the DeepSeek V3 model (`deepseek-chat`) via the OpenAI-compa
 ### AI Endpoints (`backend/routers/ai.py`)
 - `POST /ai/autofill` — suggests values for empty fields
 - `POST /ai/rewrite-description` — generates polished listing descriptions
-- `POST /ai/detect-issues` — scans for errors/warnings/suggestions
+- `POST /ai/detect-issues` — scans for errors/warnings/suggestions; returns `{"issues":[...], "quality_score":N}`
 - `POST /ai/suggest-field` — suggests a value for a single field
 - `POST /ai/chat` — freeform assistant chat about the property
 - `POST /ai/bulk-scan` — batch scans up to N listings, returns per-property issue counts
 - `POST /ai/score` — detailed quality score (0–100) + grade (A–F) + written evaluation
 - `POST /ai/pricing-intel` — market pricing analysis (very_low/low/fair/high/very_high)
 - `POST /ai/seo-optimize` — SEO keyword analysis + title suggestion + optimized opening
+- `POST /ai/clean` — Deep Clean Engine: strips contact info, tour language, screening requirements; rewrites in brand voice; saves to DB
+- `POST /ai/bulk-clean` — Library-wide bulk clean: processes all properties sequentially, persists to DB
+- `POST /ai/generate-title` — Generates a specific, compelling listing title; saves to DB
+- `POST /ai/extract-features` — LLM amenity/appliance extraction from free text; merges with existing, saves to DB
 
 ### AI Auto-Enrichment (`backend/services/ai_enricher.py`)
-Runs automatically on scrape. When a listing has no description, tries DeepSeek LLM first (contextual, property-specific), falls back to template if DeepSeek fails.
+Runs automatically on scrape and re-runs after significant property edits. Tasks: generate_description, extract_features, infer_pet_policy, classify_property_type, generate_title. Re-enrichment triggered on PUT /properties/:id when any SIGNIFICANT_FIELDS change (bedrooms, bathrooms, property_type, monthly_rent, amenities, appliances, description, city, state) for unpublished properties.
 
 ### Frontend AI Features
-- **AiAssistant** (`frontend/src/components/AiAssistant.jsx`): 7 tabs — Auto-Fill, Rewrite (with draft history), Issues, **Score**, **Pricing**, **SEO**, Chat
+- **AiAssistant** (`frontend/src/components/AiAssistant.jsx`): 9 tabs — Auto-Fill, Rewrite (draft history), **Clean**, **Title**, Issues, Score, Pricing, SEO, Chat. Receives `propertyId` prop for server-side save-back.
 - **Library bulk scan** (`frontend/src/pages/Library.jsx`): "AI Scan (N)" button scans all visible listings, shows summary banner + per-card color badges
+- **Library bulk clean** (`frontend/src/pages/Library.jsx`): "Clean All" button runs bulk-clean on all properties with descriptions
 - **PropertyCard badges** (`frontend/src/components/PropertyCard.jsx`): AI health badge (red=errors, amber=warnings, green=clean) shown after a bulk scan
 - **Publish gate** (`frontend/src/components/PublishButton.jsx`): Auto-checks for issues before publishing; blocks on errors, warns on warnings with override
+- **Editor auto-detect** (`frontend/src/pages/Editor.jsx`): After every save, runs detect-issues in background and shows inline quality badge with error/warning count + quality score
+- **Audit Dashboard** (`frontend/src/pages/Audit.jsx`): Library-wide table at `/audit` — completeness bars, issue counts post-scan, last-updated, staleness, sortable/filterable, Clean All + Scan All buttons
 
 ## Project Structure
 

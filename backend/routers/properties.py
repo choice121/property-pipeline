@@ -14,12 +14,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+SIGNIFICANT_FIELDS = frozenset([
+    "bedrooms", "bathrooms", "property_type", "monthly_rent",
+    "amenities", "appliances", "description", "city", "state",
+])
+
+
 def _auto_sync_to_live(prop, repo):
     try:
         publisher_service.sync_fields(prop, repo)
         logger.info('Auto-synced property %s to live site', prop.id)
     except Exception as e:
         logger.warning('Auto-sync failed for property %s: %s', prop.id, e)
+
+
+def _re_enrich_property(prop_id: str, repo):
+    try:
+        from services.ai_enricher import enrich_property
+        enrich_property(prop_id, repo)
+        logger.info('Re-enriched property %s after significant edit', prop_id)
+    except Exception as e:
+        logger.warning('Re-enrichment failed for property %s: %s', prop_id, e)
 
 
 @router.post("/properties")
@@ -129,6 +144,10 @@ def update_property(id: str, body: dict, background_tasks: BackgroundTasks, repo
 
     if prop.choice_property_id:
         background_tasks.add_task(_auto_sync_to_live, prop, repo)
+
+    significant_changed = any(k in SIGNIFICANT_FIELDS for k in body.keys())
+    if significant_changed and not prop.choice_property_id:
+        background_tasks.add_task(_re_enrich_property, id, repo)
 
     return prop.to_dict()
 

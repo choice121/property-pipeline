@@ -1,0 +1,79 @@
+Honest Assessment
+What the AI does well today
+The foundation is solid — platform context is well-defined, the Choice Properties philosophy (apply-first, no gatekeeping) is baked into every prompt, enrichment logs every AI action, and the interactive tools (rewrite, chat, autofill) are genuinely useful.
+
+The Real Gaps — Things You Likely Haven't Noticed
+1. Enrichment only ever runs once.
+When a property is scraped, AI runs once and never again. If you manually edit a property and introduce an inconsistency — say you change bedrooms from 2 to 3 but the description still says "two-bedroom" — nothing catches it. The AI is blind to everything that happens after the initial scrape.
+
+2. Descriptions are generated, not cleaned.
+If a scraped description already exists (even one full of "Call 555-1234! Credit score 700+ required! Income 3x rent!"), the enricher skips generation entirely because the description is longer than 50 characters. That toxic content goes straight to publishing. The system creates new descriptions but never cleans existing ones.
+
+3. There's no bulk anything.
+50 properties in your library? You open each one individually to run checks, autofill missing fields, or rewrite descriptions. There's zero batch processing capability. This is a serious operational bottleneck.
+
+4. Feature extraction is primitive regex, not AI.
+If a listing says "the home features a covered 2-car parking structure with EV rough-in," the keyword matcher sees none of it because "parking structure" isn't in the list. You're missing real features from real listings.
+
+5. Titles are abandoned by AI entirely.
+Every single property gets a template title like "2BR Apartment in Chicago." The AI never touches it. A compelling, specific title is the first thing a tenant sees — and yours are all generic.
+
+6. The quality score measures completeness, not quality.
+A property can score 90/100 with all fields filled, but still have a plagiarized boilerplate description, a price that's clearly wrong, or language that violates your platform rules. High score ≠ ready to publish.
+
+7. No cross-property intelligence.
+The AI treats every property in isolation. It can't tell you "this 2BR in Austin is priced 40% above your other 2BR listings in Austin" — which is exactly the kind of signal that prevents embarrassing pricing errors.
+
+8. No live property health monitoring.
+Properties already published to the live site get zero ongoing attention. If a listing goes stale (50 days on market), has pricing that drifted out of range, or accumulated quality issues, nothing alerts you.
+
+Implementation Plan
+Phase 1 — Deep Clean Engine (Highest impact)
+A. AI Text Cleaner — New endpoint that does a full LLM pass on a property:
+
+Strips contact info (phone numbers, emails, "call today") from descriptions
+Removes tour/screening/gatekeeping language (not just a find-and-replace, but semantic understanding)
+Rewrites to Choice Properties brand voice if needed
+Normalizes formatting, capitalization, HTML artifacts
+Marks field cleaned_at so you know when it last ran
+B. Bulk Clean All — A "Clean All" button in the Library that queues every property through the cleaner with real-time progress tracking (streamed back to the frontend)
+
+C. AI Title Generator — Added as a new enrichment task: generate a compelling, specific title like "Spacious 3BR Ranch with 2-Car Garage in East Nashville" instead of the template
+
+Phase 2 — Library-Wide Audit Dashboard (Biggest visibility gap)
+A. Bulk Issue Detection — Run detect-issues across every library property in the background, storing results in the database so they persist between sessions
+
+B. Audit Page — New /audit view in the frontend showing all properties as a sortable table: property name, issue count, severity (error/warning/suggestion), last cleaned, and quick "Fix All" action
+
+C. Auto-detect on save — When you save changes in the Editor, silently re-run issue detection in the background and show a badge on the property with a count of open issues
+
+D. Pre-publish hard gate — Block publishing if there are error-severity issues, with a list of exactly what must be fixed; warnings shown as "Publish Anyway" acknowledgment
+
+Phase 3 — Smarter Intelligence (Quality upgrade)
+A. LLM-powered feature extraction — Replace the keyword regex in _extract_features_from_text with a real DeepSeek call: "Extract all amenities and appliances from this description as a JSON list." Far more accurate, catches nuanced descriptions.
+
+B. Cross-property price validation — When running issue detection, compare the property's rent against library averages for the same bedroom count and state. Flag outliers (>50% above or below).
+
+C. Data consistency checker — A dedicated check that compares structured fields against the description text and flags contradictions (description says "3 bedrooms" but field says 2, description says "no pets" but pets_allowed=True, etc.)
+
+D. AI-evaluated description quality score — A separate 0–100 score that the LLM assigns to the description quality alone (separate from data completeness). Shows on each property card.
+
+Phase 4 — Ongoing Health & Live Site Monitoring (Future-proofing)
+A. Re-enrichment on significant edits — When key fields (bedrooms, property type, amenities, rent) change, automatically queue a background re-enrichment pass
+
+B. Freshness tracking — Flag library properties not touched in 30+ days and published listings with no views in 14+ days
+
+C. Published listing health check — For live properties, periodic checks that the Supabase record still matches the library data, images are still accessible via ImageKit CDN, and no issues have emerged
+
+Summary of what gets built
+What	Value
+AI Text Cleaner (single + bulk)	Eliminates toxic scraped content before it reaches tenants
+Title Generator	First impression upgrade across all listings
+Library Audit Dashboard	See all 50 properties' health at a glance, not one by one
+Auto-detect on save	Catches regressions when you edit manually
+Pre-publish hard gate	Nothing bad goes live
+LLM feature extraction	Catches features keyword matching misses
+Cross-property price check	Prevents pricing embarrassments
+Data consistency checker	Catches field-vs-description contradictions
+AI description quality score	Separates real quality from just "fields filled"
+Re-enrichment on edit	Keeps AI in the loop after manual edits

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty } from '../api/client'
+import { getProperty, updateProperty, deleteProperty, deleteImage, reorderImages, downloadProperty, aiDetectIssues } from '../api/client'
 import ImageGallery from '../components/ImageGallery'
 import LiveImageGallery from '../components/LiveImageGallery'
 import StatusBadge from '../components/StatusBadge'
@@ -103,6 +103,8 @@ export default function Editor() {
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
   const [savedAfterPublish, setSavedAfterPublish] = useState(false)
+  const [postSaveIssues, setPostSaveIssues] = useState(null)
+  const [postSaveQualityScore, setPostSaveQualityScore] = useState(null)
   const isDirty = useRef(false)
 
   const { data: property, isLoading } = useQuery({
@@ -135,10 +137,37 @@ export default function Editor() {
       setForm(data)
       isDirty.current = false
       setSaved(true)
+      setPostSaveIssues(null)
+      setPostSaveQualityScore(null)
       if (wasPublished) setSavedAfterPublish(true)
       queryClient.invalidateQueries({ queryKey: ['properties'] })
       queryClient.setQueryData(['property', id], data)
       setTimeout(() => setSaved(false), 3000)
+
+      const tryParseArray = (v) => { try { return JSON.parse(v || '[]').join(', ') } catch { return v || '' } }
+      const ctx = {
+        address: data.address, city: data.city, state: data.state,
+        bedrooms: data.bedrooms != null ? Number(data.bedrooms) : null,
+        bathrooms: data.bathrooms != null ? Number(data.bathrooms) : null,
+        square_footage: data.square_footage ? Number(data.square_footage) : null,
+        monthly_rent: data.monthly_rent ? Number(data.monthly_rent) : null,
+        property_type: data.property_type,
+        amenities: tryParseArray(data.amenities),
+        appliances: tryParseArray(data.appliances),
+        pets_allowed: data.pets_allowed ?? null,
+        parking: data.parking, heating_type: data.heating_type, cooling_type: data.cooling_type,
+        laundry_type: data.laundry_type, utilities_included: tryParseArray(data.utilities_included),
+        description: data.description, lease_terms: tryParseArray(data.lease_terms),
+        flooring: tryParseArray(data.flooring),
+        has_basement: data.has_basement ?? null, has_central_air: data.has_central_air ?? null,
+      }
+      aiDetectIssues({ property: ctx }).then(res => {
+        const body = res.data
+        const issueList = Array.isArray(body) ? body : (body.issues || [])
+        const qs = body.quality_score ?? null
+        setPostSaveIssues(issueList)
+        setPostSaveQualityScore(qs)
+      }).catch(() => {})
     },
   })
 
@@ -535,6 +564,7 @@ export default function Editor() {
 
         <AiAssistant
           form={form}
+          propertyId={id}
           onApplyDescription={(desc) => set('description', desc)}
           onApplyFields={(fields) => {
             isDirty.current = true
@@ -666,6 +696,31 @@ export default function Editor() {
           {isLive ? 'Saved & synced to live site.' : `Saved successfully.${published ? ' Use "Sync Fields" to push changes to the live site.' : ''}`}
         </div>
       )}
+
+      {postSaveIssues !== null && (
+        <div className={`mt-3 px-3 py-2 rounded border text-sm ${postSaveIssues.filter(i => i.severity === 'error').length > 0 ? 'bg-red-50 border-red-200 text-red-800' : postSaveIssues.filter(i => i.severity === 'warning').length > 0 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-green-50 border-green-200 text-green-700'}`}>
+          <div className="flex items-center justify-between">
+            <span className="font-medium">
+              {postSaveIssues.length === 0
+                ? 'Quality check: looks good!'
+                : `Quality check: ${postSaveIssues.filter(i => i.severity === 'error').length} error${postSaveIssues.filter(i => i.severity === 'error').length !== 1 ? 's' : ''}, ${postSaveIssues.filter(i => i.severity === 'warning').length} warning${postSaveIssues.filter(i => i.severity === 'warning').length !== 1 ? 's' : ''}${postSaveQualityScore != null ? ` · Score ${postSaveQualityScore}/100` : ''}`}
+            </span>
+            <button onClick={() => setPostSaveIssues(null)} className="ml-3 opacity-50 hover:opacity-100 text-lg leading-none">&times;</button>
+          </div>
+          {postSaveIssues.length > 0 && (
+            <ul className="mt-1.5 space-y-0.5">
+              {postSaveIssues.slice(0, 4).map((issue, i) => (
+                <li key={i} className="text-xs opacity-90">
+                  {issue.severity === 'error' ? '✕' : issue.severity === 'warning' ? '⚠' : '💡'}{' '}
+                  {issue.field && issue.field !== 'general' ? <strong>{issue.field}: </strong> : null}{issue.message}
+                </li>
+              ))}
+              {postSaveIssues.length > 4 && <li className="text-xs opacity-60">+{postSaveIssues.length - 4} more — check the Issues tab in AI Assistant</li>}
+            </ul>
+          )}
+        </div>
+      )}
+
       {saveMutation.isError && (
         <div className="mt-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded">
           Save failed: {saveMutation.error?.response?.data?.detail || saveMutation.error?.message}

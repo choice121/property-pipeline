@@ -108,6 +108,13 @@ function IconCreate({ active }) {
     </svg>
   )
 }
+function IconAudit({ active }) {
+  return (
+    <svg className={`w-5 h-5 mb-0.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+    </svg>
+  )
+}
 
 export default function Layout() {
   const setup = useQuery({
@@ -144,6 +151,7 @@ export default function Layout() {
         <div className="hidden sm:flex gap-6">
           <NavLink to="/" end className={desktopLink}>Library</NavLink>
           <NavLink to="/scraper" className={desktopLink}>Scrape</NavLink>
+          <NavLink to="/audit" className={desktopLink}>Audit</NavLink>
           <NavLink to="/create" className={desktopLink}>+ Create</NavLink>
         </div>
       </nav>
@@ -186,6 +194,15 @@ export default function Layout() {
           }
         >
           {({ isActive }) => (<><IconCreate active={isActive} />Create</>)}
+        </NavLink>
+
+        <NavLink
+          to="/audit"
+          className={({ isActive }) =>
+            `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`
+          }
+        >
+          {({ isActive }) => (<><IconAudit active={isActive} />Audit</>)}
         </NavLink>
       </nav>
     </div>

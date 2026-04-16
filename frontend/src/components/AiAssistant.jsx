@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { aiRewriteDescription, aiDetectIssues, aiChat, aiAutoFill, aiScore, aiPricingIntel, aiSeoOptimize } from '../api/client'
+import { aiRewriteDescription, aiDetectIssues, aiChat, aiAutoFill, aiScore, aiPricingIntel, aiSeoOptimize, aiCleanProperty, aiGenerateTitle } from '../api/client'
 
 const SEVERITY_STYLES = {
   error: 'bg-red-50 border-red-200 text-red-800',
@@ -100,7 +100,7 @@ const PRICING_COLOR = {
   unknown:  { bg: 'bg-gray-50 border-gray-200 text-gray-700', label: 'Unknown' },
 }
 
-export default function AiAssistant({ form, onApplyDescription, onApplyFields }) {
+export default function AiAssistant({ form, propertyId, onApplyDescription, onApplyFields }) {
   const [tab, setTab] = useState('autofill')
   const [tone, setTone] = useState('professional')
 
@@ -135,6 +135,14 @@ export default function AiAssistant({ form, onApplyDescription, onApplyFields })
   const [seoing, setSeoing] = useState(false)
   const [seoResult, setSeoResult] = useState(null)
   const [seoError, setSeoError] = useState(null)
+
+  const [cleaning, setCleaning] = useState(false)
+  const [cleanResult, setCleanResult] = useState(null)
+  const [cleanError, setCleanError] = useState(null)
+
+  const [generatingTitle, setGeneratingTitle] = useState(false)
+  const [titleResult, setTitleResult] = useState(null)
+  const [titleError, setTitleError] = useState(null)
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -271,6 +279,40 @@ export default function AiAssistant({ form, onApplyDescription, onApplyFields })
     }
   }
 
+  async function handleClean() {
+    setCleaning(true)
+    setCleanResult(null)
+    setCleanError(null)
+    try {
+      const res = await aiCleanProperty({
+        property_id: propertyId || null,
+        property: buildPropertyContext(form),
+      })
+      setCleanResult(res.data)
+    } catch (e) {
+      setCleanError(e.response?.data?.detail || e.message)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
+  async function handleGenerateTitle() {
+    setGeneratingTitle(true)
+    setTitleResult(null)
+    setTitleError(null)
+    try {
+      const res = await aiGenerateTitle({
+        property_id: propertyId || null,
+        property: buildPropertyContext(form),
+      })
+      setTitleResult(res.data.title)
+    } catch (e) {
+      setTitleError(e.response?.data?.detail || e.message)
+    } finally {
+      setGeneratingTitle(false)
+    }
+  }
+
   const tabCls = (t) =>
     `px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors whitespace-nowrap ${
       tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -295,6 +337,8 @@ export default function AiAssistant({ form, onApplyDescription, onApplyFields })
           )}
         </button>
         <button className={tabCls('rewrite')} onClick={() => setTab('rewrite')}>Rewrite</button>
+        <button className={tabCls('clean')} onClick={() => setTab('clean')}>Clean</button>
+        <button className={tabCls('title')} onClick={() => setTab('title')}>Title</button>
         <button className={tabCls('issues')} onClick={() => setTab('issues')}>Issues</button>
         <button className={tabCls('score')} onClick={() => setTab('score')}>Score</button>
         <button className={tabCls('pricing')} onClick={() => setTab('pricing')}>Pricing</button>
@@ -440,6 +484,140 @@ export default function AiAssistant({ form, onApplyDescription, onApplyFields })
                   <button
                     onClick={handleRewrite}
                     disabled={rewriting}
+                    className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    Regenerate
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'clean' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Strip contact info, tour scheduling language, screening requirements, and "no pets" language from the description. Rewrites in Choice Properties' tenant-first brand voice.
+            </p>
+            {!form.description || form.description.trim().length < 20 ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-3 py-2 rounded">
+                No description to clean. Write or generate one first.
+              </p>
+            ) : (
+              <button
+                onClick={handleClean}
+                disabled={cleaning}
+                className="flex items-center gap-2 bg-emerald-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+              >
+                <svg className={`w-4 h-4 ${cleaning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  {cleaning
+                    ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                    : <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                  }
+                </svg>
+                {cleaning ? 'Cleaning…' : 'Clean Description'}
+              </button>
+            )}
+            {cleanError && (
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-100">{cleanError}</p>
+            )}
+            {cleanResult && (
+              <div className="space-y-2">
+                {!cleanResult.changes_made ? (
+                  <p className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded">
+                    Description looks clean — no problematic content detected.
+                  </p>
+                ) : (
+                  <>
+                    {cleanResult.changes_summary?.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-gray-600 mb-1.5">What was changed:</p>
+                        <ul className="space-y-1">
+                          {cleanResult.changes_summary.map((c, i) => (
+                            <li key={i} className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-2.5 py-1.5">✓ {c}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {cleanResult.cleaned_description && (
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold text-gray-600">Cleaned description:</p>
+                        <div className="bg-gray-50 border border-gray-200 rounded-md p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+                          {cleanResult.cleaned_description}
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              onApplyDescription(cleanResult.cleaned_description)
+                              setCleanResult(null)
+                            }}
+                            className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 transition-colors"
+                          >
+                            Apply to Description
+                          </button>
+                          <button
+                            onClick={handleClean}
+                            disabled={cleaning}
+                            className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+                          >
+                            Re-clean
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === 'title' && (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-500">
+              Generate a compelling, specific listing title based on the property's data. Leads with the strongest feature, mentions the location, and stays under 80 characters.
+            </p>
+            {form.title && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 mb-1">Current title:</p>
+                <p className="text-sm text-gray-700 bg-gray-50 border border-gray-200 rounded px-3 py-2">
+                  {form.title}
+                </p>
+              </div>
+            )}
+            <button
+              onClick={handleGenerateTitle}
+              disabled={generatingTitle}
+              className="flex items-center gap-2 bg-purple-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+            >
+              <SparkleIcon spin={generatingTitle} />
+              {generatingTitle ? 'Generating…' : 'Generate Title'}
+            </button>
+            {titleError && (
+              <p className="text-xs text-red-600 bg-red-50 px-3 py-2 rounded border border-red-100">{titleError}</p>
+            )}
+            {titleResult && (
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-gray-600">Generated title:</p>
+                <div className="bg-gray-50 border border-gray-200 rounded-md px-3 py-2 text-sm font-medium text-gray-900">
+                  {titleResult}
+                  <span className={`ml-2 text-xs font-normal ${titleResult.length > 80 ? 'text-amber-600' : 'text-gray-400'}`}>
+                    ({titleResult.length} chars)
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      onApplyFields({ title: titleResult })
+                      setTitleResult(null)
+                    }}
+                    className="text-xs bg-green-600 text-white px-3 py-1.5 rounded hover:bg-green-700 transition-colors"
+                  >
+                    Apply Title
+                  </button>
+                  <button
+                    onClick={handleGenerateTitle}
+                    disabled={generatingTitle}
                     className="text-xs border border-gray-300 text-gray-600 px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
                   >
                     Regenerate

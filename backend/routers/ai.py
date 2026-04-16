@@ -1,10 +1,14 @@
 import json
 import logging
 import os
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAI, AuthenticationError, RateLimitError, APIStatusError, APIConnectionError
 from pydantic import BaseModel
+
+from database.db import get_db
+from database.repository import Repository, AiEnrichmentLog
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -180,8 +184,16 @@ class RewriteRequest(BaseModel):
     tone: str = "professional"
 
 
+class LibraryStats(BaseModel):
+    avg_rent_same_beds: float | None = None
+    count_same_beds: int | None = None
+    min_rent_same_beds: float | None = None
+    max_rent_same_beds: float | None = None
+
+
 class IssuesRequest(BaseModel):
     property: PropertyContext
+    library_stats: LibraryStats | None = None
 
 
 class SuggestRequest(BaseModel):
@@ -306,10 +318,42 @@ HARD RULES — follow every one without exception:
 def detect_issues(req: IssuesRequest):
     prop_summary = _build_property_summary(req.property)
 
+    library_context_block = ""
+    if req.library_stats and req.library_stats.avg_rent_same_beds and req.property.monthly_rent:
+        avg = req.library_stats.avg_rent_same_beds
+        mn = req.library_stats.min_rent_same_beds or 0
+        mx = req.library_stats.max_rent_same_beds or 0
+        pct_diff = ((req.property.monthly_rent - avg) / avg * 100) if avg else 0
+        library_context_block = f"""
+LIBRARY PRICING CONTEXT (your other listings with same bedroom count):
+- Average rent: ${avg:,.0f}/mo (across {req.library_stats.count_same_beds or '?'} listings)
+- Range: ${mn:,.0f} – ${mx:,.0f}/mo
+- This listing is {abs(pct_diff):.0f}% {'above' if pct_diff > 0 else 'below'} your library average for this bedroom count
+- Flag as a pricing error if this listing is more than 50% above or below the library average (outlier risk)
+"""
+
+    desc = req.property.description or ""
+    beds = req.property.bedrooms
+    baths = req.property.bathrooms
+
+    consistency_block = ""
+    if desc and (beds is not None or baths is not None):
+        consistency_block = f"""
+DATA CONSISTENCY CHECK — look for contradictions between structured fields and the description text:
+- Structured bedrooms: {beds if beds is not None else 'not set'}
+- Structured bathrooms: {baths if baths is not None else 'not set'}
+- pets_allowed field: {req.property.pets_allowed if req.property.pets_allowed is not None else 'not set'}
+- Check if description mentions a different bedroom/bathroom count than the structured fields
+- Check if description says "no pets" but pets_allowed is True (contradiction)
+- Check if description mentions specific features that contradict other structured fields
+"""
+
     user_prompt = f"""Perform a full quality control review of this rental listing before it is published.
 
 PROPERTY DATA:
 {prop_summary}
+{library_context_block}
+{consistency_block}
 
 REVIEW CHECKLIST — evaluate every category below:
 
@@ -318,8 +362,9 @@ ERRORS (blocking issues — listing should not publish without fixing):
 - Missing address or location
 - Missing bedroom or bathroom count
 - Completely missing description
-- Contradictory data (e.g. description says 3 beds but field says 2)
-- Rent is implausibly low or high for the bedroom count and location
+- Contradictory data between description text and structured fields (e.g. description says 3 beds but field says 2, or description says "no pets" but pets_allowed is True)
+- Rent is implausibly low or high for the bedroom count and location (e.g. $200/mo for a 3BR home, or $15,000/mo for a studio)
+- Rent is a library pricing outlier (>50% above or below your library average for the same bedroom count, if library context was provided)
 
 WARNINGS (should fix before publishing — affects quality or trust):
 - Description is too short (under 50 words)
@@ -327,6 +372,7 @@ WARNINGS (should fix before publishing — affects quality or trust):
 - Description mentions tours, showings, or "contact to schedule" — violates platform rules
 - Description includes screening criteria (credit score, income, background check) — violates platform rules
 - Description includes hard "no pets" language — violates platform guidelines
+- Description contains contact info (phone numbers, emails, "call today") — must be removed
 - Missing square footage for a home listing
 - No amenities listed at all
 - No appliances listed
@@ -334,6 +380,7 @@ WARNINGS (should fix before publishing — affects quality or trust):
 - Missing parking info for a house or condo
 
 SUGGESTIONS (nice to have — improves listing quality):
+- Title is generic (e.g. "2BR Apartment in Chicago") — a specific compelling title would help
 - Description could benefit from stronger opening line
 - Amenities list seems incomplete for this property type/age
 - Pet policy not addressed (if pets_allowed is True)
@@ -342,16 +389,18 @@ SUGGESTIONS (nice to have — improves listing quality):
 - Flooring not specified
 - Year built would strengthen the listing
 
-Return a JSON array. Each item must have exactly these keys:
-- "severity": one of "error", "warning", or "suggestion"
-- "field": the specific field name this relates to, or "general" for overall listing issues
-- "message": a clear, specific, actionable description of the issue (1–2 sentences max)
+Return a JSON object with these keys:
+- "issues": array where each item has:
+  - "severity": one of "error", "warning", or "suggestion"
+  - "field": the specific field name this relates to, or "general" for overall listing issues
+  - "message": a clear, specific, actionable description of the issue (1–2 sentences max)
+- "quality_score": integer 0–100 — AI-evaluated description quality score (0 = no/terrible description, 100 = compelling, complete, brand-voice compliant). Score the description content quality alone, not just whether fields are filled.
 
 Rules:
 - Only include real issues. Do not flag things that are fine.
 - Do not hallucinate issues that don't exist in the data.
-- Order by severity: errors first, then warnings, then suggestions.
-- Return ONLY a raw JSON array. No markdown, no explanation, no wrapper object."""
+- Order issues by severity: errors first, then warnings, then suggestions.
+- Return ONLY a raw JSON object. No markdown, no explanation."""
 
     try:
         raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
@@ -360,10 +409,14 @@ Rules:
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        issues = json.loads(raw)
-        return {"issues": issues}
+        result = json.loads(raw)
+        if isinstance(result, list):
+            return {"issues": result, "quality_score": None}
+        issues = result.get("issues", [])
+        quality_score = result.get("quality_score", None)
+        return {"issues": issues, "quality_score": quality_score}
     except json.JSONDecodeError:
-        return {"issues": [], "raw": raw}
+        return {"issues": [], "quality_score": None}
     except HTTPException:
         raise
     except Exception as e:
@@ -731,4 +784,308 @@ Return ONLY a raw JSON object. No markdown, no explanation."""
         raise
     except Exception as e:
         logger.error("AI SEO optimize failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── AI Text Cleaner ─────────────────────────────────────────────────────────────
+
+class CleanRequest(BaseModel):
+    property_id: str | None = None
+    property: PropertyContext
+
+
+def _run_clean(description: str, prop_summary: str) -> dict:
+    if not description or len(description.strip()) < 20:
+        return {"cleaned_description": None, "changes_made": False, "changes_summary": []}
+
+    user_prompt = f"""You are a content cleaning specialist for Choice Properties rental marketplace.
+
+ORIGINAL DESCRIPTION:
+{description}
+
+PROPERTY CONTEXT:
+{prop_summary}
+
+CLEANING TASKS — apply every one:
+1. REMOVE all contact information: phone numbers (any format), email addresses, website URLs, agent names, company names with contact details
+2. REMOVE all tour/showing/viewing language: "call to schedule", "contact us to see", "book a showing", "schedule a tour", "see the unit", "arrange a viewing", "contact agent"
+3. REMOVE all screening/gatekeeping language: credit score requirements (e.g. "must have 700+ credit"), income multipliers (e.g. "must earn 3x rent"), background check requirements, "no Section 8", eviction history requirements, employment/pay-stub demands, income verification language
+4. REMOVE hard "no pets" language — either omit pet policy entirely or say "ask about our pet policy"
+5. REWRITE the cleaned version in Choice Properties brand voice: welcoming, tenant-first, honest, professional, apply-first
+6. NORMALIZE formatting: fix capitalization errors, remove excessive punctuation (!!!), remove HTML artifacts (&amp; &nbsp; etc), fix run-on sentences
+7. KEEP all genuine property details: square footage, bedroom counts, amenities, appliances, location details, year built, etc.
+8. END with a soft apply-first call to action (e.g. "Ready to call this home? Submit your application today.")
+
+Return a JSON object with:
+- "cleaned_description": the fully cleaned and rewritten description text (or null if description is empty/too short to clean)
+- "changes_made": boolean — true if any meaningful changes were necessary
+- "changes_summary": array of short strings describing what was removed or changed (e.g. ["Removed phone number", "Removed income requirement '3x rent'", "Removed tour scheduling language"])
+
+Return ONLY a raw JSON object. No markdown, no explanation."""
+
+    try:
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.4)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"cleaned_description": None, "changes_made": False, "changes_summary": []}
+
+
+@router.post("/ai/clean")
+def clean_property_text(req: CleanRequest, repo: Repository = Depends(get_db)):
+    prop_summary = _build_property_summary(req.property)
+    description = req.property.description or ""
+
+    result = _run_clean(description, prop_summary)
+
+    if req.property_id and result.get("cleaned_description") and result.get("changes_made"):
+        try:
+            prop = repo.get(req.property_id)
+            if prop:
+                prop.description = result["cleaned_description"]
+                try:
+                    features = json.loads(prop.inferred_features or "[]")
+                except Exception:
+                    features = []
+                features = [f for f in features if not f.startswith("text_cleaned_")]
+                features.append(f"text_cleaned_{datetime.now(timezone.utc).strftime('%Y%m%d')}")
+                prop.inferred_features = json.dumps(features)
+                repo.save(prop)
+                repo.add_log(AiEnrichmentLog(
+                    property_id=req.property_id,
+                    field="description",
+                    method="ai_clean",
+                    ai_value=(result["cleaned_description"] or "")[:500],
+                ))
+        except Exception as e:
+            logger.warning("Clean: failed to save back to DB for %s: %s", req.property_id, e)
+
+    return result
+
+
+# ── Bulk Clean ─────────────────────────────────────────────────────────────────
+
+class BulkCleanRequest(BaseModel):
+    property_ids: list[str]
+
+
+@router.post("/ai/bulk-clean")
+def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
+    if not req.property_ids:
+        return {"results": [], "cleaned": 0, "skipped": 0, "errors": 0}
+
+    results = []
+    cleaned = skipped = errors = 0
+
+    for prop_id in req.property_ids:
+        try:
+            prop = repo.get(prop_id)
+            if not prop:
+                results.append({"id": prop_id, "status": "not_found"})
+                errors += 1
+                continue
+
+            if not prop.description or len(prop.description.strip()) < 20:
+                results.append({"id": prop_id, "status": "skipped", "reason": "no_description"})
+                skipped += 1
+                continue
+
+            prop_ctx = PropertyContext(
+                address=prop.address, city=prop.city, state=prop.state,
+                bedrooms=prop.bedrooms, bathrooms=prop.bathrooms,
+                monthly_rent=prop.monthly_rent, property_type=prop.property_type,
+                description=prop.description,
+            )
+            prop_summary = _build_property_summary(prop_ctx)
+            result = _run_clean(prop.description, prop_summary)
+
+            if result.get("cleaned_description") and result.get("changes_made"):
+                prop.description = result["cleaned_description"]
+                try:
+                    features = json.loads(prop.inferred_features or "[]")
+                except Exception:
+                    features = []
+                features = [f for f in features if not f.startswith("text_cleaned_")]
+                features.append(f"text_cleaned_{datetime.now(timezone.utc).strftime('%Y%m%d')}")
+                prop.inferred_features = json.dumps(features)
+                repo.save(prop)
+                repo.add_log(AiEnrichmentLog(
+                    property_id=prop_id,
+                    field="description",
+                    method="ai_clean",
+                    ai_value=(result["cleaned_description"] or "")[:500],
+                ))
+                results.append({"id": prop_id, "status": "cleaned", "changes": result.get("changes_summary", [])})
+                cleaned += 1
+            else:
+                results.append({"id": prop_id, "status": "already_clean"})
+                skipped += 1
+
+        except HTTPException as e:
+            results.append({"id": prop_id, "status": "error", "error": e.detail})
+            errors += 1
+        except Exception as e:
+            logger.error("Bulk clean error for %s: %s", prop_id, e)
+            results.append({"id": prop_id, "status": "error", "error": str(e)})
+            errors += 1
+
+    return {"results": results, "cleaned": cleaned, "skipped": skipped, "errors": errors}
+
+
+# ── AI Title Generator ──────────────────────────────────────────────────────────
+
+class GenerateTitleRequest(BaseModel):
+    property_id: str | None = None
+    property: PropertyContext
+
+
+@router.post("/ai/generate-title")
+def generate_title(req: GenerateTitleRequest, repo: Repository = Depends(get_db)):
+    prop_summary = _build_property_summary(req.property)
+
+    user_prompt = f"""You are a listing copywriter for Choice Properties. Generate a compelling, specific rental listing title.
+
+PROPERTY DATA:
+{prop_summary}
+
+TITLE RULES:
+- Be specific, not generic. BAD: "2BR Apartment in Chicago". GOOD: "Bright 2BR Corner Apartment with In-Unit Laundry in Lincoln Park"
+- Lead with the strongest feature (size, layout, standout amenity, neighborhood, price if exceptional)
+- Include bedrooms (use "Studio" for 0BR, "BR" abbreviation is fine)
+- Include the city or neighborhood if known
+- Mention 1–2 standout features: garage, yard, in-unit laundry, renovated kitchen, pet-friendly, city views, etc.
+- Keep it under 80 characters if possible
+- Capitalize properly (Title Case)
+- Never mention tours, showings, screening criteria, or contact info
+- Never invent facts — only use details from the property data
+
+Return ONLY the title text. No quotes, no labels, no explanation."""
+
+    try:
+        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.6)
+        title = result.strip().strip('"').strip("'")
+
+        if req.property_id and title:
+            try:
+                prop = repo.get(req.property_id)
+                if prop:
+                    prop.title = title
+                    repo.save(prop)
+                    repo.add_log(AiEnrichmentLog(
+                        property_id=req.property_id,
+                        field="title",
+                        method="ai_title_generator",
+                        ai_value=title[:500],
+                    ))
+            except Exception as e:
+                logger.warning("Generate title: failed to save for %s: %s", req.property_id, e)
+
+        return {"title": title}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI title generation failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── LLM Feature Extraction ──────────────────────────────────────────────────────
+
+class ExtractFeaturesRequest(BaseModel):
+    property_id: str | None = None
+    text: str
+    existing_amenities: list[str] | None = None
+    existing_appliances: list[str] | None = None
+
+
+@router.post("/ai/extract-features")
+def extract_features_llm(req: ExtractFeaturesRequest, repo: Repository = Depends(get_db)):
+    if not req.text or len(req.text.strip()) < 20:
+        return {"amenities": [], "appliances": []}
+
+    existing_a = req.existing_amenities or []
+    existing_ap = req.existing_appliances or []
+
+    user_prompt = f"""You are a property data extractor. Read the rental listing text below and extract all mentioned amenities and appliances.
+
+LISTING TEXT:
+{req.text}
+
+ALREADY CAPTURED (do not duplicate):
+- Amenities: {', '.join(existing_a) if existing_a else 'none yet'}
+- Appliances: {', '.join(existing_ap) if existing_ap else 'none yet'}
+
+EXTRACTION RULES:
+- Amenities: physical features and services (Pool, Gym, Garage, Balcony, Patio, Yard, Fireplace, EV Charging, Storage, Elevator, Doorman, Walk-in Closet, Hardwood Floors, Central Air, Basement, Hot Tub, Rooftop, Security System, Smart Home, etc.)
+- Appliances: kitchen and laundry equipment (Refrigerator, Dishwasher, Washer, Dryer, Microwave, Range/Oven, Garbage Disposal, Ice Maker, Wine Cooler, etc.)
+- Understand nuanced language: "covered 2-car parking structure with EV rough-in" → ["Garage", "EV Charging"]
+- Use standard names (capitalize properly)
+- Only include what is clearly mentioned or strongly implied
+- Do NOT duplicate items already captured
+
+Return a JSON object:
+- "amenities": array of new amenity names not already captured
+- "appliances": array of new appliance names not already captured
+
+Return ONLY a raw JSON object."""
+
+    try:
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        new_amenities = result.get("amenities", [])
+        new_appliances = result.get("appliances", [])
+
+        if req.property_id and (new_amenities or new_appliances):
+            try:
+                prop = repo.get(req.property_id)
+                if prop:
+                    import json as _json
+                    try:
+                        cur_a = _json.loads(prop.amenities or "[]")
+                    except Exception:
+                        cur_a = []
+                    try:
+                        cur_ap = _json.loads(prop.appliances or "[]")
+                    except Exception:
+                        cur_ap = []
+
+                    merged_a = list(dict.fromkeys(cur_a + new_amenities))
+                    merged_ap = list(dict.fromkeys(cur_ap + new_appliances))
+
+                    if merged_a != cur_a:
+                        prop.amenities = _json.dumps(merged_a)
+                        repo.add_log(AiEnrichmentLog(
+                            property_id=req.property_id,
+                            field="amenities",
+                            method="llm_extraction",
+                            ai_value=_json.dumps(merged_a),
+                        ))
+                    if merged_ap != cur_ap:
+                        prop.appliances = _json.dumps(merged_ap)
+                        repo.add_log(AiEnrichmentLog(
+                            property_id=req.property_id,
+                            field="appliances",
+                            method="llm_extraction",
+                            ai_value=_json.dumps(merged_ap),
+                        ))
+                    if merged_a != cur_a or merged_ap != cur_ap:
+                        repo.save(prop)
+            except Exception as e:
+                logger.warning("Extract features: failed to save for %s: %s", req.property_id, e)
+
+        return {"amenities": new_amenities, "appliances": new_appliances}
+    except json.JSONDecodeError:
+        return {"amenities": [], "appliances": []}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI feature extraction failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

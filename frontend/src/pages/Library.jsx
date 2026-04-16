@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -39,6 +39,10 @@ export default function Library() {
   const [scanning, setScanning] = useState(false)
   const [scanHealthMap, setScanHealthMap] = useState(null)
   const [scanError, setScanError] = useState(null)
+
+  const [cleaning, setCleaning] = useState(false)
+  const [cleanResult, setCleanResult] = useState(null)
+  const [cleanError, setCleanError] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
@@ -129,6 +133,27 @@ export default function Library() {
     bulkMutation.mutate({ ids: selectedIds, action })
   }
 
+  async function handleBulkClean() {
+    if (!data || data.length === 0) return
+    const toClean = data.filter(p => p.description && p.description.length > 20).map(p => p.id)
+    if (toClean.length === 0) return
+    if (!window.confirm(`Clean descriptions for ${toClean.length} properties? AI will remove contact info, tour language, and gatekeeping text.`)) return
+    setCleaning(true)
+    setCleanResult(null)
+    setCleanError(null)
+    try {
+      const res = await aiBulkClean({ property_ids: toClean })
+      setCleanResult(res.data)
+      queryClient.invalidateQueries({ queryKey: ['properties'] })
+      setTimeout(() => setCleanResult(null), 8000)
+    } catch (e) {
+      setCleanError(e.response?.data?.detail || e.message || 'Bulk clean failed.')
+      setTimeout(() => setCleanError(null), 6000)
+    } finally {
+      setCleaning(false)
+    }
+  }
+
   async function handleAiScan() {
     if (scanning || filtered.length === 0) return
     setScanning(true)
@@ -169,6 +194,23 @@ export default function Library() {
           </span>
         </h1>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Clean All */}
+          <button
+            onClick={handleBulkClean}
+            disabled={cleaning || !data || data.length === 0}
+            title="Clean all descriptions with AI"
+            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors touch-target"
+          >
+            <svg className={`w-4 h-4 flex-shrink-0 ${cleaning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              {cleaning
+                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+              }
+            </svg>
+            <span className="hidden sm:inline">{cleaning ? 'Cleaning…' : 'Clean All'}</span>
+            <span className="sm:hidden">{cleaning ? '…' : 'Clean'}</span>
+          </button>
+
           {/* AI Scan — icon-only on mobile, full label on desktop */}
           <button
             onClick={handleAiScan}
@@ -213,6 +255,28 @@ export default function Library() {
       <div className="flex items-center justify-between mb-4">
         <SyncStatus />
       </div>
+
+      {/* Clean results banners */}
+      {cleanError && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <span>Clean failed: {cleanError}</span>
+          <button onClick={() => setCleanError(null)} className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
+      {cleanResult && (
+        <div className="mb-4 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-emerald-900">
+              Bulk Clean Complete — {cleanResult.cleaned} descriptions updated
+            </span>
+            <button onClick={() => setCleanResult(null)} className="text-emerald-400 hover:text-emerald-600 text-lg leading-none">&times;</button>
+          </div>
+          <div className="flex gap-4 mt-1">
+            <span className="text-sm text-gray-600"><strong>{cleanResult.skipped}</strong> already clean</span>
+            {cleanResult.errors > 0 && <span className="text-sm text-red-600"><strong>{cleanResult.errors}</strong> errors</span>}
+          </div>
+        </div>
+      )}
 
       {/* AI Scan results banner */}
       {scanError && (

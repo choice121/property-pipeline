@@ -153,6 +153,12 @@ def _add_inferred_to_prop(prop, feature: str):
     prop.inferred_features = json.dumps(existing)
 
 
+SIGNIFICANT_FIELDS = frozenset([
+    "bedrooms", "bathrooms", "property_type", "monthly_rent",
+    "amenities", "appliances", "description", "city", "state",
+])
+
+
 def _decide_tasks(prop) -> list[str]:
     tasks = []
 
@@ -173,7 +179,94 @@ def _decide_tasks(prop) -> list[str]:
     if not prop.property_type or raw_type in ("UNKNOWN", "OTHER", ""):
         tasks.append("classify_property_type")
 
+    title = (prop.title or "").strip()
+    if not title or _is_generic_title(title):
+        tasks.append("generate_title")
+
     return tasks
+
+
+def _is_generic_title(title: str) -> bool:
+    import re
+    t = title.lower().strip()
+    generic_patterns = [
+        r'^\d+br?\s+(apartment|house|condo|townhouse|home|rental|property)\s+in\s+\w+$',
+        r'^(studio|apartment|house|condo|townhouse|home|rental)\s+in\s+\w+',
+        r'^(beautiful|nice|great|spacious|cozy)\s+\d+\s*(br|bed|bedroom)',
+    ]
+    for pat in generic_patterns:
+        if re.match(pat, t):
+            return True
+    if len(t) < 15:
+        return True
+    return False
+
+
+def _deepseek_generate_title(prop) -> str | None:
+    try:
+        from openai import OpenAI
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key:
+            return None
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+
+        bed = prop.bedrooms
+        bath = prop.bathrooms
+        ptype = (prop.property_type or "home").lower().replace("_", " ")
+        city = prop.city or ""
+        state = prop.state or ""
+        amenities = _parse_json_list(prop.amenities)
+        appliances = _parse_json_list(prop.appliances)
+        parking = prop.parking or ""
+        laundry = prop.laundry_type or ""
+        sqft = prop.square_footage
+
+        standouts = []
+        if "Garage" in amenities or (parking and "garage" in parking.lower()):
+            standouts.append("Garage")
+        if "In-unit" in laundry or "In Unit" in laundry:
+            standouts.append("In-Unit Laundry")
+        if "Pool" in amenities:
+            standouts.append("Pool")
+        if "Balcony" in amenities:
+            standouts.append("Balcony")
+        if "Yard" in amenities or "Fenced Yard" in amenities:
+            standouts.append("Private Yard")
+        if sqft and sqft > 1500:
+            standouts.append(f"{sqft:,} sqft")
+        if prop.pets_allowed:
+            standouts.append("Pet-Friendly")
+
+        bed_str = "Studio" if bed == 0 else (f"{bed}BR" if bed else "")
+        location = city or (state or "")
+
+        prompt = (
+            f"Property: {bed_str} {ptype} in {location}\n"
+            + (f"Standout features: {', '.join(standouts[:3])}\n" if standouts else "")
+            + "Generate a compelling, specific rental listing title (under 80 chars, Title Case, no tour/screening language)."
+        )
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You write compelling, specific rental listing titles for Choice Properties. "
+                        "Be specific, not generic. Lead with the strongest feature. "
+                        "Include bedroom count and city. Mention 1-2 standout amenities. "
+                        "Return ONLY the title text, nothing else."
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.6,
+        )
+        title = response.choices[0].message.content.strip().strip('"').strip("'")
+        return title if len(title) > 10 else None
+    except Exception as e:
+        logger.warning("ai_enricher: title generation failed: %s", e)
+        return None
 
 
 def _generate_description(prop) -> str:
@@ -457,6 +550,20 @@ def enrich_property(prop_id: str, repo) -> None:
                 prop.property_type = ptype
                 _add_inferred_to_prop(prop, "property_type_rule_classified")
                 changed = True
+
+        if "generate_title" in tasks:
+            new_title = _deepseek_generate_title(prop)
+            if new_title:
+                log_rows.append(AiEnrichmentLog(
+                    property_id=prop_id,
+                    field="title",
+                    method="ai_title_generator",
+                    ai_value=new_title[:500],
+                ))
+                prop.title = new_title
+                _add_inferred_to_prop(prop, "title_ai_generated")
+                changed = True
+                logger.info("ai_enricher: generated title for %s", prop_id)
 
         if changed:
             repo.save(prop)
