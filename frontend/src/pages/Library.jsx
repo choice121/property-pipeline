@@ -161,42 +161,49 @@ export default function Library() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-2xl font-bold text-gray-900">
-          Property Library
-          <span className="ml-2 text-base font-normal text-gray-500">
-            ({filtered.length} {filtered.length === 1 ? 'property' : 'properties'})
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900 truncate">
+          Library
+          <span className="ml-2 text-sm sm:text-base font-normal text-gray-500">
+            ({filtered.length})
           </span>
         </h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* AI Scan — icon-only on mobile, full label on desktop */}
           <button
             onClick={handleAiScan}
             disabled={scanning || filtered.length === 0}
-            className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors"
+            title={`AI Scan (${filtered.length})`}
+            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors touch-target"
           >
-            <svg className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className={`w-4 h-4 flex-shrink-0 ${scanning ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               {scanning
                 ? <><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></>
                 : <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
               }
             </svg>
-            {scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}
+            <span className="hidden sm:inline">{scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}</span>
+            <span className="sm:hidden">{scanning ? '…' : 'Scan'}</span>
           </button>
+
+          {/* Select */}
           <button
             onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
-            className={`text-sm px-3 py-2 rounded-lg border transition-colors ${selectMode ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            className={`text-sm px-2.5 sm:px-3 py-2 rounded-lg border transition-colors touch-target ${selectMode ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
           >
             {selectMode ? 'Cancel' : 'Select'}
           </button>
+
+          {/* + Create and + Scrape — desktop only; bottom tab bar handles mobile */}
           <Link
             to="/create"
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            className="hidden sm:block border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
           >
             + Create
           </Link>
           <Link
             to="/scraper"
-            className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+            className="hidden sm:block bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
           >
             + Scrape
           </Link>
@@ -300,40 +307,42 @@ export default function Library() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-2 sm:gap-3 mb-6">
         <input
           type="text"
           placeholder="Search by address or city..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-48 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          className="border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 flex-1 focus:outline-none focus:ring-2 focus:ring-gray-400"
         />
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-        >
-          <option value="">All Statuses</option>
-          <option value="draft">Draft</option>
-          <option value="scraped">Scraped</option>
-          <option value="edited">Edited</option>
-          <option value="ready">Ready</option>
-          <option value="published">Published</option>
-          <option value="rented">Rented</option>
-          <option value="archived">Archived</option>
-        </select>
-        <select
-          value={sort}
-          onChange={(e) => setSort(e.target.value)}
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400"
-        >
-          <option value="scraped_at">Newest First</option>
-          <option value="price_asc">Price: Low to High</option>
-          <option value="price_desc">Price: High to Low</option>
-          <option value="bedrooms">Most Bedrooms</option>
-          <option value="completeness_asc">Needs Attention First</option>
-          <option value="completeness_desc">Most Complete First</option>
-        </select>
+        <div className="flex gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 flex-1 sm:flex-none focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+          >
+            <option value="">All Statuses</option>
+            <option value="draft">Draft</option>
+            <option value="scraped">Scraped</option>
+            <option value="edited">Edited</option>
+            <option value="ready">Ready</option>
+            <option value="published">Published</option>
+            <option value="rented">Rented</option>
+            <option value="archived">Archived</option>
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 flex-1 sm:flex-none focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+          >
+            <option value="scraped_at">Newest First</option>
+            <option value="price_asc">Price ↑</option>
+            <option value="price_desc">Price ↓</option>
+            <option value="bedrooms">Bedrooms</option>
+            <option value="completeness_asc">Needs Attention</option>
+            <option value="completeness_desc">Most Complete</option>
+          </select>
+        </div>
       </div>
 
       {isLoading ? (

@@ -241,13 +241,43 @@ export default function Editor() {
   const isLive = !!(form.choice_property_id)
 
   return (
-    <div className="max-w-3xl">
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={handleBackToLibrary} className="text-sm text-gray-500 hover:text-gray-700">← Back to Library</button>
-        <div className="flex items-center gap-3">
+    <div className="max-w-3xl pb-28 sm:pb-0">
+
+      {/* ── Sticky mobile save bar — always visible on mobile while scrolling ── */}
+      <div
+        className="sm:hidden fixed bottom-0 left-0 right-0 z-50 bg-white/95 border-t border-gray-200 px-4 py-3 flex items-center gap-3 backdrop-blur-sm"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 12px)' }}
+      >
+        <button
+          onClick={handleBackToLibrary}
+          className="flex items-center gap-1 text-sm text-gray-500 touch-target px-2"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          Back
+        </button>
+        <div className="flex-1" />
+        {saved && (
+          <span className="text-xs text-green-600 font-medium">Saved ✓</span>
+        )}
+        <StatusBadge status={form.status} />
+        <button
+          onClick={handleSave}
+          disabled={saveMutation.isPending}
+          className="bg-gray-900 text-white px-5 py-2 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors"
+        >
+          {saveMutation.isPending ? 'Saving…' : isLive ? 'Save & Sync' : 'Save'}
+        </button>
+      </div>
+
+      {/* ── Desktop header ── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <button onClick={handleBackToLibrary} className="hidden sm:block text-sm text-gray-500 hover:text-gray-700 touch-target">← Back to Library</button>
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowPreview(true)}
-            className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5"
+            className="text-xs px-3 py-1.5 rounded border border-gray-300 text-gray-600 hover:bg-gray-50 flex items-center gap-1.5 touch-target"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -257,9 +287,9 @@ export default function Editor() {
           </button>
           <button
             onClick={() => setShowOriginal(!showOriginal)}
-            className={`text-xs px-3 py-1.5 rounded border ${showOriginal ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            className={`text-xs px-3 py-1.5 rounded border touch-target ${showOriginal ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
           >
-            {showOriginal ? 'Hide Original' : 'Compare with Original'}
+            {showOriginal ? 'Hide Original' : 'Original'}
           </button>
           {isLive && (
             <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">

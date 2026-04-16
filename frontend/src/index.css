@@ -1,1 +1,42 @@
 @import "tailwindcss";
+
+/* ── Global mobile optimizations ─────────────────────────────────────────── */
+
+/* Remove 300ms tap delay on all clickable elements */
+a, button, [role="button"], input[type="submit"], label {
+  touch-action: manipulation;
+}
+
+/* Prevent iOS Safari auto-zoom on input focus — needs font-size >= 16px */
+input, select, textarea {
+  font-size: 16px;
+}
+
+/* Smooth scrolling & text size normalisation */
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* No horizontal bleed on any screen */
+body {
+  overflow-x: hidden;
+}
+
+/* Safe area utility for notched phones (iPhone X+, many Androids) */
+.pb-safe {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+/* Minimum 44px touch target (Apple HIG / WCAG recommendation) */
+.touch-target {
+  min-height: 44px;
+  min-width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}

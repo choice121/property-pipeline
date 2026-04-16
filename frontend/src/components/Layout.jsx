@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { getSetupStatus } from '../api/client'
 
@@ -24,12 +24,12 @@ function RequirementList({ title, items }) {
 function SetupScreen({ status, error, refetch, isFetching }) {
   const groups = status?.groups
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6">
       <div className="max-w-4xl mx-auto">
-        <div className="bg-gray-900 text-white rounded-2xl p-6 shadow-lg mb-6">
+        <div className="bg-gray-900 text-white rounded-2xl p-5 sm:p-6 shadow-lg mb-6">
           <p className="text-sm uppercase tracking-wide text-gray-300 mb-2">Import setup</p>
-          <h1 className="text-3xl font-bold mb-3">Connect Choice Properties before use</h1>
-          <p className="text-gray-200">
+          <h1 className="text-2xl sm:text-3xl font-bold mb-3">Connect Choice Properties before use</h1>
+          <p className="text-gray-200 text-sm sm:text-base">
             This project starts safely in every Replit account, then verifies the live website database before syncing. Add the required secrets in your Replit secrets panel, restart the app, and this screen will confirm when it is ready.
           </p>
         </div>
@@ -50,7 +50,7 @@ function SetupScreen({ status, error, refetch, isFetching }) {
               <button
                 onClick={() => refetch()}
                 disabled={isFetching}
-                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium disabled:opacity-50"
+                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium disabled:opacity-50 touch-target"
               >
                 {isFetching ? 'Checking...' : 'Recheck'}
               </button>
@@ -75,9 +75,37 @@ function SetupBanner({ status }) {
   const publishingMissing = status.missing?.publishing || []
   const missingText = publishingMissing.length ? ` Missing for publishing: ${publishingMissing.join(', ')}` : ''
   return (
-    <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 text-sm text-amber-900">
+    <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs sm:text-sm text-amber-900">
       {status.summary}{missingText}
     </div>
+  )
+}
+
+/* ── Icon components for bottom tab bar ─────────────────────────────────── */
+function IconLibrary({ active }) {
+  return (
+    <svg className={`w-5 h-5 mb-0.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  )
+}
+function IconScrape({ active }) {
+  return (
+    <svg className={`w-5 h-5 mb-0.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <circle cx="11" cy="11" r="8" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35" />
+    </svg>
+  )
+}
+function IconCreate({ active }) {
+  return (
+    <svg className={`w-5 h-5 mb-0.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="10" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v8M8 12h8" />
+    </svg>
   )
 }
 
@@ -88,7 +116,7 @@ export default function Layout() {
     refetchInterval: 60000,
   })
 
-  const linkClass = ({ isActive }) =>
+  const desktopLink = ({ isActive }) =>
     isActive
       ? 'font-bold text-white underline underline-offset-4'
       : 'text-gray-200 hover:text-white transition-colors'
@@ -106,23 +134,60 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <nav className="bg-gray-900 px-6 py-4 flex items-center justify-between shadow-md">
-        <span className="text-white text-xl font-semibold tracking-tight">
+
+      {/* ── Top nav (visible on all sizes, links hidden on mobile) ── */}
+      <nav className="bg-gray-900 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between shadow-md sticky top-0 z-40">
+        <span className="text-white text-lg sm:text-xl font-semibold tracking-tight">
           Property Pipeline
         </span>
-        <div className="flex gap-6">
-          <NavLink to="/" end className={linkClass}>
-            Library
-          </NavLink>
-          <NavLink to="/scraper" className={linkClass}>
-            Scrape
-          </NavLink>
+        {/* Desktop nav links — hidden on mobile (bottom bar handles it) */}
+        <div className="hidden sm:flex gap-6">
+          <NavLink to="/" end className={desktopLink}>Library</NavLink>
+          <NavLink to="/scraper" className={desktopLink}>Scrape</NavLink>
+          <NavLink to="/create" className={desktopLink}>+ Create</NavLink>
         </div>
       </nav>
+
       <SetupBanner status={setup.data} />
-      <main className="p-6">
+
+      {/* Main content — extra bottom padding on mobile for the tab bar */}
+      <main className="px-3 py-4 sm:p-6 pb-24 sm:pb-6">
         <Outlet />
       </main>
+
+      {/* ── Mobile bottom tab bar (hidden on sm+) ─────────────────── */}
+      <nav
+        className="sm:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-50 pb-safe"
+        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 4px)' }}
+      >
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) =>
+            `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`
+          }
+        >
+          {({ isActive }) => (<><IconLibrary active={isActive} />Library</>)}
+        </NavLink>
+
+        <NavLink
+          to="/scraper"
+          className={({ isActive }) =>
+            `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`
+          }
+        >
+          {({ isActive }) => (<><IconScrape active={isActive} />Scrape</>)}
+        </NavLink>
+
+        <NavLink
+          to="/create"
+          className={({ isActive }) =>
+            `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`
+          }
+        >
+          {({ isActive }) => (<><IconCreate active={isActive} />Create</>)}
+        </NavLink>
+      </nav>
     </div>
   )
 }
