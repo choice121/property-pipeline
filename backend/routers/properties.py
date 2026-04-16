@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from database.db import get_db
-from database.repository import Repository, PropertyRecord
+from database.repository import Repository, PropertyRecord, AiEnrichmentLog
 from services import publisher_service
 
 logger = logging.getLogger(__name__)
@@ -110,6 +110,8 @@ def update_property(id: str, body: dict, background_tasks: BackgroundTasks, repo
     except Exception:
         edited_fields = []
 
+    old_description = getattr(prop, "description", None)
+
     log_updates = []
     for key, value in body.items():
         if key in ("id", "scraped_at", "original_data", "source", "source_listing_id"):
@@ -122,6 +124,23 @@ def update_property(id: str, body: dict, background_tasks: BackgroundTasks, repo
                 if log_entry:
                     log_updates.append((log_entry, str(value)))
             setattr(prop, key, value)
+
+    new_description = getattr(prop, "description", None)
+    if (
+        old_description
+        and new_description
+        and old_description != new_description
+        and len(old_description.strip()) > 20
+    ):
+        try:
+            repo.add_log(AiEnrichmentLog(
+                property_id=id,
+                field="description_history",
+                method="human_edit_v1",
+                ai_value=old_description[:2000],
+            ))
+        except Exception as e:
+            logger.warning("Failed to log description history for %s: %s", id, e)
 
     for log_entry, human_val in log_updates:
         log_entry.was_overridden = True
