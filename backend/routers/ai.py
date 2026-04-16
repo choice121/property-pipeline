@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import os
@@ -5,6 +6,7 @@ import time
 from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
 
@@ -1073,3 +1075,275 @@ Return a JSON object:
     except Exception as e:
         logger.error("AI feature extraction failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Phase 4A: Streaming Rewrite ─────────────────────────────────────────────────
+
+@router.post("/ai/rewrite-description/stream")
+def rewrite_description_stream(req: RewriteRequest):
+    prop_summary = _build_property_summary(req.property)
+
+    tone_map = {
+        "professional": (
+            "professional and polished — confident, clean, and authoritative. "
+            "Use precise language. Avoid filler phrases. Read like a premium listing."
+        ),
+        "friendly": (
+            "warm, conversational, and inviting — like a trusted friend describing the home. "
+            "Use approachable language. Make the reader feel excited and welcome."
+        ),
+        "concise": (
+            "short and direct — maximum 3 sentences per paragraph, 2 paragraphs total. "
+            "Lead with the strongest features. Cut everything that isn't essential."
+        ),
+    }
+    tone_instruction = tone_map.get(req.tone, tone_map["professional"])
+
+    user_prompt = f"""Rewrite this rental listing description using the property details below.
+
+PROPERTY DATA:
+{prop_summary}
+
+TONE: {tone_instruction}
+
+HARD RULES — follow every one without exception:
+1. NEVER mention tours, viewings, showings, or "seeing the property in person." Omit completely.
+2. NEVER include credit scores, income requirements, income multipliers, background check language, "no Section 8", or any tenant screening criteria.
+3. NEVER say "no pets." Either omit the pet policy entirely or say "ask about our pet policy."
+4. NEVER invent facts. Only describe what is supported by the property data above.
+5. NEVER copy boilerplate phrases like "don't miss this gem", "call today", "motivated landlord."
+6. Focus on what makes this home livable and enjoyable: layout, light, space, comfort, location, amenities.
+7. Structure: 2–4 paragraphs. No bullet points. No headline or title. Body text only.
+8. End with a soft call to action about applying — e.g. "Ready to call this home? Submit your application today and take the first step."
+9. Return ONLY the description text. Nothing else — no labels, no preamble, no quotes."""
+
+    def generate():
+        try:
+            client = get_client()
+            stream = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=[
+                    {"role": "system", "content": PLATFORM_CONTEXT},
+                    {"role": "user", "content": user_prompt},
+                ],
+                temperature=0.75,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield f"data: {json.dumps({'content': delta.content})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Phase 4A: Streaming Chat ────────────────────────────────────────────────────
+
+@router.post("/ai/chat/stream")
+def chat_stream(req: ChatRequest):
+    prop_summary = _build_property_summary(req.property)
+
+    system_message = f"""{PLATFORM_CONTEXT}
+
+---
+
+## Your Current Task
+You are helping a property manager edit and improve a specific listing in the Property Pipeline. You have full context of the listing below. You can:
+- Answer questions about the listing
+- Rewrite or improve the description (provide the full text when asked)
+- Suggest values for specific fields
+- Flag issues or inconsistencies
+- Explain platform rules (why certain language should be removed, etc.)
+- Help think through pricing, amenities, or lease terms
+
+Always be direct and practical. If asked to rewrite something, provide the complete rewritten version immediately.
+
+## Current Property
+{prop_summary}"""
+
+    messages = [{"role": "system", "content": system_message}]
+    if req.history:
+        for msg in req.history[-10:]:
+            role = msg.get("role", "user")
+            if role in ("user", "assistant"):
+                messages.append({"role": role, "content": msg.get("content", "")})
+    messages.append({"role": "user", "content": req.message})
+
+    def generate():
+        try:
+            client = get_client()
+            stream = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                temperature=0.7,
+                stream=True,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta.content:
+                    yield f"data: {json.dumps({'content': delta.content})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        finally:
+            yield "data: [DONE]\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ── Phase 4B: Neighborhood Context ─────────────────────────────────────────────
+
+class NeighborhoodRequest(BaseModel):
+    city: str | None = None
+    state: str | None = None
+    property_type: str | None = None
+    address: str | None = None
+
+
+@router.post("/ai/neighborhood-context")
+def neighborhood_context(req: NeighborhoodRequest):
+    if not req.city and not req.state:
+        raise HTTPException(status_code=400, detail="City or state is required.")
+
+    location = ", ".join(filter(None, [req.city, req.state]))
+    prop_type = req.property_type or "rental property"
+
+    user_prompt = f"""Write a short neighborhood context paragraph for a {prop_type} rental listing located in {location}.
+
+INSTRUCTIONS:
+- Write 2–3 sentences only
+- Focus on what makes this location appealing for renters: commute access, transit options, walkability, nearby parks, restaurants, schools, employment hubs, or neighborhood character
+- Tone: warm, honest, and welcoming — consistent with a tenant-first rental platform
+- Do NOT mention real estate prices, "hot market," "high demand," or investment language
+- Do NOT invent specific business names, street names, or landmarks you are not confident about
+- Keep it grounded — describe the general character and lifestyle appeal of living in this area
+- End the paragraph with a sentence that highlights a lifestyle benefit of the location
+
+Return ONLY the paragraph text. No labels, no quotes, no headers."""
+
+    try:
+        result = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.5)
+        return {"neighborhood_context": result.strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Neighborhood context failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Phase 4C: Duplicate Detection ──────────────────────────────────────────────
+
+class DuplicateCheckRequest(BaseModel):
+    property_id: str
+    address: str | None = None
+    source_listing_id: str | None = None
+
+
+@router.post("/ai/check-duplicates")
+def check_duplicates(req: DuplicateCheckRequest, repo: Repository = Depends(get_db)):
+    if not req.address and not req.source_listing_id:
+        return {"duplicates": [], "is_duplicate": False}
+
+    try:
+        all_props = repo.list()
+    except Exception as e:
+        logger.warning("Duplicate check: could not load properties: %s", e)
+        return {"duplicates": [], "is_duplicate": False}
+
+    address_lower = (req.address or "").lower().strip()
+    candidates = []
+
+    for prop in all_props:
+        if str(prop.id) == str(req.property_id):
+            continue
+
+        if req.source_listing_id and prop.source_listing_id == req.source_listing_id:
+            candidates.append({
+                "id": str(prop.id),
+                "address": prop.address,
+                "similarity": 1.0,
+                "match_type": "source_id",
+                "status": prop.status,
+            })
+            continue
+
+        if address_lower and prop.address:
+            ratio = difflib.SequenceMatcher(
+                None, address_lower, prop.address.lower().strip()
+            ).ratio()
+            if ratio >= 0.85:
+                candidates.append({
+                    "id": str(prop.id),
+                    "address": prop.address,
+                    "similarity": round(ratio, 2),
+                    "match_type": "address",
+                    "status": prop.status,
+                })
+
+    candidates.sort(key=lambda x: x["similarity"], reverse=True)
+    return {
+        "duplicates": candidates[:5],
+        "is_duplicate": len(candidates) > 0,
+    }
+
+
+# ── Phase 5B: AI Feedback ───────────────────────────────────────────────────────
+
+class FeedbackRequest(BaseModel):
+    property_id: str
+    field: str
+    action: str
+    ai_value: str | None = None
+
+
+@router.post("/ai/feedback")
+def save_ai_feedback(req: FeedbackRequest, repo: Repository = Depends(get_db)):
+    if req.action not in ("accept", "reject"):
+        raise HTTPException(status_code=400, detail="action must be 'accept' or 'reject'")
+    log = AiEnrichmentLog(
+        property_id=req.property_id,
+        field=req.field,
+        method=f"feedback_{req.action}_{PROMPT_VERSION}",
+        ai_value=(req.ai_value or "")[:500] if req.ai_value else None,
+        was_overridden=(req.action == "reject"),
+    )
+    try:
+        repo.add_log(log)
+    except Exception as e:
+        logger.warning("Failed to save AI feedback: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save feedback.")
+    return {"ok": True}
+
+
+# ── Phase 5D: Description History Endpoint ─────────────────────────────────────
+
+@router.get("/ai/description-history/{property_id}")
+def get_description_history(property_id: str, repo: Repository = Depends(get_db)):
+    try:
+        logs = repo.list_logs_by_field(property_id, "description_history", limit=10)
+        return {
+            "history": [
+                {
+                    "id": log.id,
+                    "description": log.ai_value,
+                    "saved_at": log.created_at,
+                    "method": log.method,
+                }
+                for log in logs
+                if log.ai_value
+            ]
+        }
+    except Exception as e:
+        logger.warning("Description history fetch failed: %s", e)
+        return {"history": []}
