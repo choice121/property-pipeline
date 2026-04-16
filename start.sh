@@ -3,6 +3,23 @@ set -e
 
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ── Layer 0: Auto-configure Git credentials (runs on every boot) ──────────────
+# Reads GITHUB_TOKEN and GITHUB_REPO from backend/.env so that git push works
+# immediately after any Replit restart, new import, or fresh clone — no manual
+# token entry ever needed.
+if [ -f "$APP_DIR/backend/.env" ]; then
+  _GT=$(grep '^GITHUB_TOKEN=' "$APP_DIR/backend/.env" | cut -d= -f2- | tr -d '[:space:]')
+  _GR=$(grep '^GITHUB_REPO=' "$APP_DIR/backend/.env" | cut -d= -f2- | tr -d '[:space:]')
+  if [ -n "$_GT" ] && [ -n "$_GR" ]; then
+    git config --global credential.helper store 2>/dev/null || true
+    printf 'https://%s@github.com\n' "$_GT" > ~/.git-credentials
+    chmod 600 ~/.git-credentials
+    git config --global user.name  "Property Pipeline" 2>/dev/null || true
+    git config --global user.email "pipeline@choiceproperties.local" 2>/dev/null || true
+    echo "==> Git credentials configured (push ready)"
+  fi
+fi
+
 # ── Layer 1: Load .env into shell environment (before anything else) ──────────
 # This ensures ALL vars are exported at the OS process level, not just Python-
 # level dotenv. Any child process (uvicorn, vite, scripts) inherits them too.
