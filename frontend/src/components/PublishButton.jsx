@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { publishProperty, syncFields, refreshImages, setListingStatus, aiDetectIssues } from '../api/client'
+import { publishProperty, syncFields, refreshImages, setListingStatus, aiDetectIssues, aiCheckDuplicates } from '../api/client'
 
 const LIVE_SITE_BASE = 'https://choice-properties-site.pages.dev/property.html'
 
@@ -63,6 +63,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   const [gateChecking, setGateChecking] = useState(false)
   const [gateIssues, setGateIssues] = useState(null)
   const [gateOverride, setGateOverride] = useState(false)
+  const [duplicateWarning, setDuplicateWarning] = useState(null)
 
   const missingFields = parseArray(property.missing_fields)
   const qualityScore = property.data_quality_score
@@ -107,11 +108,25 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
     setGateChecking(true)
     setGateIssues(null)
     setGateOverride(false)
+    setDuplicateWarning(null)
     try {
-      const res = await aiDetectIssues({ property: buildPropertyContext(property) })
-      const issues = res.data.issues || []
+      const [issuesRes, dupRes] = await Promise.allSettled([
+        aiDetectIssues({ property: buildPropertyContext(property) }),
+        aiCheckDuplicates({
+          property_id: String(property.id),
+          address: property.address || '',
+          source_listing_id: property.source_listing_id || null,
+        }),
+      ])
+
+      const issues = issuesRes.status === 'fulfilled' ? (issuesRes.value.data.issues || []) : []
       const errors = issues.filter(i => i.severity === 'error')
       const warnings = issues.filter(i => i.severity === 'warning')
+
+      if (dupRes.status === 'fulfilled' && dupRes.value.data.is_duplicate) {
+        setDuplicateWarning(dupRes.value.data.duplicates)
+      }
+
       if (errors.length > 0 || warnings.length > 0) {
         setGateIssues({ errors, warnings, all: issues })
       } else {
@@ -319,6 +334,17 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
         <p className="text-sm font-medium text-amber-800">
           This will upload all images and push the listing live to Choice Properties immediately. Continue?
         </p>
+        {duplicateWarning && duplicateWarning.length > 0 && (
+          <div className="text-xs bg-orange-50 border border-orange-200 rounded-md px-3 py-2 space-y-1">
+            <p className="font-semibold text-orange-800">⚠ Possible duplicate listing detected</p>
+            {duplicateWarning.slice(0, 3).map((d, i) => (
+              <p key={i} className="text-orange-700">
+                {d.match_type === 'source_id' ? 'Exact match' : `${Math.round(d.similarity * 100)}% similar`}: {d.address} ({d.status})
+              </p>
+            ))}
+            <p className="text-orange-600 mt-1">Review these before publishing to avoid duplicates.</p>
+          </div>
+        )}
         {(qualityScore != null || missingFields.length > 0) && (
           <div className="text-xs text-amber-700 bg-white/70 border border-amber-100 rounded-md px-3 py-2">
             {qualityScore != null && <p className="font-medium">Completeness: {qualityScore}%</p>}
