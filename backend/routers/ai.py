@@ -3,7 +3,7 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException
-from openai import OpenAI
+from openai import OpenAI, AuthenticationError, RateLimitError, APIStatusError, APIConnectionError
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -17,14 +17,53 @@ def _get_client():
     return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
 
+def _handle_deepseek_error(e: Exception):
+    if isinstance(e, AuthenticationError):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid DeepSeek API key. Please check your DEEPSEEK_API_KEY in backend/.env."
+        )
+    if isinstance(e, RateLimitError):
+        raise HTTPException(
+            status_code=429,
+            detail="DeepSeek rate limit reached. You are sending too many requests. Please wait a moment and try again."
+        )
+    if isinstance(e, APIStatusError):
+        if e.status_code == 402:
+            raise HTTPException(
+                status_code=402,
+                detail="DeepSeek credit exhausted. Your account balance is too low. Please top up at platform.deepseek.com to continue using AI features."
+            )
+        if e.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="DeepSeek rate limit reached. Please wait a moment and try again."
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"DeepSeek API error ({e.status_code}): {e.message}"
+        )
+    if isinstance(e, APIConnectionError):
+        raise HTTPException(
+            status_code=503,
+            detail="Could not connect to DeepSeek. Please check your internet connection and try again."
+        )
+    raise HTTPException(status_code=500, detail=str(e))
+
+
 def _call_deepseek(prompt: str) -> str:
-    client = _get_client()
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.7,
-    )
-    return response.choices[0].message.content.strip()
+    try:
+        client = _get_client()
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except HTTPException:
+        raise
+    except Exception as e:
+        _handle_deepseek_error(e)
 
 
 class PropertyContext(BaseModel):
@@ -259,9 +298,11 @@ Instructions:
         )
         result = response.choices[0].message.content.strip()
         return {"reply": result}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("AI chat failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        _handle_deepseek_error(e)
 
 
 AUTOFILL_FIELD_DESCRIPTIONS = {
