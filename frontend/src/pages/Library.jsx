@@ -1,10 +1,30 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
+
+function buildContext(p) {
+  const tryArr = (v) => { try { return JSON.parse(v || '[]').join(', ') } catch { return v || '' } }
+  return {
+    address: p.address, city: p.city, state: p.state,
+    bedrooms: p.bedrooms != null ? Number(p.bedrooms) : null,
+    bathrooms: p.bathrooms != null ? Number(p.bathrooms) : null,
+    square_footage: p.square_footage ? Number(p.square_footage) : null,
+    year_built: p.year_built ? Number(p.year_built) : null,
+    monthly_rent: p.monthly_rent ? Number(p.monthly_rent) : null,
+    property_type: p.property_type,
+    amenities: tryArr(p.amenities), appliances: tryArr(p.appliances),
+    pets_allowed: p.pets_allowed ?? null,
+    parking: p.parking, heating_type: p.heating_type, cooling_type: p.cooling_type,
+    laundry_type: p.laundry_type, utilities_included: tryArr(p.utilities_included),
+    description: p.description, lease_terms: tryArr(p.lease_terms),
+    flooring: tryArr(p.flooring),
+    has_basement: p.has_basement ?? null, has_central_air: p.has_central_air ?? null,
+  }
+}
 
 export default function Library() {
   const navigate = useNavigate()
@@ -15,6 +35,10 @@ export default function Library() {
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkResult, setBulkResult] = useState(null)
+
+  const [scanning, setScanning] = useState(false)
+  const [scanHealthMap, setScanHealthMap] = useState(null)
+  const [scanError, setScanError] = useState(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
@@ -105,6 +129,36 @@ export default function Library() {
     bulkMutation.mutate({ ids: selectedIds, action })
   }
 
+  async function handleAiScan() {
+    if (scanning || filtered.length === 0) return
+    setScanning(true)
+    setScanHealthMap(null)
+    setScanError(null)
+    try {
+      const properties = filtered.map(p => ({ id: String(p.id), property: buildContext(p) }))
+      const res = await aiBulkScan({ properties })
+      const results = res.data.results || []
+      const map = {}
+      results.forEach(r => { map[r.id] = r })
+      setScanHealthMap(map)
+    } catch (e) {
+      setScanError(e.response?.data?.detail || e.message || 'AI scan failed.')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const scanSummary = useMemo(() => {
+    if (!scanHealthMap) return null
+    let errors = 0, warnings = 0, clean = 0
+    Object.values(scanHealthMap).forEach(r => {
+      if (r.errors > 0) errors++
+      else if (r.warnings > 0) warnings++
+      else clean++
+    })
+    return { errors, warnings, clean, total: Object.keys(scanHealthMap).length }
+  }, [scanHealthMap])
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -115,6 +169,19 @@ export default function Library() {
           </span>
         </h1>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleAiScan}
+            disabled={scanning || filtered.length === 0}
+            className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors"
+          >
+            <svg className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              {scanning
+                ? <><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></>
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              }
+            </svg>
+            {scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}
+          </button>
           <button
             onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
             className={`text-sm px-3 py-2 rounded-lg border transition-colors ${selectMode ? 'bg-gray-900 text-white border-gray-900' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
@@ -139,6 +206,48 @@ export default function Library() {
       <div className="flex items-center justify-between mb-4">
         <SyncStatus />
       </div>
+
+      {/* AI Scan results banner */}
+      {scanError && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <span>AI scan failed: {scanError}</span>
+          <button onClick={() => setScanError(null)} className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
+
+      {scanSummary && (
+        <div className="mb-4 px-4 py-3 bg-purple-50 border border-purple-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5">
+              <svg className="w-4 h-4 text-purple-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+              </svg>
+              <span className="text-sm font-semibold text-purple-900">AI Scan Complete — {scanSummary.total} listings reviewed</span>
+            </div>
+            <button onClick={() => setScanHealthMap(null)} className="text-purple-400 hover:text-purple-600 text-lg leading-none">&times;</button>
+          </div>
+          <div className="flex gap-4 mt-2">
+            {scanSummary.errors > 0 && (
+              <span className="flex items-center gap-1.5 text-sm text-red-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" />
+                <strong>{scanSummary.errors}</strong> need fixes
+              </span>
+            )}
+            {scanSummary.warnings > 0 && (
+              <span className="flex items-center gap-1.5 text-sm text-amber-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />
+                <strong>{scanSummary.warnings}</strong> have warnings
+              </span>
+            )}
+            {scanSummary.clean > 0 && (
+              <span className="flex items-center gap-1.5 text-sm text-green-700">
+                <span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" />
+                <strong>{scanSummary.clean}</strong> look good
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Bulk action bar */}
       {selectMode && (
@@ -254,6 +363,7 @@ export default function Library() {
               selectable={selectMode}
               selected={selectedIds.has(property.id)}
               onSelect={() => toggleSelect(property.id)}
+              aiHealth={scanHealthMap ? (scanHealthMap[String(property.id)] || null) : null}
             />
           ))}
         </div>

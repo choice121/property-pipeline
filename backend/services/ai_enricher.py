@@ -1,9 +1,82 @@
 import json
 import logging
+import os
 
 from services.pricing_service import apply_pricing_rules
 
 logger = logging.getLogger(__name__)
+
+
+def _deepseek_generate_description(prop) -> str | None:
+    try:
+        from openai import OpenAI
+        api_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not api_key:
+            return None
+        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+
+        bed = prop.bedrooms
+        bath = prop.bathrooms
+        sqft = prop.square_footage
+        ptype = (prop.property_type or "property").lower().replace("_", " ")
+        city = prop.city or ""
+        state = prop.state or ""
+        rent = f"${prop.monthly_rent:,.0f}/mo" if prop.monthly_rent else ""
+        year = f"Built {prop.year_built}" if prop.year_built else ""
+        amenities = []
+        try:
+            amenities = json.loads(prop.amenities or "[]")
+        except Exception:
+            pass
+        appliances = []
+        try:
+            appliances = json.loads(prop.appliances or "[]")
+        except Exception:
+            pass
+
+        details = "\n".join(filter(None, [
+            f"Type: {ptype}",
+            f"Bedrooms: {bed}" if bed is not None else None,
+            f"Bathrooms: {bath}" if bath is not None else None,
+            f"Square footage: {sqft:,} sqft" if sqft else None,
+            year,
+            f"Location: {city}, {state}" if city and state else (city or state or None),
+            f"Monthly rent: {rent}" if rent else None,
+            f"Amenities: {', '.join(amenities)}" if amenities else None,
+            f"Appliances: {', '.join(appliances)}" if appliances else None,
+            f"Parking: {prop.parking}" if prop.parking else None,
+            f"Heating: {prop.heating_type}" if prop.heating_type else None,
+            f"Cooling: {prop.cooling_type}" if prop.cooling_type else None,
+            f"Laundry: {prop.laundry_type}" if prop.laundry_type else None,
+        ]))
+
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a copywriter for Choice Properties, a tenant-first rental marketplace. "
+                        "Write welcoming, honest, professional rental listing descriptions. "
+                        "Never mention tours, showings, credit scores, income requirements, or screening criteria. "
+                        "Never invent facts. Write 2–4 short paragraphs. No bullet points. No title. "
+                        "End with a soft apply-first call to action."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"Write a rental listing description for this property:\n\n{details}\n\n"
+                        "Return only the description text."
+                    ),
+                },
+            ],
+            temperature=0.7,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning("ai_enricher: DeepSeek description generation failed: %s", e)
+        return None
 
 
 PROPERTY_TYPE_KEYWORDS = {
@@ -310,18 +383,22 @@ def enrich_property(prop_id: str, repo) -> None:
             return
 
         if "generate_description" in tasks:
-            new_desc = _generate_description(prop)
+            new_desc = _deepseek_generate_description(prop)
+            method = "deepseek_llm"
+            if not new_desc:
+                new_desc = _generate_description(prop)
+                method = "template"
             if new_desc:
                 log_rows.append(AiEnrichmentLog(
                     property_id=prop_id,
                     field="description",
-                    method="template",
+                    method=method,
                     ai_value=new_desc[:500],
                 ))
                 prop.description = new_desc
-                _add_inferred_to_prop(prop, "description_template_generated")
+                _add_inferred_to_prop(prop, f"description_{method}_generated")
                 changed = True
-                logger.info("ai_enricher: generated description for %s", prop_id)
+                logger.info("ai_enricher: generated description (%s) for %s", method, prop_id)
 
         if "extract_features" in tasks:
             text = prop.description or ""

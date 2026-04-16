@@ -17,6 +17,30 @@ This app scrapes property listings from major platforms (Zillow, Realtor.com, Re
 - **Live Publishing**: Supabase (`properties` table) + ImageKit CDN for the Choice Properties website
 - **Image storage**: Local at `backend/storage/images/` (temporary; images are re-downloadable from source URLs stored in Supabase)
 
+## AI System (DeepSeek V3)
+
+All AI features use the DeepSeek V3 model (`deepseek-chat`) via the OpenAI-compatible SDK (`base_url="https://api.deepseek.com"`).
+
+### AI Endpoints (`backend/routers/ai.py`)
+- `POST /ai/autofill` — suggests values for empty fields
+- `POST /ai/rewrite-description` — generates polished listing descriptions
+- `POST /ai/detect-issues` — scans for errors/warnings/suggestions
+- `POST /ai/suggest-field` — suggests a value for a single field
+- `POST /ai/chat` — freeform assistant chat about the property
+- `POST /ai/bulk-scan` — batch scans up to N listings, returns per-property issue counts
+- `POST /ai/score` — detailed quality score (0–100) + grade (A–F) + written evaluation
+- `POST /ai/pricing-intel` — market pricing analysis (very_low/low/fair/high/very_high)
+- `POST /ai/seo-optimize` — SEO keyword analysis + title suggestion + optimized opening
+
+### AI Auto-Enrichment (`backend/services/ai_enricher.py`)
+Runs automatically on scrape. When a listing has no description, tries DeepSeek LLM first (contextual, property-specific), falls back to template if DeepSeek fails.
+
+### Frontend AI Features
+- **AiAssistant** (`frontend/src/components/AiAssistant.jsx`): 7 tabs — Auto-Fill, Rewrite (with draft history), Issues, **Score**, **Pricing**, **SEO**, Chat
+- **Library bulk scan** (`frontend/src/pages/Library.jsx`): "AI Scan (N)" button scans all visible listings, shows summary banner + per-card color badges
+- **PropertyCard badges** (`frontend/src/components/PropertyCard.jsx`): AI health badge (red=errors, amber=warnings, green=clean) shown after a bulk scan
+- **Publish gate** (`frontend/src/components/PublishButton.jsx`): Auto-checks for issues before publishing; blocks on errors, warns on warnings with override
+
 ## Project Structure
 
 ```

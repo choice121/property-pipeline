@@ -33,7 +33,29 @@ function PlaceholderImage() {
   )
 }
 
-export default function PropertyCard({ property, onClick, selectable, selected, onSelect }) {
+function AiHealthBadge({ health }) {
+  if (!health) return null
+  const hasErrors = health.errors > 0
+  const hasWarnings = health.warnings > 0
+  const color = hasErrors ? 'bg-red-500' : hasWarnings ? 'bg-amber-400' : 'bg-green-500'
+  const label = hasErrors
+    ? `${health.errors} error${health.errors !== 1 ? 's' : ''}`
+    : hasWarnings
+      ? `${health.warnings} warning${health.warnings !== 1 ? 's' : ''}`
+      : 'Looks good'
+  const tooltip = health.top_issue || label
+  return (
+    <div
+      title={tooltip}
+      className={`absolute bottom-2 right-2 z-10 flex items-center gap-1 text-white text-xs font-semibold px-2 py-0.5 rounded-full shadow-sm ${color}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full bg-white/60 inline-block" />
+      {label}
+    </div>
+  )
+}
+
+export default function PropertyCard({ property, onClick, selectable, selected, onSelect, aiHealth }) {
   const imageUrl = getImageUrl(property)
   const [downloading, setDownloading] = useState(false)
   const [showMissing, setShowMissing] = useState(false)
@@ -145,7 +167,9 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
           <span>{property.square_footage != null ? `${Number(property.square_footage).toLocaleString()} sqft` : 'N/A'}</span>
         </div>
 
-        {/* Completeness bar */}
+        <AiHealthBadge health={aiHealth} />
+
+      {/* Completeness bar */}
         <div className="mt-3 relative">
           <div
             className="flex items-center justify-between mb-1 cursor-pointer select-none"

@@ -514,3 +514,221 @@ INSTRUCTIONS:
     except Exception as e:
         logger.error("AI autofill failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Bulk Scan ──────────────────────────────────────────────────────────────────
+
+class BulkScanItem(BaseModel):
+    id: str
+    property: PropertyContext
+
+
+class BulkScanRequest(BaseModel):
+    properties: list[BulkScanItem]
+
+
+@router.post("/ai/bulk-scan")
+def bulk_scan(req: BulkScanRequest):
+    if not req.properties:
+        return {"results": []}
+
+    BATCH_SIZE = 8
+    all_results = []
+
+    for i in range(0, len(req.properties), BATCH_SIZE):
+        batch = req.properties[i:i + BATCH_SIZE]
+        listings_block = ""
+        for item in batch:
+            summary = _build_property_summary(item.property)
+            listings_block += f'\n---\nID: "{item.id}"\n{summary}\n'
+
+        user_prompt = f"""You are a quality control assistant reviewing multiple rental listings at once.
+
+For each listing below, quickly assess how many errors, warnings, and suggestions it has based on these rules:
+
+ERRORS (critical — should not publish):
+- Missing rent, missing address, missing bedrooms/bathrooms, no description at all, contradictory data
+
+WARNINGS (should fix before publishing):
+- Description too short or generic, tour/showing language, screening criteria in description, no amenities, no lease terms
+
+SUGGESTIONS (nice improvements):
+- Missing sqft, incomplete amenities, pet policy unclear, no move-in special mentioned
+
+LISTINGS TO REVIEW:
+{listings_block}
+
+Return a JSON array. One object per listing, in the same order. Each object:
+- "id": the listing ID exactly as given
+- "errors": integer count of errors found
+- "warnings": integer count of warnings found
+- "suggestions": integer count of suggestions found
+- "top_issue": a single short string describing the most critical problem, or null if none
+
+Return ONLY a raw JSON array. No markdown, no explanation."""
+
+        try:
+            raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1)
+            raw = raw.strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            batch_results = json.loads(raw)
+            all_results.extend(batch_results)
+        except Exception as e:
+            logger.error("AI bulk scan batch failed: %s", e)
+            for item in batch:
+                all_results.append({"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0, "top_issue": None})
+
+    return {"results": all_results}
+
+
+# ── AI Score ───────────────────────────────────────────────────────────────────
+
+class ScoreRequest(BaseModel):
+    property: PropertyContext
+
+
+@router.post("/ai/score")
+def get_ai_score(req: ScoreRequest):
+    prop_summary = _build_property_summary(req.property)
+
+    user_prompt = f"""You are a senior listing quality analyst for Choice Properties. Evaluate this rental listing and produce a detailed quality report.
+
+PROPERTY DATA:
+{prop_summary}
+
+Produce a quality report in JSON with these exact keys:
+- "score": integer 0–100 representing overall listing quality
+- "grade": letter grade "A", "B", "C", "D", or "F"
+- "headline": one sentence summarizing the listing's overall state (e.g. "Strong listing with a few minor gaps" or "Major issues prevent this from being publish-ready")
+- "strengths": array of 2–4 short strings describing what this listing does well
+- "critical_fixes": array of issues that MUST be resolved before publishing (empty array if none)
+- "improvements": array of 2–4 short strings for things that would improve the listing
+- "publish_ready": boolean — true only if there are zero critical fixes
+
+Scoring guide:
+- 90–100 (A): Complete, compelling, ready to publish
+- 75–89 (B): Good listing, minor gaps
+- 60–74 (C): Usable but needs work
+- 45–59 (D): Significant gaps, not publish-ready
+- 0–44 (F): Major problems, requires significant work
+
+Return ONLY a raw JSON object. No markdown, no explanation."""
+
+    try:
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        return result
+    except json.JSONDecodeError:
+        return {"score": 0, "grade": "?", "headline": "Could not evaluate listing.", "strengths": [], "critical_fixes": [], "improvements": [], "publish_ready": False}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI score failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Pricing Intelligence ───────────────────────────────────────────────────────
+
+class PricingRequest(BaseModel):
+    property: PropertyContext
+
+
+@router.post("/ai/pricing-intel")
+def pricing_intel(req: PricingRequest):
+    prop_summary = _build_property_summary(req.property)
+
+    user_prompt = f"""You are a US rental market pricing expert. Evaluate whether this property's rent is priced appropriately for its market.
+
+PROPERTY DATA:
+{prop_summary}
+
+Analyze the rent based on:
+- Bedroom and bathroom count
+- Square footage (if available)
+- Property type
+- Location (city/state if available)
+- Year built and features/amenities
+- Current US rental market conditions (2024–2025)
+
+Return a JSON object with these exact keys:
+- "assessment": one of "very_low", "low", "fair", "high", "very_high", or "unknown" (use unknown only if rent is missing)
+- "confidence": one of "high", "medium", "low" — how confident you are in the assessment
+- "market_context": 1–2 sentences explaining the typical rent range for this type of property in this location
+- "verdict": 1–2 sentences assessing whether this specific rent is appropriate
+- "recommendation": one concrete, actionable sentence (e.g. "Consider pricing between $X–$Y to stay competitive" or "This rent is well-positioned for the market")
+- "comparable_range": string like "$1,800–$2,200/mo" representing the typical market range for this type of property, or null if unknown
+
+Return ONLY a raw JSON object. No markdown, no explanation."""
+
+    try:
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        return result
+    except json.JSONDecodeError:
+        return {"assessment": "unknown", "confidence": "low", "market_context": "", "verdict": "Could not evaluate pricing.", "recommendation": "", "comparable_range": None}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI pricing intel failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── SEO Optimizer ──────────────────────────────────────────────────────────────
+
+class SeoRequest(BaseModel):
+    property: PropertyContext
+    description: str | None = None
+
+
+@router.post("/ai/seo-optimize")
+def seo_optimize(req: SeoRequest):
+    prop_summary = _build_property_summary(req.property)
+    description = req.description or req.property.description or ""
+
+    user_prompt = f"""You are an SEO expert specializing in real estate and rental listings. Analyze this listing for search engine visibility and organic traffic potential.
+
+PROPERTY DATA:
+{prop_summary}
+
+CURRENT DESCRIPTION:
+{description if description else "(No description yet)"}
+
+Evaluate the listing's SEO strength and return a JSON object with these exact keys:
+- "score": integer 0–100 representing SEO strength
+- "missing_keywords": array of high-value search terms that should appear in the description but don't (e.g. "2 bedroom apartment for rent", city name, neighborhood, key amenities)
+- "present_keywords": array of good SEO terms already present in the description
+- "title_suggestion": a strong, keyword-rich listing title (e.g. "Spacious 3BR/2BA House for Rent in Austin, TX — Garage, Yard, Pets Welcome")
+- "improvements": array of 3–5 specific, actionable SEO improvements (e.g. "Add the city name 'Chicago' in the first sentence", "Mention 'hardwood floors' which is a common search term")
+- "optimized_opening": a rewritten first sentence or two that's more SEO-friendly, keeping the tenant-first tone and removing any tour/screening language
+
+Return ONLY a raw JSON object. No markdown, no explanation."""
+
+    try:
+        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = json.loads(raw)
+        return result
+    except json.JSONDecodeError:
+        return {"score": 0, "missing_keywords": [], "present_keywords": [], "title_suggestion": "", "improvements": [], "optimized_opening": ""}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI SEO optimize failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
