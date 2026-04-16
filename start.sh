@@ -22,6 +22,10 @@ fi
 
 echo "==> Environment ready. Starting services..."
 
+pkill -f "vite.*--port 5000" 2>/dev/null || true
+pkill -f "python.*main.py" 2>/dev/null || true
+sleep 1
+
 # ── Start backend ──────────────────────────────────────────────────────────
 cd "$APP_DIR/backend"
 "$APP_DIR/.venv/bin/python" main.py &

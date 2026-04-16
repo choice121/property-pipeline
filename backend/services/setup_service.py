@@ -13,10 +13,10 @@ PUBLISHING_KEYS = {
     "IMAGEKIT_PRIVATE_KEY": "Lets the backend upload listing photos to ImageKit.",
     "IMAGEKIT_PUBLIC_KEY": "Identifies the ImageKit account for listing photo delivery.",
     "IMAGEKIT_URL_ENDPOINT": "Points the app to the correct ImageKit CDN endpoint.",
-    "CHOICE_LANDLORD_ID": "Associates published listings with the correct landlord account.",
 }
 
 OPTIONAL_KEYS = {
+    "CHOICE_LANDLORD_ID": "Optional override for landlord assignment. If absent, the backend tries to resolve the landlord from Supabase.",
     "SUPABASE_ANON_KEY": "Used by the public website and some static-site tooling.",
     "DEEPSEEK_API_KEY": "Enables AI autofill, rewrite, pricing, SEO, and scan tools.",
 }

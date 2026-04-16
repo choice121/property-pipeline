@@ -84,7 +84,7 @@ Python packages are installed in `.venv/` (created via `uv venv` + `uv pip insta
 - The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server onto port 5000.
 - New imports show a setup/readiness screen until Supabase credentials are present and verified. The app checks the `pipeline_properties` and live `properties` tables before enabling the library.
 - Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors in newly imported accounts.
-- Required setup values should be stored as Replit secrets, not committed files: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_URL_ENDPOINT`, and `CHOICE_LANDLORD_ID`. Optional enhancements: `SUPABASE_ANON_KEY`, `DEEPSEEK_API_KEY`.
+- Required setup values should be stored as Replit secrets, not committed files: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, and `IMAGEKIT_URL_ENDPOINT`. Optional enhancements: `CHOICE_LANDLORD_ID`, `SUPABASE_ANON_KEY`, `DEEPSEEK_API_KEY`.
 
 ## Key Dependencies
 
