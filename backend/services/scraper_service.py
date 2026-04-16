@@ -10,7 +10,7 @@ from homeharvest import scrape_property
 logger = logging.getLogger(__name__)
 
 HOMEHARVEST_SOURCES = {"realtor", "zillow", "redfin"}
-CUSTOM_SOURCES = {"opendoor", "apartments", "craigslist", "hotpads"}
+CUSTOM_SOURCES = {"opendoor", "apartments", "craigslist", "hotpads", "invitation_homes", "progress_residential"}
 ALL_SOURCES = HOMEHARVEST_SOURCES | CUSTOM_SOURCES
 
 HOMEHARVEST_SITE_MAP = {
@@ -800,6 +800,10 @@ def _scrape_custom(
             from services.scrapers.craigslist_scraper import scrape as _scrape
         elif source == "hotpads":
             from services.scrapers.hotpads_scraper import scrape as _scrape
+        elif source == "invitation_homes":
+            from services.scrapers.invitation_homes_scraper import scrape as _scrape
+        elif source == "progress_residential":
+            from services.scrapers.progress_residential_scraper import scrape as _scrape
         else:
             raise ValueError(f"Unknown custom source: {source}")
 

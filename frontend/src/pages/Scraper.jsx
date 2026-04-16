@@ -20,14 +20,16 @@ const PROPERTY_TYPES = [
 ]
 
 const SOURCES = [
-  { value: 'all',        label: 'All Sources',     badge: '7 platforms', note: 'Searches every platform simultaneously — deduplicates results', isAll: true },
-  { value: 'realtor',    label: 'Realtor.com',     badge: null,          note: 'Full filter support — MLS listings, rentals & sales' },
-  { value: 'zillow',     label: 'Zillow',          badge: null,          note: 'Largest US listings database' },
-  { value: 'redfin',     label: 'Redfin',          badge: null,          note: 'Agent-listed MLS properties' },
-  { value: 'apartments', label: 'Apartments.com',  badge: 'Rental',      note: 'Apartments, condos & houses for rent' },
-  { value: 'craigslist', label: 'Craigslist',      badge: 'Rental',      note: 'Wide variety — private landlords & agencies' },
-  { value: 'opendoor',   label: 'Opendoor',        badge: 'For Sale',    note: 'iBuyer homes for sale' },
-  { value: 'hotpads',    label: 'HotPads',         badge: 'Rental',      note: 'Rental-focused — Zillow Group' },
+  { value: 'all',                  label: 'All Sources',          badge: '9 platforms',  note: 'Searches every platform simultaneously — deduplicates results', isAll: true },
+  { value: 'realtor',              label: 'Realtor.com',          badge: null,           note: 'Full filter support — MLS listings, rentals & sales' },
+  { value: 'zillow',               label: 'Zillow',               badge: null,           note: 'Largest US listings database' },
+  { value: 'redfin',               label: 'Redfin',               badge: null,           note: 'Agent-listed MLS properties' },
+  { value: 'apartments',           label: 'Apartments.com',       badge: 'Rental',       note: 'Apartments, condos & houses for rent' },
+  { value: 'craigslist',           label: 'Craigslist',           badge: 'Rental',       note: 'Wide variety — private landlords & agencies' },
+  { value: 'opendoor',             label: 'Opendoor',             badge: 'For Sale',     note: 'iBuyer homes for sale' },
+  { value: 'hotpads',              label: 'HotPads',              badge: 'Rental',       note: 'Rental-focused — Zillow Group' },
+  { value: 'invitation_homes',     label: 'Invitation Homes',     badge: 'SFR',          note: 'Large institutional SFR operator — 80,000+ single-family rentals' },
+  { value: 'progress_residential', label: 'Progress Residential', badge: 'SFR',          note: 'Institutional SFR operator — 85,000+ single-family rentals' },
 ]
 
 const LISTING_TYPES = [
