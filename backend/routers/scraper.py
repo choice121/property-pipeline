@@ -11,13 +11,12 @@ from services import scraper_service, image_service
 from services.ai_enricher import enrich_property
 from services.detail_fetcher import fetch_missing_fields
 from services.enrichment_service import geocode_property, run_rule_based_enrichment
-from services.scraper_service import _calculate_weighted_quality, generate_property_id
+from services.scraper_service import _calculate_weighted_quality, generate_property_id, ALL_SOURCES
 from services.validator import validate_and_warn
 from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-SUPPORTED_SOURCES = {"realtor"}
 
 
 class ScrapeRequest(BaseModel):
@@ -123,15 +122,17 @@ def scrape_properties(
     background_tasks: BackgroundTasks,
     repo: Repository = Depends(get_db),
 ):
-    if (req.source or "realtor") not in SUPPORTED_SOURCES:
+    source = (req.source or "realtor").lower()
+    if source not in ALL_SOURCES:
         raise HTTPException(
             status_code=400,
-            detail="This scraper currently supports Realtor.com only. Choose Realtor.com as the source."
+            detail=f"Unsupported source '{source}'. Supported: {', '.join(sorted(ALL_SOURCES))}."
         )
 
     try:
         results = scraper_service.scrape(
             location=req.location,
+            source=source,
             listing_type=req.listing_type,
             property_type=req.property_type,
             min_price=req.min_price,

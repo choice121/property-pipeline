@@ -18,9 +18,13 @@ const PROPERTY_TYPES = [
 ]
 
 const SOURCES = [
-  { value: 'realtor', label: 'Realtor.com' },
-  { value: 'zillow',  label: 'Zillow' },
-  { value: 'redfin',  label: 'Redfin' },
+  { value: 'realtor',    label: 'Realtor.com',    badge: null,        note: 'Full filter support — MLS listings, rentals & sales' },
+  { value: 'zillow',     label: 'Zillow',          badge: null,        note: 'Full filter support — largest US listings database' },
+  { value: 'redfin',     label: 'Redfin',          badge: null,        note: 'Full filter support — agent-listed MLS properties' },
+  { value: 'apartments', label: 'Apartments.com',  badge: 'Rental',    note: 'Rental-focused — apartments, condos & houses for rent' },
+  { value: 'craigslist', label: 'Craigslist',      badge: 'Rental',    note: 'Rental listings — wide variety including private landlords' },
+  { value: 'opendoor',   label: 'Opendoor',        badge: 'For Sale',  note: 'iBuyer homes for sale — direct sale listings' },
+  { value: 'hotpads',    label: 'HotPads',         badge: 'Rental',    note: 'Rental-focused — powered by Zillow Group' },
 ]
 
 const LISTING_TYPES = [
@@ -397,11 +401,44 @@ export default function Scraper() {
             <Input name="location" value={form.location} onChange={handleChange} placeholder='e.g. "Austin, TX" or "78701"' />
           </Field>
 
-          <Field label="Source" hint="Which platform to scrape from">
-            <Select name="source" value={form.source} onChange={handleChange}>
-              {SOURCES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </Select>
-          </Field>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Source <span className="text-gray-400 font-normal">— which platform to scrape from</span>
+            </label>
+            <div className="grid grid-cols-1 gap-2">
+              {SOURCES.map((s) => {
+                const active = form.source === s.value
+                return (
+                  <button
+                    key={s.value}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, source: s.value }))}
+                    className={`flex items-center justify-between px-4 py-2.5 rounded-lg border text-left transition-colors ${
+                      active
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sm">{s.label}</span>
+                      {s.badge && (
+                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                          active
+                            ? 'bg-white/20 text-white'
+                            : s.badge === 'Rental'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-amber-100 text-amber-700'
+                        }`}>
+                          {s.badge}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`text-xs ${active ? 'text-gray-300' : 'text-gray-400'}`}>{s.note}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
 
           <Field label="Listing Type">
             <Select name="listing_type" value={form.listing_type} onChange={handleChange}>

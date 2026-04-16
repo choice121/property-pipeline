@@ -68,6 +68,7 @@ def search_properties(req: SearchRequest):
     try:
         results = scraper_service.scrape(
             location=req.location,
+            source=req.source or "realtor",
             listing_type=req.listing_type,
             property_type=req.property_type,
             min_price=req.min_price,

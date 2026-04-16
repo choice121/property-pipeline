@@ -1,10 +1,23 @@
 import json
+import logging
 import re
 import uuid
 from datetime import datetime
 from typing import List, Optional
 
 from homeharvest import scrape_property
+
+logger = logging.getLogger(__name__)
+
+HOMEHARVEST_SOURCES = {"realtor", "zillow", "redfin"}
+CUSTOM_SOURCES = {"opendoor", "apartments", "craigslist", "hotpads"}
+ALL_SOURCES = HOMEHARVEST_SOURCES | CUSTOM_SOURCES
+
+HOMEHARVEST_SITE_MAP = {
+    "realtor": "realtor.com",
+    "zillow": "zillow",
+    "redfin": "redfin",
+}
 
 
 def generate_property_id() -> str:
@@ -496,6 +509,7 @@ def normalize_row(row: dict) -> dict:
 
 def scrape(
     location: str,
+    source: str = "realtor",
     listing_type: Optional[str] = "for_rent",
     property_type: Optional[List[str]] = None,
     min_price: Optional[int] = None,
@@ -522,7 +536,84 @@ def scrape(
     sort_by: Optional[str] = None,
     sort_direction: str = "desc",
 ):
+    source = (source or "realtor").lower()
+
+    if source in CUSTOM_SOURCES:
+        return _scrape_custom(
+            source=source,
+            location=location,
+            listing_type=listing_type,
+            min_price=min_price,
+            max_price=max_price,
+            beds_min=beds_min,
+            beds_max=beds_max,
+            limit=limit or 200,
+        )
+
+    return _scrape_homeharvest(
+        source=source,
+        location=location,
+        listing_type=listing_type,
+        property_type=property_type,
+        min_price=min_price,
+        max_price=max_price,
+        beds_min=beds_min,
+        beds_max=beds_max,
+        baths_min=baths_min,
+        baths_max=baths_max,
+        sqft_min=sqft_min,
+        sqft_max=sqft_max,
+        lot_sqft_min=lot_sqft_min,
+        lot_sqft_max=lot_sqft_max,
+        year_built_min=year_built_min,
+        year_built_max=year_built_max,
+        past_days=past_days,
+        past_hours=past_hours,
+        date_from=date_from,
+        date_to=date_to,
+        radius=radius,
+        limit=limit,
+        mls_only=mls_only,
+        foreclosure=foreclosure,
+        exclude_pending=exclude_pending,
+        sort_by=sort_by,
+        sort_direction=sort_direction,
+    )
+
+
+def _scrape_homeharvest(
+    source: str = "realtor",
+    location: str = "",
+    listing_type: Optional[str] = "for_rent",
+    property_type: Optional[List[str]] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    beds_min: Optional[int] = None,
+    beds_max: Optional[int] = None,
+    baths_min: Optional[float] = None,
+    baths_max: Optional[float] = None,
+    sqft_min: Optional[int] = None,
+    sqft_max: Optional[int] = None,
+    lot_sqft_min: Optional[int] = None,
+    lot_sqft_max: Optional[int] = None,
+    year_built_min: Optional[int] = None,
+    year_built_max: Optional[int] = None,
+    past_days: Optional[int] = None,
+    past_hours: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    radius: Optional[float] = None,
+    limit: Optional[int] = 200,
+    mls_only: bool = False,
+    foreclosure: Optional[bool] = None,
+    exclude_pending: bool = False,
+    sort_by: Optional[str] = None,
+    sort_direction: str = "desc",
+) -> list:
+    site_name = HOMEHARVEST_SITE_MAP.get(source, "realtor.com")
+
     kwargs = dict(
+        site_name=site_name,
         location=location,
         listing_type=listing_type,
         price_min=min_price,
@@ -554,6 +645,7 @@ def scrape(
         kwargs["property_type"] = property_type
 
     kwargs = {k: v for k, v in kwargs.items() if v is not None and v is not False}
+    kwargs["site_name"] = site_name
     kwargs["location"] = location
     kwargs["listing_type"] = listing_type
     kwargs["sort_direction"] = sort_direction
@@ -574,6 +666,54 @@ def scrape(
         results.append(normalized)
 
     return results
+
+
+def _scrape_custom(
+    source: str,
+    location: str,
+    listing_type: Optional[str] = "for_rent",
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    beds_min: Optional[int] = None,
+    beds_max: Optional[int] = None,
+    limit: int = 200,
+) -> list:
+    """Dispatch to a custom scraper module."""
+    try:
+        if source == "opendoor":
+            from services.scrapers.opendoor_scraper import scrape as _scrape
+        elif source == "apartments":
+            from services.scrapers.apartments_scraper import scrape as _scrape
+        elif source == "craigslist":
+            from services.scrapers.craigslist_scraper import scrape as _scrape
+        elif source == "hotpads":
+            from services.scrapers.hotpads_scraper import scrape as _scrape
+        else:
+            raise ValueError(f"Unknown custom source: {source}")
+
+        results = _scrape(
+            location=location,
+            listing_type=listing_type,
+            min_price=min_price,
+            max_price=max_price,
+            beds_min=beds_min,
+            beds_max=beds_max,
+            limit=limit,
+        )
+
+        for r in results:
+            r.setdefault("source", source)
+            r.setdefault("status", "scraped")
+            r.setdefault("local_image_paths", "[]")
+            r.setdefault("edited_fields", "[]")
+            r.setdefault("original_data", "{}")
+
+        logger.info("Custom scraper '%s' returned %d results for '%s'", source, len(results), location)
+        return results
+
+    except Exception as e:
+        logger.error("Custom scraper '%s' failed for '%s': %s", source, location, e)
+        raise
 
 
 def _inject_source(results: list, source: str) -> list:
