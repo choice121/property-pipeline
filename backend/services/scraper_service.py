@@ -668,6 +668,122 @@ def _scrape_homeharvest(
     return results
 
 
+def scrape_all_sources(
+    location: str,
+    listing_type: Optional[str] = "for_rent",
+    property_type: Optional[List[str]] = None,
+    min_price: Optional[int] = None,
+    max_price: Optional[int] = None,
+    beds_min: Optional[int] = None,
+    beds_max: Optional[int] = None,
+    baths_min: Optional[float] = None,
+    baths_max: Optional[float] = None,
+    sqft_min: Optional[int] = None,
+    sqft_max: Optional[int] = None,
+    lot_sqft_min: Optional[int] = None,
+    lot_sqft_max: Optional[int] = None,
+    year_built_min: Optional[int] = None,
+    year_built_max: Optional[int] = None,
+    past_days: Optional[int] = None,
+    past_hours: Optional[int] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    radius: Optional[float] = None,
+    limit: int = 200,
+    mls_only: bool = False,
+    foreclosure: Optional[bool] = None,
+    exclude_pending: bool = False,
+    sort_by: Optional[str] = None,
+    sort_direction: str = "desc",
+) -> tuple[list, dict]:
+    """Scrape all sources simultaneously using a thread pool. Returns (results, source_counts)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    sources = list(ALL_SOURCES)
+    per_source_limit = max(30, limit // len(sources))
+
+    common_kwargs = dict(
+        location=location,
+        listing_type=listing_type,
+        min_price=min_price,
+        max_price=max_price,
+        beds_min=beds_min,
+        beds_max=beds_max,
+        limit=per_source_limit,
+    )
+
+    def _run_source(src: str):
+        try:
+            if src in HOMEHARVEST_SOURCES:
+                return src, _scrape_homeharvest(
+                    source=src,
+                    property_type=property_type,
+                    baths_min=baths_min,
+                    baths_max=baths_max,
+                    sqft_min=sqft_min,
+                    sqft_max=sqft_max,
+                    lot_sqft_min=lot_sqft_min,
+                    lot_sqft_max=lot_sqft_max,
+                    year_built_min=year_built_min,
+                    year_built_max=year_built_max,
+                    past_days=past_days,
+                    past_hours=past_hours,
+                    date_from=date_from,
+                    date_to=date_to,
+                    radius=radius,
+                    mls_only=mls_only,
+                    foreclosure=foreclosure,
+                    exclude_pending=exclude_pending,
+                    sort_by=sort_by,
+                    sort_direction=sort_direction,
+                    **common_kwargs,
+                )
+            else:
+                return src, _scrape_custom(source=src, **common_kwargs)
+        except Exception as e:
+            logger.warning("Multi-source: '%s' failed: %s", src, e)
+            return src, []
+
+    all_results = []
+    source_counts = {}
+
+    with ThreadPoolExecutor(max_workers=len(sources)) as executor:
+        futures = {executor.submit(_run_source, src): src for src in sources}
+        for future in as_completed(futures, timeout=60):
+            src = futures[future]
+            try:
+                src_name, src_results = future.result(timeout=5)
+                source_counts[src_name] = len(src_results)
+                for r in src_results:
+                    r.setdefault("source", src_name)
+                all_results.extend(src_results)
+                logger.info("Multi-source: '%s' returned %d results", src_name, len(src_results))
+            except Exception as e:
+                logger.warning("Multi-source: future for '%s' failed: %s", src, e)
+                source_counts[src] = 0
+
+    seen_ids = set()
+    seen_addresses = set()
+    unique = []
+    for r in all_results:
+        lid = r.get("source_listing_id")
+        addr = (str(r.get("address") or "") + str(r.get("city") or "")).lower().strip()
+
+        if lid and lid in seen_ids:
+            continue
+        if not lid and addr and addr in seen_addresses:
+            continue
+
+        if lid:
+            seen_ids.add(lid)
+        if addr:
+            seen_addresses.add(addr)
+        unique.append(r)
+
+    logger.info("Multi-source: combined %d unique results from %d sources", len(unique), len(source_counts))
+    return unique[:limit], source_counts
+
+
 def _scrape_custom(
     source: str,
     location: str,

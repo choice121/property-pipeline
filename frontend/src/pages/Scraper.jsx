@@ -1,9 +1,11 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { searchProperties, saveProperty, getProperties } from '../api/client'
 import SearchResultCard, { SearchResultRow } from '../components/SearchResultCard'
 import PropertyPreviewModal from '../components/PropertyPreviewModal'
 import ResultsFilterBar from '../components/ResultsFilterBar'
+
+const PAGE_SIZE = 24
 
 const PROPERTY_TYPES = [
   { value: 'single_family', label: 'Single Family' },
@@ -18,13 +20,14 @@ const PROPERTY_TYPES = [
 ]
 
 const SOURCES = [
-  { value: 'realtor',    label: 'Realtor.com',    badge: null,        note: 'Full filter support — MLS listings, rentals & sales' },
-  { value: 'zillow',     label: 'Zillow',          badge: null,        note: 'Full filter support — largest US listings database' },
-  { value: 'redfin',     label: 'Redfin',          badge: null,        note: 'Full filter support — agent-listed MLS properties' },
-  { value: 'apartments', label: 'Apartments.com',  badge: 'Rental',    note: 'Rental-focused — apartments, condos & houses for rent' },
-  { value: 'craigslist', label: 'Craigslist',      badge: 'Rental',    note: 'Rental listings — wide variety including private landlords' },
-  { value: 'opendoor',   label: 'Opendoor',        badge: 'For Sale',  note: 'iBuyer homes for sale — direct sale listings' },
-  { value: 'hotpads',    label: 'HotPads',         badge: 'Rental',    note: 'Rental-focused — powered by Zillow Group' },
+  { value: 'all',        label: 'All Sources',     badge: '7 platforms', note: 'Searches every platform simultaneously — deduplicates results', isAll: true },
+  { value: 'realtor',    label: 'Realtor.com',     badge: null,          note: 'Full filter support — MLS listings, rentals & sales' },
+  { value: 'zillow',     label: 'Zillow',          badge: null,          note: 'Largest US listings database' },
+  { value: 'redfin',     label: 'Redfin',          badge: null,          note: 'Agent-listed MLS properties' },
+  { value: 'apartments', label: 'Apartments.com',  badge: 'Rental',      note: 'Apartments, condos & houses for rent' },
+  { value: 'craigslist', label: 'Craigslist',      badge: 'Rental',      note: 'Wide variety — private landlords & agencies' },
+  { value: 'opendoor',   label: 'Opendoor',        badge: 'For Sale',    note: 'iBuyer homes for sale' },
+  { value: 'hotpads',    label: 'HotPads',         badge: 'Rental',      note: 'Rental-focused — Zillow Group' },
 ]
 
 const LISTING_TYPES = [
@@ -161,6 +164,8 @@ export default function Scraper() {
   const [searchError, setSearchError] = useState(null)
   const [searchResults, setSearchResults] = useState(null)
   const [blockedWatermarkCount, setBlockedWatermarkCount] = useState(0)
+  const [sourceCounts, setSourceCounts] = useState(null)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const [selectedResult, setSelectedResult] = useState(null)
   const [savedIds, setSavedIds] = useState(new Set())
@@ -242,12 +247,12 @@ export default function Scraper() {
     return list
   }, [searchResults, resultSort, resultFilters])
 
-  function handleChange(e) {
+  const handleChange = useCallback((e) => {
     const { name, value, type, checked } = e.target
     setForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
-  }
+  }, [])
 
-  function togglePropertyType(val) {
+  const togglePropertyType = useCallback((val) => {
     setForm((prev) => {
       const current = prev.property_types
       return {
@@ -255,21 +260,23 @@ export default function Scraper() {
         property_types: current.includes(val) ? current.filter((v) => v !== val) : [...current, val],
       }
     })
-  }
+  }, [])
 
-  function handleReset() {
+  const handleReset = useCallback(() => {
     setForm(defaultForm)
     setSearchResults(null)
     setBlockedWatermarkCount(0)
+    setSourceCounts(null)
     setSearchError(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
     setSaveAllProgress(null)
     setResultSort('default')
     setResultFilters(defaultResultFilters)
+    setVisibleCount(PAGE_SIZE)
     setShowForm(true)
     setShowAdvanced(false)
-  }
+  }, [])
 
   function buildPayload() {
     const int = (v) => (v !== '' && v !== null ? parseInt(v) : null)
@@ -306,30 +313,33 @@ export default function Scraper() {
     }
   }
 
-  async function handleSearch(e) {
+  const handleSearch = useCallback(async (e) => {
     e.preventDefault()
     setSearchError(null)
     setSearchResults(null)
     setBlockedWatermarkCount(0)
+    setSourceCounts(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
     setSaveAllProgress(null)
     setResultSort('default')
     setResultFilters(defaultResultFilters)
+    setVisibleCount(PAGE_SIZE)
     setSearching(true)
     try {
       const res = await searchProperties(buildPayload())
       setSearchResults(res.data.results)
       setBlockedWatermarkCount(res.data.blocked_watermark_count || 0)
+      setSourceCounts(res.data.source_counts || null)
       setShowForm(false)
     } catch (err) {
       setSearchError(err.response?.data?.detail || err.message || 'Search failed.')
     } finally {
       setSearching(false)
     }
-  }
+  }, [form])
 
-  async function handleSave(result) {
+  const handleSave = useCallback(async (result) => {
     const key = result.temp_key
     if (savedIds.has(key) || savingIds.has(key) || libraryIds.has(key)) return
     setSavingIds((prev) => new Set([...prev, key]))
@@ -342,9 +352,9 @@ export default function Scraper() {
     } finally {
       setSavingIds((prev) => { const s = new Set(prev); s.delete(key); return s })
     }
-  }
+  }, [savedIds, savingIds, libraryIds, queryClient])
 
-  async function handleSaveAll() {
+  const handleSaveAll = useCallback(async () => {
     if (!searchResults) return
     const unsaved = displayedResults.filter(
       (r) => !savedIds.has(r.temp_key) && !savingIds.has(r.temp_key) && !libraryIds.has(r.temp_key)
@@ -356,7 +366,7 @@ export default function Scraper() {
       setSaveAllProgress((prev) => prev ? { ...prev, done: prev.done + 1 } : null)
     }
     setSaveAllProgress(null)
-  }
+  }, [searchResults, displayedResults, savedIds, savingIds, libraryIds, handleSave])
 
   const activeAdvancedCount = [
     form.sqft_min, form.sqft_max, form.lot_sqft_min, form.lot_sqft_max,
@@ -369,6 +379,10 @@ export default function Scraper() {
 
   const displayedCount = displayedResults.length
   const totalCount = searchResults?.length || 0
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [displayedResults])
   const unsavedDisplayed = displayedResults.filter(
     (r) => !savedIds.has(r.temp_key) && !libraryIds.has(r.temp_key)
   ).length
@@ -405,38 +419,67 @@ export default function Scraper() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Source <span className="text-gray-400 font-normal">— which platform to scrape from</span>
             </label>
-            <div className="grid grid-cols-1 gap-2">
-              {SOURCES.map((s) => {
+            <div className="space-y-2">
+              {/* All Sources — full-width prominent button */}
+              {(() => {
+                const s = SOURCES[0]
                 const active = form.source === s.value
                 return (
                   <button
                     key={s.value}
                     type="button"
                     onClick={() => setForm((prev) => ({ ...prev, source: s.value }))}
-                    className={`flex items-center justify-between px-4 py-2.5 rounded-lg border text-left transition-colors ${
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-lg border-2 text-left transition-colors ${
                       active
                         ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                        : 'bg-gradient-to-r from-gray-50 to-white text-gray-700 border-gray-300 hover:border-gray-500'
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm">{s.label}</span>
-                      {s.badge && (
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                          active
-                            ? 'bg-white/20 text-white'
-                            : s.badge === 'Rental'
-                              ? 'bg-blue-100 text-blue-700'
-                              : 'bg-amber-100 text-amber-700'
-                        }`}>
-                          {s.badge}
-                        </span>
-                      )}
+                      <span className="font-semibold text-sm">{s.label}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                        active ? 'bg-white/20 text-white' : 'bg-gray-900 text-white'
+                      }`}>{s.badge}</span>
                     </div>
-                    <span className={`text-xs ${active ? 'text-gray-300' : 'text-gray-400'}`}>{s.note}</span>
+                    <span className={`text-xs hidden sm:block ${active ? 'text-gray-300' : 'text-gray-500'}`}>{s.note}</span>
                   </button>
                 )
-              })}
+              })()}
+
+              {/* Individual sources — 2-column grid */}
+              <div className="grid grid-cols-2 gap-2">
+                {SOURCES.slice(1).map((s) => {
+                  const active = form.source === s.value
+                  return (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, source: s.value }))}
+                      className={`flex flex-col items-start px-3 py-2.5 rounded-lg border text-left transition-colors ${
+                        active
+                          ? 'bg-gray-900 text-white border-gray-900'
+                          : 'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        <span className="font-medium text-sm">{s.label}</span>
+                        {s.badge && (
+                          <span className={`text-xs px-1.5 py-0 rounded-full font-medium leading-5 ${
+                            active
+                              ? 'bg-white/20 text-white'
+                              : s.badge === 'Rental'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-amber-100 text-amber-700'
+                          }`}>
+                            {s.badge}
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-xs leading-tight ${active ? 'text-gray-300' : 'text-gray-400'}`}>{s.note}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </div>
 
@@ -647,8 +690,22 @@ export default function Scraper() {
             </div>
           )}
 
+          {/* Source breakdown for "All Sources" mode */}
+          {sourceCounts && Object.keys(sourceCounts).length > 1 && (
+            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+              <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide mb-2">Results by source</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).map(([src, count]) => (
+                  <span key={src} className="text-xs bg-white border border-blue-200 text-blue-700 px-2.5 py-1 rounded-full font-medium">
+                    {SOURCES.find(s => s.value === src)?.label || src}: {count}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Results header */}
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 gap-2">
             <div>
               <h2 className="text-lg font-bold text-gray-900">
                 {totalCount === 0
@@ -659,10 +716,10 @@ export default function Scraper() {
               </h2>
             </div>
             {totalCount > 0 && (
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <button onClick={handleSaveAll}
                   disabled={unsavedDisplayed === 0 || saveAllProgress !== null}
-                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors min-w-[130px]"
+                  className="px-3 sm:px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors min-w-[100px] sm:min-w-[130px]"
                 >
                   {saveAllProgress !== null
                     ? `Saving ${saveAllProgress.done}/${saveAllProgress.total}…`
@@ -671,7 +728,7 @@ export default function Scraper() {
                     : `Save All (${unsavedDisplayed})`}
                 </button>
                 <button onClick={handleReset}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
+                  className="px-3 sm:px-4 py-2 rounded-lg border border-gray-300 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
                 >
                   New Search
                 </button>
@@ -710,33 +767,59 @@ export default function Scraper() {
                   </button>
                 </div>
               ) : viewMode === 'grid' ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {resultsWithLibraryFlag.map((result) => (
-                    <SearchResultCard
-                      key={result.temp_key}
-                      result={result}
-                      isSaved={savedIds.has(result.temp_key)}
-                      isSaving={savingIds.has(result.temp_key)}
-                      isInLibrary={result._alreadyInLibrary}
-                      onSave={() => handleSave(result)}
-                      onPreview={() => setSelectedResult(result)}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {resultsWithLibraryFlag.slice(0, visibleCount).map((result) => (
+                      <SearchResultCard
+                        key={result.temp_key}
+                        result={result}
+                        isSaved={savedIds.has(result.temp_key)}
+                        isSaving={savingIds.has(result.temp_key)}
+                        isInLibrary={result._alreadyInLibrary}
+                        onSave={() => handleSave(result)}
+                        onPreview={() => setSelectedResult(result)}
+                      />
+                    ))}
+                  </div>
+                  {visibleCount < displayedCount && (
+                    <div className="mt-6 text-center">
+                      <button
+                        onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+                        className="px-6 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        Load {Math.min(PAGE_SIZE, displayedCount - visibleCount)} more
+                        <span className="text-gray-400 ml-1">({displayedCount - visibleCount} remaining)</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="flex flex-col gap-2">
-                  {resultsWithLibraryFlag.map((result) => (
-                    <SearchResultRow
-                      key={result.temp_key}
-                      result={result}
-                      isSaved={savedIds.has(result.temp_key)}
-                      isSaving={savingIds.has(result.temp_key)}
-                      isInLibrary={result._alreadyInLibrary}
-                      onSave={() => handleSave(result)}
-                      onPreview={() => setSelectedResult(result)}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-col gap-2">
+                    {resultsWithLibraryFlag.slice(0, visibleCount).map((result) => (
+                      <SearchResultRow
+                        key={result.temp_key}
+                        result={result}
+                        isSaved={savedIds.has(result.temp_key)}
+                        isSaving={savingIds.has(result.temp_key)}
+                        isInLibrary={result._alreadyInLibrary}
+                        onSave={() => handleSave(result)}
+                        onPreview={() => setSelectedResult(result)}
+                      />
+                    ))}
+                  </div>
+                  {visibleCount < displayedCount && (
+                    <div className="mt-4 text-center">
+                      <button
+                        onClick={() => setVisibleCount((v) => v + PAGE_SIZE)}
+                        className="px-6 py-2.5 rounded-lg border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      >
+                        Load {Math.min(PAGE_SIZE, displayedCount - visibleCount)} more
+                        <span className="text-gray-400 ml-1">({displayedCount - visibleCount} remaining)</span>
+                      </button>
+                    </div>
+                  )}
+                </>
               )}
             </>
           )}

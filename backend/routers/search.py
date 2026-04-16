@@ -9,7 +9,7 @@ from typing import List, Optional
 from database.db import get_db
 from database.repository import PropertyRecord, Repository, get_repo, PROPERTY_FIELDS
 from services import scraper_service, image_service
-from services.scraper_service import generate_property_id
+from services.scraper_service import generate_property_id, scrape_all_sources, ALL_SOURCES
 from services.watermark_filter import filter_watermarked, watermark_reasons
 
 logger = logging.getLogger(__name__)
@@ -63,48 +63,11 @@ def _download_images_task(property_id: str, image_urls: list):
         logger.error("Image download task failed for %s: %s", property_id, e)
 
 
-@router.post("/search")
-def search_properties(req: SearchRequest):
-    try:
-        results = scraper_service.scrape(
-            location=req.location,
-            source=req.source or "realtor",
-            listing_type=req.listing_type,
-            property_type=req.property_type,
-            min_price=req.min_price,
-            max_price=req.max_price,
-            beds_min=req.beds_min,
-            beds_max=req.beds_max,
-            baths_min=req.baths_min,
-            baths_max=req.baths_max,
-            sqft_min=req.sqft_min,
-            sqft_max=req.sqft_max,
-            lot_sqft_min=req.lot_sqft_min,
-            lot_sqft_max=req.lot_sqft_max,
-            year_built_min=req.year_built_min,
-            year_built_max=req.year_built_max,
-            past_days=req.past_days,
-            past_hours=req.past_hours,
-            date_from=req.date_from,
-            date_to=req.date_to,
-            radius=req.radius,
-            limit=req.limit,
-            mls_only=req.mls_only,
-            foreclosure=req.foreclosure,
-            exclude_pending=req.exclude_pending,
-            sort_by=req.sort_by,
-            sort_direction=req.sort_direction,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
-
-    results = scraper_service._inject_source(results, req.source or "realtor")
-    filtered_results, blocked_results = filter_watermarked(results)
-
+def _enrich_results(results: list, listing_type: str, source: str) -> list:
     enriched = []
-    for r in filtered_results:
+    for r in results:
         r["temp_key"] = r.get("source_listing_id") or str(uuid.uuid4())
-        r["listing_type"] = req.listing_type
+        r["listing_type"] = r.get("listing_type") or listing_type
         r["list_date"] = r.pop("_list_date", None)
         r["days_on_market"] = r.pop("_days_on_market", None)
         try:
@@ -112,12 +75,93 @@ def search_properties(req: SearchRequest):
         except Exception:
             r["image_urls"] = []
         enriched.append(r)
+    return enriched
+
+
+@router.post("/search")
+def search_properties(req: SearchRequest):
+    source = (req.source or "realtor").lower()
+    source_counts = {}
+
+    if source == "all":
+        try:
+            results, source_counts = scrape_all_sources(
+                location=req.location,
+                listing_type=req.listing_type,
+                property_type=req.property_type,
+                min_price=req.min_price,
+                max_price=req.max_price,
+                beds_min=req.beds_min,
+                beds_max=req.beds_max,
+                baths_min=req.baths_min,
+                baths_max=req.baths_max,
+                sqft_min=req.sqft_min,
+                sqft_max=req.sqft_max,
+                lot_sqft_min=req.lot_sqft_min,
+                lot_sqft_max=req.lot_sqft_max,
+                year_built_min=req.year_built_min,
+                year_built_max=req.year_built_max,
+                past_days=req.past_days,
+                past_hours=req.past_hours,
+                date_from=req.date_from,
+                date_to=req.date_to,
+                radius=req.radius,
+                limit=req.limit or 200,
+                mls_only=req.mls_only,
+                foreclosure=req.foreclosure,
+                exclude_pending=req.exclude_pending,
+                sort_by=req.sort_by,
+                sort_direction=req.sort_direction,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Multi-source search failed: {str(e)}")
+    elif source not in ALL_SOURCES:
+        raise HTTPException(status_code=400, detail=f"Unknown source '{source}'.")
+    else:
+        try:
+            results = scraper_service.scrape(
+                location=req.location,
+                source=source,
+                listing_type=req.listing_type,
+                property_type=req.property_type,
+                min_price=req.min_price,
+                max_price=req.max_price,
+                beds_min=req.beds_min,
+                beds_max=req.beds_max,
+                baths_min=req.baths_min,
+                baths_max=req.baths_max,
+                sqft_min=req.sqft_min,
+                sqft_max=req.sqft_max,
+                lot_sqft_min=req.lot_sqft_min,
+                lot_sqft_max=req.lot_sqft_max,
+                year_built_min=req.year_built_min,
+                year_built_max=req.year_built_max,
+                past_days=req.past_days,
+                past_hours=req.past_hours,
+                date_from=req.date_from,
+                date_to=req.date_to,
+                radius=req.radius,
+                limit=req.limit,
+                mls_only=req.mls_only,
+                foreclosure=req.foreclosure,
+                exclude_pending=req.exclude_pending,
+                sort_by=req.sort_by,
+                sort_direction=req.sort_direction,
+            )
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        results = scraper_service._inject_source(results, source)
+        source_counts = {source: len(results)}
+
+    filtered_results, blocked_results = filter_watermarked(results)
+    enriched = _enrich_results(filtered_results, req.listing_type or "for_rent", source)
 
     return {
-        "count":                  len(enriched),
-        "results":                enriched,
+        "count":                   len(enriched),
+        "results":                 enriched,
         "blocked_watermark_count": len(blocked_results),
         "blocked_watermarks":      blocked_results,
+        "source_counts":           source_counts,
     }
 
 

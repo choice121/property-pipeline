@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { resolveImageUrl } from '../utils/imageUrl'
 
 function formatPrice(price) {
@@ -31,11 +31,22 @@ function ListingAge({ listDate, daysOnMarket }) {
   return null
 }
 
-export default function SearchResultCard({ result, isSaved, isSaving, isInLibrary, onSave, onPreview }) {
+const SOURCE_LABELS = {
+  realtor: 'Realtor',
+  zillow: 'Zillow',
+  redfin: 'Redfin',
+  apartments: 'Apartments',
+  craigslist: 'Craigslist',
+  opendoor: 'Opendoor',
+  hotpads: 'HotPads',
+}
+
+const SearchResultCard = memo(function SearchResultCard({
+  result, isSaved, isSaving, isInLibrary, onSave, onPreview,
+}) {
   const [imgError, setImgError] = useState(false)
   const firstPhoto = !imgError ? resolveImageUrl(result.image_urls?.[0] || null) : null
   const photoCount = result.image_urls?.length || 0
-
   const savedState = isSaved || isInLibrary
 
   return (
@@ -48,6 +59,8 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
             src={firstPhoto}
             alt={result.address || 'Property'}
             className="w-full h-44 object-cover"
+            loading="lazy"
+            decoding="async"
             onError={() => setImgError(true)}
           />
         ) : (
@@ -71,8 +84,14 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
           </div>
         )}
 
+        {result.source && SOURCE_LABELS[result.source] && (
+          <div className="absolute top-2 right-2 bg-white/90 text-gray-700 text-xs px-2 py-0.5 rounded font-medium shadow-sm">
+            {SOURCE_LABELS[result.source]}
+          </div>
+        )}
+
         {isInLibrary && !isSaved && (
-          <div className="absolute top-2 right-2 bg-amber-500/90 text-white text-xs px-2 py-1 rounded font-medium">
+          <div className="absolute bottom-2 left-2 bg-amber-500/90 text-white text-xs px-2 py-1 rounded font-medium">
             In library
           </div>
         )}
@@ -110,7 +129,7 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
           <div className="flex flex-wrap gap-1">
             {result.pets_allowed === true && (
               <span className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-0.5 rounded-full">
-                🐾 Pets OK
+                Pets OK
               </span>
             )}
             {result.pets_allowed === false && (
@@ -120,7 +139,7 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
             )}
             {result.parking && (
               <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-0.5 rounded-full">
-                🚗 {result.parking}
+                {result.parking}
               </span>
             )}
           </div>
@@ -151,22 +170,33 @@ export default function SearchResultCard({ result, isSaved, isSaving, isInLibrar
       </div>
     </div>
   )
-}
+})
+
+export default SearchResultCard
 
 
-export function SearchResultRow({ result, isSaved, isSaving, isInLibrary, onSave, onPreview }) {
+export const SearchResultRow = memo(function SearchResultRow({
+  result, isSaved, isSaving, isInLibrary, onSave, onPreview,
+}) {
   const [imgError, setImgError] = useState(false)
   const firstPhoto = !imgError ? resolveImageUrl(result.image_urls?.[0] || null) : null
   const photoCount = result.image_urls?.length || 0
   const savedState = isSaved || isInLibrary
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl flex items-center gap-4 px-4 py-3 hover:shadow-sm transition-shadow">
+    <div className="bg-white border border-gray-200 rounded-xl flex items-center gap-3 px-3 py-3 hover:shadow-sm transition-shadow">
 
       {/* Thumbnail */}
-      <div className="flex-shrink-0 w-20 h-16 rounded-lg overflow-hidden bg-gray-100 cursor-pointer relative" onClick={onPreview}>
+      <div className="flex-shrink-0 w-16 h-14 sm:w-20 sm:h-16 rounded-lg overflow-hidden bg-gray-100 cursor-pointer relative" onClick={onPreview}>
         {firstPhoto ? (
-          <img src={firstPhoto} alt="" className="w-full h-full object-cover" onError={() => setImgError(true)} />
+          <img
+            src={firstPhoto}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+            decoding="async"
+            onError={() => setImgError(true)}
+          />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <svg className="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -183,39 +213,40 @@ export function SearchResultRow({ result, isSaved, isSaving, isInLibrary, onSave
 
       {/* Info */}
       <div className="flex-1 min-w-0 cursor-pointer" onClick={onPreview}>
-        <div className="flex items-baseline gap-3">
-          <p className="font-bold text-gray-900">{formatPrice(result.monthly_rent)}</p>
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <p className="font-bold text-gray-900 text-sm">{formatPrice(result.monthly_rent)}</p>
           <span className="text-xs">
             <ListingAge listDate={result.list_date} daysOnMarket={result.days_on_market} />
           </span>
           {isInLibrary && !isSaved && (
             <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-medium">In library</span>
           )}
+          {result.source && SOURCE_LABELS[result.source] && (
+            <span className="text-xs text-gray-400">{SOURCE_LABELS[result.source]}</span>
+          )}
         </div>
         <p className="text-sm text-gray-800 truncate">{result.address || 'No address'}</p>
-        <div className="flex flex-wrap gap-x-3 text-xs text-gray-500 mt-0.5">
-          <span>{[result.city, result.state, result.zip].filter(Boolean).join(', ')}</span>
+        <div className="flex flex-wrap gap-x-2 text-xs text-gray-500 mt-0.5">
+          <span className="truncate max-w-[120px]">{[result.city, result.state].filter(Boolean).join(', ')}</span>
           {result.bedrooms != null && <span>{result.bedrooms} bd</span>}
           {result.bathrooms != null && <span>{result.bathrooms} ba</span>}
-          {result.square_footage != null && <span>{Number(result.square_footage).toLocaleString()} sqft</span>}
-          {result.property_type && <span className="capitalize">{formatLabel(result.property_type)}</span>}
+          {result.square_footage != null && <span className="hidden sm:inline">{Number(result.square_footage).toLocaleString()} sqft</span>}
           {result.pets_allowed === true && <span className="text-green-600">Pets OK</span>}
-          {result.parking && <span className="text-blue-600">{result.parking}</span>}
         </div>
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2 shrink-0">
+      <div className="flex items-center gap-1.5 shrink-0">
         <button
           onClick={onPreview}
-          className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
+          className="hidden sm:block px-3 py-1.5 rounded-lg border border-gray-300 text-xs text-gray-600 hover:bg-gray-50 transition-colors"
         >
           Details
         </button>
         <button
           onClick={onSave}
           disabled={savedState || isSaving}
-          className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors min-w-[90px] text-center ${
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors min-w-[72px] text-center ${
             savedState
               ? 'bg-green-50 text-green-700 border border-green-200'
               : isSaving
@@ -223,9 +254,9 @@ export function SearchResultRow({ result, isSaved, isSaving, isInLibrary, onSave
               : 'bg-gray-900 text-white hover:bg-gray-700'
           }`}
         >
-          {savedState ? '✓ Saved' : isSaving ? 'Saving…' : 'Save'}
+          {savedState ? '✓ Saved' : isSaving ? '…' : 'Save'}
         </button>
       </div>
     </div>
   )
-}
+})
