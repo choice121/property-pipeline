@@ -1,7 +1,8 @@
 import json
 import logging
 import os
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
 from openai import OpenAI
@@ -428,6 +429,56 @@ INSTRUCTIONS:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ── Bulk Operation Helpers ─────────────────────────────────────────────────────
+
+def _get_inferred_tag(prop, prefix: str) -> str | None:
+    """Read a tagged value from inferred_features JSON array, e.g. 'last_scanned:2026-04-16T...'"""
+    try:
+        features = json.loads(prop.inferred_features or "[]")
+        for f in features:
+            if isinstance(f, str) and f.startswith(prefix):
+                return f[len(prefix):]
+    except Exception:
+        pass
+    return None
+
+
+def _set_inferred_tag(repo, prop_id: str, prop, prefix: str, value: str) -> None:
+    """
+    Write a tagged value into inferred_features, replacing any existing entry
+    with the same prefix. Uses a lightweight targeted update so that updated_at
+    is NOT changed — this preserves the 'edited since last scan' comparison.
+    """
+    try:
+        features = json.loads(prop.inferred_features or "[]")
+    except Exception:
+        features = []
+    features = [f for f in features if not (isinstance(f, str) and f.startswith(prefix))]
+    features.append(f"{prefix}{value}")
+    repo.update_inferred_features(prop_id, features)
+
+
+def _bulk_clean_with_retry(description: str, prop_summary: str, max_retries: int = 3) -> dict:
+    """
+    Run _run_clean with per-call retry specifically for 429 rate limit errors.
+    Waits 5s then 10s between attempts before giving up and re-raising.
+    """
+    for attempt in range(max_retries):
+        try:
+            return _run_clean(description, prop_summary)
+        except HTTPException as e:
+            if e.status_code == 429 and attempt < max_retries - 1:
+                wait = 5 * (attempt + 1)
+                logger.warning(
+                    "Bulk clean: rate limit hit for property, retrying in %ds (attempt %d/%d)",
+                    wait, attempt + 1, max_retries,
+                )
+                time.sleep(wait)
+                continue
+            raise
+    return {"cleaned_description": None, "changes_made": False, "changes_summary": []}
+
+
 # ── Bulk Scan ──────────────────────────────────────────────────────────────────
 
 class BulkScanItem(BaseModel):
@@ -437,23 +488,25 @@ class BulkScanItem(BaseModel):
 
 class BulkScanRequest(BaseModel):
     properties: list[BulkScanItem]
+    skip_recent: bool = True
 
 
 @router.post("/ai/bulk-scan")
-def bulk_scan(req: BulkScanRequest):
+def bulk_scan(req: BulkScanRequest, repo: Repository = Depends(get_db)):
     if not req.properties:
-        return {"results": []}
+        return {"results": [], "skipped": 0, "scanned": 0}
 
     TOKEN_BUDGET = 3000
     all_results = []
-    batch = []
+    batch: list[BulkScanItem] = []
     batch_tokens = 0
+    skipped_count = 0
+    now = datetime.now(timezone.utc)
 
     def _estimate_tokens(item: BulkScanItem) -> int:
-        summary = _build_property_summary(item.property)
-        return len(summary) // 4
+        return len(_build_property_summary(item.property)) // 4
 
-    def _run_batch(current_batch):
+    def _run_batch(current_batch: list[BulkScanItem]) -> list[dict]:
         listings_block = ""
         for item in current_batch:
             summary = _build_property_summary(item.property)
@@ -483,7 +536,6 @@ Return a JSON object with key "results" containing an array. One object per list
 - "top_issue": a single short string describing the most critical problem, or null if none"""
 
         try:
-            import time
             raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
             result = json.loads(raw)
             batch_results = result.get("results", result) if isinstance(result, dict) else result
@@ -497,21 +549,64 @@ Return a JSON object with key "results" containing an array. One object per list
                 for item in current_batch
             ]
 
-    import time
     for item in req.properties:
+        # ── Skip recently-scanned properties that haven't been edited since ──
+        if req.skip_recent:
+            try:
+                prop = repo.get(item.id)
+                if prop:
+                    last_scanned_str = _get_inferred_tag(prop, "last_scanned:")
+                    if last_scanned_str:
+                        last_scanned = datetime.fromisoformat(last_scanned_str)
+                        if (now - last_scanned) < timedelta(hours=24):
+                            updated_str = prop.updated_at
+                            if not updated_str or datetime.fromisoformat(
+                                updated_str.replace("Z", "+00:00")
+                            ) <= last_scanned:
+                                all_results.append({
+                                    "id": item.id,
+                                    "errors": 0, "warnings": 0, "suggestions": 0,
+                                    "top_issue": None,
+                                    "skipped": True,
+                                    "skip_reason": "scanned_recently",
+                                })
+                                skipped_count += 1
+                                continue
+            except Exception as e:
+                logger.warning("Bulk scan: skip check failed for %s: %s", item.id, e)
+
+        # ── Add to current token-budget batch ──
         item_tokens = _estimate_tokens(item)
         if batch and (batch_tokens + item_tokens > TOKEN_BUDGET):
-            all_results.extend(_run_batch(batch))
+            batch_results = _run_batch(batch)
+            all_results.extend(batch_results)
+            # Save scan timestamps for all processed items in this batch
+            for scanned_item in batch:
+                try:
+                    prop = repo.get(scanned_item.id)
+                    if prop:
+                        _set_inferred_tag(repo, scanned_item.id, prop, "last_scanned:", now.isoformat())
+                except Exception:
+                    pass
             time.sleep(0.75)
             batch = []
             batch_tokens = 0
+
         batch.append(item)
         batch_tokens += item_tokens
 
     if batch:
-        all_results.extend(_run_batch(batch))
+        batch_results = _run_batch(batch)
+        all_results.extend(batch_results)
+        for scanned_item in batch:
+            try:
+                prop = repo.get(scanned_item.id)
+                if prop:
+                    _set_inferred_tag(repo, scanned_item.id, prop, "last_scanned:", now.isoformat())
+            except Exception:
+                pass
 
-    return {"results": all_results}
+    return {"results": all_results, "skipped": skipped_count, "scanned": len(all_results) - skipped_count}
 
 
 # ── AI Score ───────────────────────────────────────────────────────────────────
@@ -733,17 +828,26 @@ def clean_property_text(req: CleanRequest, repo: Repository = Depends(get_db)):
 
 class BulkCleanRequest(BaseModel):
     property_ids: list[str]
+    resume: bool = False
 
 
 @router.post("/ai/bulk-clean")
 def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
-    import time
+    """
+    Bulk clean descriptions for a list of properties.
 
+    resume=True: skip any property that was successfully cleaned in the last hour
+    (checkpoint behaviour — safe to re-run after an interruption without
+    re-processing already-completed properties).
+
+    resume=False (default): process all properties regardless of prior clean status.
+    """
     if not req.property_ids:
         return {"results": [], "cleaned": 0, "skipped": 0, "errors": 0}
 
     results = []
     cleaned = skipped = errors = 0
+    now = datetime.now(timezone.utc)
 
     for i, prop_id in enumerate(req.property_ids):
         if i > 0:
@@ -755,6 +859,19 @@ def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
                 results.append({"id": prop_id, "status": "not_found"})
                 errors += 1
                 continue
+
+            # ── Resume checkpoint: skip if already cleaned recently ──
+            if req.resume:
+                last_cleaned_str = _get_inferred_tag(prop, "last_cleaned:")
+                if last_cleaned_str:
+                    try:
+                        last_cleaned = datetime.fromisoformat(last_cleaned_str)
+                        if (now - last_cleaned) < timedelta(hours=1):
+                            results.append({"id": prop_id, "status": "checkpoint_skip"})
+                            skipped += 1
+                            continue
+                    except Exception:
+                        pass
 
             if not prop.description or len(prop.description.strip()) < 20:
                 results.append({"id": prop_id, "status": "skipped", "reason": "no_description"})
@@ -768,7 +885,9 @@ def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
                 description=prop.description,
             )
             prop_summary = _build_property_summary(prop_ctx)
-            result = _run_clean(prop.description, prop_summary)
+
+            # ── Per-property retry on 429 rate limit errors ──
+            result = _bulk_clean_with_retry(prop.description, prop_summary)
 
             if result.get("cleaned_description") and result.get("changes_made"):
                 prop.description = result["cleaned_description"]
@@ -777,7 +896,7 @@ def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
                 except Exception:
                     features = []
                 features = [f for f in features if not f.startswith("text_cleaned_")]
-                features.append(f"text_cleaned_{datetime.now(timezone.utc).strftime('%Y%m%d')}")
+                features.append(f"text_cleaned_{now.strftime('%Y%m%d')}")
                 prop.inferred_features = json.dumps(features)
                 repo.save(prop)
                 repo.add_log(AiEnrichmentLog(
@@ -786,7 +905,13 @@ def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
                     method=f"ai_clean_{PROMPT_VERSION}",
                     ai_value=(result["cleaned_description"] or "")[:500],
                 ))
-                results.append({"id": prop_id, "status": "cleaned", "changes": result.get("changes_summary", [])})
+                # ── Save checkpoint timestamp ──
+                _set_inferred_tag(repo, prop_id, prop, "last_cleaned:", now.isoformat())
+                results.append({
+                    "id": prop_id,
+                    "status": "cleaned",
+                    "changes": result.get("changes_summary", []),
+                })
                 cleaned += 1
             else:
                 results.append({"id": prop_id, "status": "already_clean"})

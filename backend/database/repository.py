@@ -159,6 +159,24 @@ class Repository:
         for log in logs:
             self.add_log(log)
 
+    def update_inferred_features(self, prop_id: str, features: list) -> None:
+        """
+        Lightweight update of just the inferred_features field.
+        Used by bulk operations to save scan/clean timestamps without
+        triggering a full property save (which would change updated_at
+        and invalidate the 'edited since last scan' check).
+        """
+        try:
+            import json
+            self._client.table("pipeline_properties").update(
+                {"inferred_features": json.dumps(features)}
+            ).eq("id", prop_id).execute()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not update inferred_features for %s: %s", prop_id, e
+            )
+
     def commit(self):
         pass
 

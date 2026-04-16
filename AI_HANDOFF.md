@@ -15,14 +15,14 @@ This project has an active multi-phase AI improvement plan. Check the checklist 
 - [x] 1B. Updated `backend/routers/ai.py` — imports from ai_client, all structured endpoints use json_mode=True, markdown stripping removed, PROMPT_VERSION tags on all enrichment log entries
 - [x] 1C. Updated `backend/services/ai_enricher.py` — imports from ai_client, uses same PLATFORM_CONTEXT and call_deepseek() as the router, LLM feature extraction (_llm_extract_features) replaces keyword regex list, description generation uses full platform context
 
-#### Phase 2 — Bulk Operation Rate Control 🔲 NOT STARTED
-- [ ] 2A. Fixed delay (750ms) between each property in bulk-clean loop — `backend/routers/ai.py` bulk_clean endpoint
-- [ ] 2B. 429 mid-bulk pause and per-property retry — `backend/routers/ai.py` bulk loop error handling
-- [ ] 2C. Token-aware batching for bulk-scan (replace fixed batch of 8 with ~3000 token budget) — `backend/routers/ai.py` bulk_scan batching logic
-- [ ] 2D. last_scanned_at column on pipeline_properties in Supabase, skip recently-scanned properties — `backend/routers/ai.py` bulk_scan + `backend/database/repository.py`
-- [ ] 2E. Checkpoint/resume for bulk-clean — save per-property status to Supabase so interrupted operations resume instead of restart
+#### Phase 2 — Bulk Operation Rate Control ✅ COMPLETE
+- [x] 2A. 750ms delay between properties in bulk-clean loop — already present in Phase 1
+- [x] 2B. Per-property 429 retry in bulk_clean — `_bulk_clean_with_retry()` helper with 3 attempts, 5s/10s wait
+- [x] 2C. Token-aware batching for bulk-scan — already done in Phase 1 (~3000 token budget)
+- [x] 2D. Skip recently-scanned properties — last_scanned timestamp stored in `inferred_features` field as `"last_scanned:<ISO>"` tag; bulk_scan skips properties scanned < 24h ago that haven't been edited since (`skip_recent=True` by default)
+- [x] 2E. Checkpoint/resume for bulk-clean — `resume=True` param skips properties with `last_cleaned:<ISO>` tag < 1h old; timestamp stored via `_set_inferred_tag()` after each successful clean; no schema changes needed — all stored in existing `inferred_features` column
 
-**NOTE on 2A:** The 750ms delay is already partially implemented in the current bulk_clean loop (i > 0: time.sleep(0.75)). The token-aware batching in bulk_scan is also already done. The remaining work is 2B, 2D, and 2E.
+**Architecture note on 2D/2E:** No Supabase schema changes were made. Timestamps are embedded in the existing `inferred_features` JSON array as tagged strings (`"last_scanned:..."`, `"last_cleaned:..."`). The `update_inferred_features()` method in Repository does a targeted Supabase update that does NOT change `updated_at`, preserving the "edited since last scan" comparison logic.
 
 #### Phase 3 — Smarter Auto-Enrichment 🔲 NOT STARTED
 - [ ] 3A. LLM feature extraction already done in Phase 1C — this is complete
@@ -52,7 +52,7 @@ This project has an active multi-phase AI improvement plan. Check the checklist 
 6. Push to GitHub with a descriptive commit message
 7. Continue to the next phase
 
-**Current next step: Begin Phase 2 — start with 2B (per-property retry on 429), then 2D (last_scanned_at), then 2E (checkpoint/resume). 2A and token-aware batching are already in place from Phase 1.**
+**Current next step: Begin Phase 3 — start with 3B (rate-controlled enrichment queue), then 3C (smarter enrichment triggers — only re-run on changed input fields).**
 
 ---
 
