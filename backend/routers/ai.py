@@ -4,152 +4,21 @@ import os
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
-from openai import OpenAI, AuthenticationError, RateLimitError, APIStatusError, APIConnectionError
+from openai import OpenAI
 from pydantic import BaseModel
 
 from database.db import get_db
 from database.repository import Repository, AiEnrichmentLog
+from services.ai_client import (
+    PLATFORM_CONTEXT,
+    PROMPT_VERSION,
+    call_deepseek,
+    get_client,
+    handle_deepseek_error,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# ── Platform Knowledge ─────────────────────────────────────────────────────────
-# This context is injected into every AI call as the system message.
-# It teaches the AI everything it needs to know about Choice Properties,
-# the US rental market, and how to produce high-quality listing content.
-
-PLATFORM_CONTEXT = """
-You are an expert AI assistant embedded in the Choice Properties Property Pipeline — an internal tool used by property managers and landlords to prepare rental listings before publishing them on the Choice Properties marketplace.
-
-## About Choice Properties
-Choice Properties is a tenant-first rental marketplace. The platform's core philosophy is:
-- **Apply first, tour later** — tenants submit an application before scheduling a viewing. All language about "scheduling a showing", "contact us to see the unit", or "tours available" must be removed from listings.
-- **No gatekeeping language** — listings must never mention credit score minimums, income multipliers (e.g. "must earn 3x rent"), background check requirements, "no Section 8", or any screening criteria. These are handled transparently by the platform.
-- **Inclusive and welcoming** — listings should feel accessible and warm, not exclusive or intimidating.
-- **Honest and accurate** — never invent details. Only use facts supported by the data provided.
-
-## Your Role
-You help prepare listings that are complete, accurate, attractive, and tenant-friendly. You understand the full data lifecycle: properties are scraped from Zillow, Realtor.com, and Redfin, then enriched and edited before being published live.
-
-## US Rental Market Knowledge
-Use this knowledge when inferring fields or evaluating pricing:
-
-### Property Types and Typical Features
-- **Single Family Home**: Usually has a garage or driveway parking, often has a basement (especially in Midwest/Northeast), typically forced air heating, central air common in homes built after 1980, in-unit laundry common after 2000, private yard.
-- **Apartment / Multi-unit**: Usually shared laundry or no laundry (older buildings), window units or mini-splits, baseboard heat in older buildings, limited parking.
-- **Condo / Townhouse**: Often HOA amenities (gym, pool), in-unit laundry typical in newer builds, assigned parking common, central air standard in modern builds.
-- **Duplex/Triplex**: Often older buildings, shared laundry, may have yard access, parking varies.
-
-### Age-Based Inferences
-- Built before 1970: Likely radiator/baseboard heat, window AC units, no in-unit laundry, older appliances
-- Built 1970–1990: Forced air becoming standard, central air in warmer states, shared laundry
-- Built 1990–2010: Central HVAC standard, in-unit washer/dryer hookups common, dishwasher standard
-- Built after 2010: Modern finishes, in-unit laundry standard, stainless appliances, smart features possible
-
-### Lease Terms
-- Standard US lease: 12-month is the default. Month-to-month as a secondary option is common.
-- Short-term (3–6 month): Common in university towns, luxury units, and furnished rentals.
-
-### Utilities
-- Most US rentals: Tenant pays electric + gas. Landlord covers water, trash, sewer.
-- Apartments: Sometimes water/trash included. Rarely all utilities included.
-- Luxury rentals: May include more utilities as a differentiator.
-
-### Pricing Context
-- Evaluate rent reasonableness based on bedrooms and location (state/city if available).
-- Obvious red flags: A 3BR home for $400/mo (too low, likely an error) or a studio for $8,000/mo (too high unless luxury market).
-- When no city is available, use bedrooms and sqft as the main pricing signal.
-
-### Pet Policies
-- If pets_allowed is True: suggest "Dogs and cats welcome" or "Pet-friendly home — ask about our pet policy."
-- If pets_allowed is False or unknown: omit pet policy from descriptions. Never say "no pets" in listing copy.
-- Pet weight limits and breed restrictions are handled on the platform — do not include in copy.
-
-### Common Amenities by Property Type
-- Houses: yard, garage, driveway, storage, patio/deck
-- Apartments: gym, pool, rooftop, doorman, concierge, elevator, common areas
-- All: dishwasher, in-unit laundry, hardwood floors, high ceilings, natural light, updated kitchen/bath
-
-## Listing Quality Standards
-A great listing has:
-1. A compelling description (3–4 paragraphs, no bullet points, no headers)
-2. Accurate bedroom/bathroom counts
-3. A stated monthly rent
-4. At least one photo
-5. A complete address
-6. Key amenities and appliances listed
-7. Clear lease terms
-8. A welcoming, screening-free tone
-
-A poor listing has:
-- A generic or missing description
-- Missing rent
-- Boilerplate language copied from source sites
-- Gatekeeping language (income requirements, credit minimums)
-- Tour-first language
-- Contradictory data (e.g. 2 beds but description says 3)
-"""
-
-
-# ── Client & Error Handling ────────────────────────────────────────────────────
-
-def _get_client():
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY is not configured.")
-    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-
-
-def _handle_deepseek_error(e: Exception):
-    if isinstance(e, AuthenticationError):
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid DeepSeek API key. Please check your DEEPSEEK_API_KEY in backend/.env."
-        )
-    if isinstance(e, RateLimitError):
-        raise HTTPException(
-            status_code=429,
-            detail="DeepSeek rate limit reached. You are sending too many requests. Please wait a moment and try again."
-        )
-    if isinstance(e, APIStatusError):
-        if e.status_code == 402:
-            raise HTTPException(
-                status_code=402,
-                detail="DeepSeek credit exhausted. Your account balance is too low. Please top up at platform.deepseek.com to continue using AI features."
-            )
-        if e.status_code == 429:
-            raise HTTPException(
-                status_code=429,
-                detail="DeepSeek rate limit reached. Please wait a moment and try again."
-            )
-        raise HTTPException(
-            status_code=500,
-            detail=f"DeepSeek API error ({e.status_code}): {e.message}"
-        )
-    if isinstance(e, APIConnectionError):
-        raise HTTPException(
-            status_code=503,
-            detail="Could not connect to DeepSeek. Please check your internet connection and try again."
-        )
-    raise HTTPException(status_code=500, detail=str(e))
-
-
-def _call_deepseek(system: str, user: str, temperature: float = 0.7) -> str:
-    try:
-        client = _get_client()
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=temperature,
-        )
-        return response.choices[0].message.content.strip()
-    except HTTPException:
-        raise
-    except Exception as e:
-        _handle_deepseek_error(e)
 
 
 # ── Data Models ────────────────────────────────────────────────────────────────
@@ -295,7 +164,7 @@ TONE: {tone_instruction}
 
 HARD RULES — follow every one without exception:
 1. NEVER mention tours, viewings, showings, or "seeing the property in person." Omit completely.
-2. NEVER include credit scores, income requirements, income multipliers, background check language, "no Section 8", rental history requirements, or any tenant screening criteria.
+2. NEVER include credit scores, income requirements, income multipliers, background check language, "no Section 8", or any tenant screening criteria.
 3. NEVER say "no pets." Either omit the pet policy entirely or say "ask about our pet policy."
 4. NEVER invent facts. Only describe what is supported by the property data above.
 5. NEVER copy boilerplate phrases like "don't miss this gem", "call today", "motivated landlord."
@@ -305,7 +174,7 @@ HARD RULES — follow every one without exception:
 9. Return ONLY the description text. Nothing else — no labels, no preamble, no quotes."""
 
     try:
-        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.75)
+        result = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.75)
         return {"description": result}
     except HTTPException:
         raise
@@ -399,22 +268,17 @@ Return a JSON object with these keys:
 Rules:
 - Only include real issues. Do not flag things that are fine.
 - Do not hallucinate issues that don't exist in the data.
-- Order issues by severity: errors first, then warnings, then suggestions.
-- Return ONLY a raw JSON object. No markdown, no explanation."""
+- Order issues by severity: errors first, then warnings, then suggestions."""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2, json_mode=True)
         result = json.loads(raw)
         if isinstance(result, list):
             return {"issues": result, "quality_score": None}
-        issues = result.get("issues", [])
-        quality_score = result.get("quality_score", None)
-        return {"issues": issues, "quality_score": quality_score}
+        return {
+            "issues": result.get("issues", []),
+            "quality_score": result.get("quality_score", None),
+        }
     except json.JSONDecodeError:
         return {"issues": [], "quality_score": None}
     except HTTPException:
@@ -444,7 +308,7 @@ INSTRUCTIONS:
 - Return ONLY the suggested value. No quotes, no labels, no explanation."""
 
     try:
-        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
+        result = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
         return {"suggestion": result}
     except HTTPException:
         raise
@@ -486,7 +350,7 @@ Always be direct and practical. If asked to rewrite something, provide the compl
     messages.append({"role": "user", "content": req.message})
 
     try:
-        client = _get_client()
+        client = get_client()
         response = client.chat.completions.create(
             model="deepseek-chat",
             messages=messages,
@@ -498,7 +362,7 @@ Always be direct and practical. If asked to rewrite something, provide the compl
         raise
     except Exception as e:
         logger.error("AI chat failed: %s", e)
-        _handle_deepseek_error(e)
+        handle_deepseek_error(e)
 
 
 # ── Auto-Fill ──────────────────────────────────────────────────────────────────
@@ -551,17 +415,12 @@ INSTRUCTIONS:
 - Return ONLY a raw JSON object. No markdown, no explanation, no wrapper."""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3, json_mode=True)
         suggestions = json.loads(raw)
         filtered = {k: v for k, v in suggestions.items() if k in valid_fields}
         return {"suggestions": filtered}
     except json.JSONDecodeError:
-        return {"suggestions": {}, "raw": raw}
+        return {"suggestions": {}}
     except HTTPException:
         raise
     except Exception as e:
@@ -585,13 +444,18 @@ def bulk_scan(req: BulkScanRequest):
     if not req.properties:
         return {"results": []}
 
-    BATCH_SIZE = 8
+    TOKEN_BUDGET = 3000
     all_results = []
+    batch = []
+    batch_tokens = 0
 
-    for i in range(0, len(req.properties), BATCH_SIZE):
-        batch = req.properties[i:i + BATCH_SIZE]
+    def _estimate_tokens(item: BulkScanItem) -> int:
+        summary = _build_property_summary(item.property)
+        return len(summary) // 4
+
+    def _run_batch(current_batch):
         listings_block = ""
-        for item in batch:
+        for item in current_batch:
             summary = _build_property_summary(item.property)
             listings_block += f'\n---\nID: "{item.id}"\n{summary}\n'
 
@@ -611,28 +475,41 @@ SUGGESTIONS (nice improvements):
 LISTINGS TO REVIEW:
 {listings_block}
 
-Return a JSON array. One object per listing, in the same order. Each object:
+Return a JSON object with key "results" containing an array. One object per listing, in the same order. Each object:
 - "id": the listing ID exactly as given
 - "errors": integer count of errors found
 - "warnings": integer count of warnings found
 - "suggestions": integer count of suggestions found
-- "top_issue": a single short string describing the most critical problem, or null if none
-
-Return ONLY a raw JSON array. No markdown, no explanation."""
+- "top_issue": a single short string describing the most critical problem, or null if none"""
 
         try:
-            raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1)
-            raw = raw.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-            batch_results = json.loads(raw)
-            all_results.extend(batch_results)
+            import time
+            raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
+            result = json.loads(raw)
+            batch_results = result.get("results", result) if isinstance(result, dict) else result
+            if isinstance(batch_results, list):
+                return batch_results
+            return []
         except Exception as e:
             logger.error("AI bulk scan batch failed: %s", e)
-            for item in batch:
-                all_results.append({"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0, "top_issue": None})
+            return [
+                {"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0, "top_issue": None}
+                for item in current_batch
+            ]
+
+    import time
+    for item in req.properties:
+        item_tokens = _estimate_tokens(item)
+        if batch and (batch_tokens + item_tokens > TOKEN_BUDGET):
+            all_results.extend(_run_batch(batch))
+            time.sleep(0.75)
+            batch = []
+            batch_tokens = 0
+        batch.append(item)
+        batch_tokens += item_tokens
+
+    if batch:
+        all_results.extend(_run_batch(batch))
 
     return {"results": all_results}
 
@@ -666,21 +543,18 @@ Scoring guide:
 - 75–89 (B): Good listing, minor gaps
 - 60–74 (C): Usable but needs work
 - 45–59 (D): Significant gaps, not publish-ready
-- 0–44 (F): Major problems, requires significant work
-
-Return ONLY a raw JSON object. No markdown, no explanation."""
+- 0–44 (F): Major problems, requires significant work"""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        result = json.loads(raw)
-        return result
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2, json_mode=True)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return {"score": 0, "grade": "?", "headline": "Could not evaluate listing.", "strengths": [], "critical_fixes": [], "improvements": [], "publish_ready": False}
+        return {
+            "score": 0, "grade": "?",
+            "headline": "Could not evaluate listing.",
+            "strengths": [], "critical_fixes": [], "improvements": [],
+            "publish_ready": False,
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -709,7 +583,7 @@ Analyze the rent based on:
 - Property type
 - Location (city/state if available)
 - Year built and features/amenities
-- Current US rental market conditions (2024–2025)
+- General US rental market knowledge (note: this is model knowledge, not live market data)
 
 Return a JSON object with these exact keys:
 - "assessment": one of "very_low", "low", "fair", "high", "very_high", or "unknown" (use unknown only if rent is missing)
@@ -718,20 +592,20 @@ Return a JSON object with these exact keys:
 - "verdict": 1–2 sentences assessing whether this specific rent is appropriate
 - "recommendation": one concrete, actionable sentence (e.g. "Consider pricing between $X–$Y to stay competitive" or "This rent is well-positioned for the market")
 - "comparable_range": string like "$1,800–$2,200/mo" representing the typical market range for this type of property, or null if unknown
+- "data_note": always include this string: "Pricing estimates are based on model training data and may not reflect current market conditions."
 
-Return ONLY a raw JSON object. No markdown, no explanation."""
+Return ONLY a raw JSON object."""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        result = json.loads(raw)
-        return result
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2, json_mode=True)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return {"assessment": "unknown", "confidence": "low", "market_context": "", "verdict": "Could not evaluate pricing.", "recommendation": "", "comparable_range": None}
+        return {
+            "assessment": "unknown", "confidence": "low",
+            "market_context": "", "verdict": "Could not evaluate pricing.",
+            "recommendation": "", "comparable_range": None,
+            "data_note": "Pricing estimates are based on model training data and may not reflect current market conditions.",
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -765,21 +639,16 @@ Evaluate the listing's SEO strength and return a JSON object with these exact ke
 - "present_keywords": array of good SEO terms already present in the description
 - "title_suggestion": a strong, keyword-rich listing title (e.g. "Spacious 3BR/2BA House for Rent in Austin, TX — Garage, Yard, Pets Welcome")
 - "improvements": array of 3–5 specific, actionable SEO improvements (e.g. "Add the city name 'Chicago' in the first sentence", "Mention 'hardwood floors' which is a common search term")
-- "optimized_opening": a rewritten first sentence or two that's more SEO-friendly, keeping the tenant-first tone and removing any tour/screening language
-
-Return ONLY a raw JSON object. No markdown, no explanation."""
+- "optimized_opening": a rewritten first sentence or two that's more SEO-friendly, keeping the tenant-first tone and removing any tour/screening language"""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        result = json.loads(raw)
-        return result
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.3, json_mode=True)
+        return json.loads(raw)
     except json.JSONDecodeError:
-        return {"score": 0, "missing_keywords": [], "present_keywords": [], "title_suggestion": "", "improvements": [], "optimized_opening": ""}
+        return {
+            "score": 0, "missing_keywords": [], "present_keywords": [],
+            "title_suggestion": "", "improvements": [], "optimized_opening": "",
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -819,17 +688,10 @@ CLEANING TASKS — apply every one:
 Return a JSON object with:
 - "cleaned_description": the fully cleaned and rewritten description text (or null if description is empty/too short to clean)
 - "changes_made": boolean — true if any meaningful changes were necessary
-- "changes_summary": array of short strings describing what was removed or changed (e.g. ["Removed phone number", "Removed income requirement '3x rent'", "Removed tour scheduling language"])
-
-Return ONLY a raw JSON object. No markdown, no explanation."""
+- "changes_summary": array of short strings describing what was removed or changed (e.g. ["Removed phone number", "Removed income requirement '3x rent'", "Removed tour scheduling language"])"""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.4)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.4, json_mode=True)
         return json.loads(raw)
     except json.JSONDecodeError:
         return {"cleaned_description": None, "changes_made": False, "changes_summary": []}
@@ -858,7 +720,7 @@ def clean_property_text(req: CleanRequest, repo: Repository = Depends(get_db)):
                 repo.add_log(AiEnrichmentLog(
                     property_id=req.property_id,
                     field="description",
-                    method="ai_clean",
+                    method=f"ai_clean_{PROMPT_VERSION}",
                     ai_value=(result["cleaned_description"] or "")[:500],
                 ))
         except Exception as e:
@@ -875,13 +737,18 @@ class BulkCleanRequest(BaseModel):
 
 @router.post("/ai/bulk-clean")
 def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
+    import time
+
     if not req.property_ids:
         return {"results": [], "cleaned": 0, "skipped": 0, "errors": 0}
 
     results = []
     cleaned = skipped = errors = 0
 
-    for prop_id in req.property_ids:
+    for i, prop_id in enumerate(req.property_ids):
+        if i > 0:
+            time.sleep(0.75)
+
         try:
             prop = repo.get(prop_id)
             if not prop:
@@ -916,7 +783,7 @@ def bulk_clean(req: BulkCleanRequest, repo: Repository = Depends(get_db)):
                 repo.add_log(AiEnrichmentLog(
                     property_id=prop_id,
                     field="description",
-                    method="ai_clean",
+                    method=f"ai_clean_{PROMPT_VERSION}",
                     ai_value=(result["cleaned_description"] or "")[:500],
                 ))
                 results.append({"id": prop_id, "status": "cleaned", "changes": result.get("changes_summary", [])})
@@ -966,7 +833,7 @@ TITLE RULES:
 Return ONLY the title text. No quotes, no labels, no explanation."""
 
     try:
-        result = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.6)
+        result = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.6)
         title = result.strip().strip('"').strip("'")
 
         if req.property_id and title:
@@ -978,7 +845,7 @@ Return ONLY the title text. No quotes, no labels, no explanation."""
                     repo.add_log(AiEnrichmentLog(
                         property_id=req.property_id,
                         field="title",
-                        method="ai_title_generator",
+                        method=f"ai_title_{PROMPT_VERSION}",
                         ai_value=title[:500],
                     ))
             except Exception as e:
@@ -1028,17 +895,10 @@ EXTRACTION RULES:
 
 Return a JSON object:
 - "amenities": array of new amenity names not already captured
-- "appliances": array of new appliance names not already captured
-
-Return ONLY a raw JSON object."""
+- "appliances": array of new appliance names not already captured"""
 
     try:
-        raw = _call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
         result = json.loads(raw)
         new_amenities = result.get("amenities", [])
         new_appliances = result.get("appliances", [])
@@ -1047,13 +907,12 @@ Return ONLY a raw JSON object."""
             try:
                 prop = repo.get(req.property_id)
                 if prop:
-                    import json as _json
                     try:
-                        cur_a = _json.loads(prop.amenities or "[]")
+                        cur_a = json.loads(prop.amenities or "[]")
                     except Exception:
                         cur_a = []
                     try:
-                        cur_ap = _json.loads(prop.appliances or "[]")
+                        cur_ap = json.loads(prop.appliances or "[]")
                     except Exception:
                         cur_ap = []
 
@@ -1061,20 +920,20 @@ Return ONLY a raw JSON object."""
                     merged_ap = list(dict.fromkeys(cur_ap + new_appliances))
 
                     if merged_a != cur_a:
-                        prop.amenities = _json.dumps(merged_a)
+                        prop.amenities = json.dumps(merged_a)
                         repo.add_log(AiEnrichmentLog(
                             property_id=req.property_id,
                             field="amenities",
-                            method="llm_extraction",
-                            ai_value=_json.dumps(merged_a),
+                            method=f"llm_extraction_{PROMPT_VERSION}",
+                            ai_value=json.dumps(merged_a),
                         ))
                     if merged_ap != cur_ap:
-                        prop.appliances = _json.dumps(merged_ap)
+                        prop.appliances = json.dumps(merged_ap)
                         repo.add_log(AiEnrichmentLog(
                             property_id=req.property_id,
                             field="appliances",
-                            method="llm_extraction",
-                            ai_value=_json.dumps(merged_ap),
+                            method=f"llm_extraction_{PROMPT_VERSION}",
+                            ai_value=json.dumps(merged_ap),
                         ))
                     if merged_a != cur_a or merged_ap != cur_ap:
                         repo.save(prop)

@@ -1,83 +1,13 @@
 import json
 import logging
-import os
 
+from services.ai_client import PLATFORM_CONTEXT, PROMPT_VERSION, call_deepseek
 from services.pricing_service import apply_pricing_rules
 
 logger = logging.getLogger(__name__)
 
 
-def _deepseek_generate_description(prop) -> str | None:
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            return None
-        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
-
-        bed = prop.bedrooms
-        bath = prop.bathrooms
-        sqft = prop.square_footage
-        ptype = (prop.property_type or "property").lower().replace("_", " ")
-        city = prop.city or ""
-        state = prop.state or ""
-        rent = f"${prop.monthly_rent:,.0f}/mo" if prop.monthly_rent else ""
-        year = f"Built {prop.year_built}" if prop.year_built else ""
-        amenities = []
-        try:
-            amenities = json.loads(prop.amenities or "[]")
-        except Exception:
-            pass
-        appliances = []
-        try:
-            appliances = json.loads(prop.appliances or "[]")
-        except Exception:
-            pass
-
-        details = "\n".join(filter(None, [
-            f"Type: {ptype}",
-            f"Bedrooms: {bed}" if bed is not None else None,
-            f"Bathrooms: {bath}" if bath is not None else None,
-            f"Square footage: {sqft:,} sqft" if sqft else None,
-            year,
-            f"Location: {city}, {state}" if city and state else (city or state or None),
-            f"Monthly rent: {rent}" if rent else None,
-            f"Amenities: {', '.join(amenities)}" if amenities else None,
-            f"Appliances: {', '.join(appliances)}" if appliances else None,
-            f"Parking: {prop.parking}" if prop.parking else None,
-            f"Heating: {prop.heating_type}" if prop.heating_type else None,
-            f"Cooling: {prop.cooling_type}" if prop.cooling_type else None,
-            f"Laundry: {prop.laundry_type}" if prop.laundry_type else None,
-        ]))
-
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a copywriter for Choice Properties, a tenant-first rental marketplace. "
-                        "Write welcoming, honest, professional rental listing descriptions. "
-                        "Never mention tours, showings, credit scores, income requirements, or screening criteria. "
-                        "Never invent facts. Write 2–4 short paragraphs. No bullet points. No title. "
-                        "End with a soft apply-first call to action."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Write a rental listing description for this property:\n\n{details}\n\n"
-                        "Return only the description text."
-                    ),
-                },
-            ],
-            temperature=0.7,
-        )
-        return response.choices[0].message.content.strip()
-    except Exception as e:
-        logger.warning("ai_enricher: DeepSeek description generation failed: %s", e)
-        return None
-
+# ── Property type keyword classification ───────────────────────────────────────
 
 PROPERTY_TYPE_KEYWORDS = {
     "apartment":  ["apartment", "apt ", "flat ", "unit in building", "apartment complex",
@@ -91,46 +21,13 @@ PROPERTY_TYPE_KEYWORDS = {
                    "craftsman", "cape cod", "tudor", "victorian"],
 }
 
-EXTENDED_AMENITIES = [
-    ("Pool",             ["pool", "swimming pool", "community pool"]),
-    ("Hot Tub",          ["hot tub", "jacuzzi", "whirlpool"]),
-    ("Gym / Fitness",    ["gym", "fitness center", "fitness room", "workout room", "exercise room"]),
-    ("Basement",         ["basement", "finished basement", "lower level"]),
-    ("Central Air",      ["central air", "central a/c", "central ac", "central cooling"]),
-    ("Garage",           ["garage", "attached garage", "detached garage"]),
-    ("Carport",          ["carport", "covered parking"]),
-    ("Fenced Yard",      ["fenced yard", "fenced backyard", "privacy fence"]),
-    ("Patio",            ["patio", "outdoor patio"]),
-    ("Deck",             ["deck", "back deck", "front deck"]),
-    ("Balcony",          ["balcony", "private balcony", "terrace"]),
-    ("Fireplace",        ["fireplace", "wood-burning fireplace", "gas fireplace"]),
-    ("Walk-in Closet",   ["walk-in closet", "walk in closet", "large closet"]),
-    ("Hardwood Floors",  ["hardwood floor", "hardwood floors", "hardwood flooring"]),
-    ("Storage",          ["storage unit", "storage room", "extra storage"]),
-    ("Elevator",         ["elevator", "lift"]),
-    ("Doorman",          ["doorman", "concierge"]),
-    ("Rooftop",          ["rooftop", "roof deck", "rooftop access"]),
-    ("EV Charging",      ["ev charging", "electric vehicle charging", "tesla charger"]),
-    ("Smart Home",       ["smart home", "smart thermostat", "nest", "smart lock"]),
-    ("Security System",  ["security system", "alarm system", "ring doorbell", "ring camera"]),
-    ("Wheelchair Access",["wheelchair", "ada", "accessible", "handicap accessible"]),
-    ("Den / Office",     ["den", "home office", "study", "office space"]),
-]
+SIGNIFICANT_FIELDS = frozenset([
+    "bedrooms", "bathrooms", "property_type", "monthly_rent",
+    "amenities", "appliances", "description", "city", "state",
+])
 
-EXTENDED_APPLIANCES = [
-    ("Refrigerator",     ["refrigerator", "fridge"]),
-    ("Range/Oven",       ["range", "oven", "stove", "gas stove", "electric stove", "gas range"]),
-    ("Dishwasher",       ["dishwasher"]),
-    ("Microwave",        ["microwave", "built-in microwave"]),
-    ("Washer",           ["washer", "washing machine"]),
-    ("Dryer",            ["dryer", "clothes dryer"]),
-    ("Garbage Disposal", ["garbage disposal", "disposal"]),
-    ("Trash Compactor",  ["trash compactor"]),
-    ("Freezer",          ["chest freezer", "standalone freezer"]),
-    ("Wine Cooler",      ["wine cooler", "wine fridge", "wine refrigerator"]),
-    ("Ice Maker",        ["ice maker", "ice machine"]),
-]
 
+# ── JSON list helpers ──────────────────────────────────────────────────────────
 
 def _parse_json_list(val) -> list:
     if not val:
@@ -153,11 +50,7 @@ def _add_inferred_to_prop(prop, feature: str):
     prop.inferred_features = json.dumps(existing)
 
 
-SIGNIFICANT_FIELDS = frozenset([
-    "bedrooms", "bathrooms", "property_type", "monthly_rent",
-    "amenities", "appliances", "description", "city", "state",
-])
-
+# ── Task decision logic ────────────────────────────────────────────────────────
 
 def _decide_tasks(prop) -> list[str]:
     tasks = []
@@ -202,79 +95,74 @@ def _is_generic_title(title: str) -> bool:
     return False
 
 
-def _deepseek_generate_title(prop) -> str | None:
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("DEEPSEEK_API_KEY")
-        if not api_key:
-            return None
-        client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+# ── Description generation ─────────────────────────────────────────────────────
 
+def _llm_generate_description(prop) -> str | None:
+    """
+    Generate a listing description using the shared PLATFORM_CONTEXT and
+    the same prompt quality as the manual rewrite endpoint. Falls back to
+    the template builder if the LLM call fails.
+    """
+    try:
         bed = prop.bedrooms
         bath = prop.bathrooms
-        ptype = (prop.property_type or "home").lower().replace("_", " ")
+        sqft = prop.square_footage
+        ptype = (prop.property_type or "property").lower().replace("_", " ")
         city = prop.city or ""
         state = prop.state or ""
+        rent = f"${prop.monthly_rent:,.0f}/mo" if prop.monthly_rent else ""
+        year = f"Built {prop.year_built}" if prop.year_built else ""
+
         amenities = _parse_json_list(prop.amenities)
         appliances = _parse_json_list(prop.appliances)
-        parking = prop.parking or ""
-        laundry = prop.laundry_type or ""
-        sqft = prop.square_footage
 
-        standouts = []
-        if "Garage" in amenities or (parking and "garage" in parking.lower()):
-            standouts.append("Garage")
-        if "In-unit" in laundry or "In Unit" in laundry:
-            standouts.append("In-Unit Laundry")
-        if "Pool" in amenities:
-            standouts.append("Pool")
-        if "Balcony" in amenities:
-            standouts.append("Balcony")
-        if "Yard" in amenities or "Fenced Yard" in amenities:
-            standouts.append("Private Yard")
-        if sqft and sqft > 1500:
-            standouts.append(f"{sqft:,} sqft")
-        if prop.pets_allowed:
-            standouts.append("Pet-Friendly")
+        details = "\n".join(filter(None, [
+            f"Type: {ptype}",
+            f"Bedrooms: {bed}" if bed is not None else None,
+            f"Bathrooms: {bath}" if bath is not None else None,
+            f"Square footage: {sqft:,} sqft" if sqft else None,
+            year,
+            f"Location: {city}, {state}" if city and state else (city or state or None),
+            f"Monthly rent: {rent}" if rent else None,
+            f"Amenities: {', '.join(amenities)}" if amenities else None,
+            f"Appliances: {', '.join(appliances)}" if appliances else None,
+            f"Parking: {prop.parking}" if prop.parking else None,
+            f"Heating: {prop.heating_type}" if prop.heating_type else None,
+            f"Cooling: {prop.cooling_type}" if prop.cooling_type else None,
+            f"Laundry: {prop.laundry_type}" if prop.laundry_type else None,
+        ]))
 
-        bed_str = "Studio" if bed == 0 else (f"{bed}BR" if bed else "")
-        location = city or (state or "")
+        user_prompt = f"""Write a rental listing description for this property.
 
-        prompt = (
-            f"Property: {bed_str} {ptype} in {location}\n"
-            + (f"Standout features: {', '.join(standouts[:3])}\n" if standouts else "")
-            + "Generate a compelling, specific rental listing title (under 80 chars, Title Case, no tour/screening language)."
-        )
+PROPERTY DATA:
+{details}
 
-        response = client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You write compelling, specific rental listing titles for Choice Properties. "
-                        "Be specific, not generic. Lead with the strongest feature. "
-                        "Include bedroom count and city. Mention 1-2 standout amenities. "
-                        "Return ONLY the title text, nothing else."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.6,
-        )
-        title = response.choices[0].message.content.strip().strip('"').strip("'")
-        return title if len(title) > 10 else None
+HARD RULES:
+1. NEVER mention tours, viewings, showings, or "seeing the property in person."
+2. NEVER include credit scores, income requirements, screening criteria, or "no Section 8."
+3. NEVER say "no pets." Omit pet policy or say "ask about our pet policy."
+4. NEVER invent facts. Only use what is in the data above.
+5. Structure: 2–4 paragraphs. No bullet points. No title. Body text only.
+6. End with a soft apply-first call to action.
+
+Return ONLY the description text."""
+
+        return call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.7)
+
     except Exception as e:
-        logger.warning("ai_enricher: title generation failed: %s", e)
+        logger.warning("ai_enricher: LLM description generation failed: %s", e)
         return None
 
 
-def _generate_description(prop) -> str:
-    bed   = prop.bedrooms
-    bath  = prop.bathrooms or prop.total_bathrooms
-    sqft  = prop.square_footage
+def _template_generate_description(prop) -> str:
+    """
+    Rule-based fallback description builder. Used only when the LLM call fails.
+    """
+    bed = prop.bedrooms
+    bath = prop.bathrooms or prop.total_bathrooms
+    sqft = prop.square_footage
     ptype = (prop.property_type or "property").lower().replace("_", " ")
-    city  = prop.city or ""
+    city = prop.city or ""
     state = prop.state or ""
 
     bed_str = "Studio" if bed == 0 else (f"{bed}-bedroom" if bed else "")
@@ -286,7 +174,6 @@ def _generate_description(prop) -> str:
 
     descriptor_parts = [p for p in [bed_str, bath_str, ptype] if p]
     descriptor = " ".join(descriptor_parts) if descriptor_parts else "rental property"
-
     location = f"{city}, {state}" if city and state else city or state or ""
 
     paragraphs = []
@@ -309,9 +196,9 @@ def _generate_description(prop) -> str:
     paragraphs.append(" ".join(lead_parts))
 
     interior = []
-    amenities  = _parse_json_list(prop.amenities)
+    amenities = _parse_json_list(prop.amenities)
     appliances = _parse_json_list(prop.appliances)
-    flooring   = _parse_json_list(prop.flooring)
+    flooring = _parse_json_list(prop.flooring)
 
     if amenities:
         interior.append(f"Features include {', '.join(amenities[:6])}.")
@@ -336,7 +223,7 @@ def _generate_description(prop) -> str:
         laundry_label = {
             "In-unit": "in-unit washer/dryer",
             "Hookups": "washer/dryer hookups",
-            "Shared":  "shared laundry on-site",
+            "Shared": "shared laundry on-site",
         }.get(prop.laundry_type, prop.laundry_type.lower() + " laundry")
         systems.append(laundry_label)
 
@@ -400,24 +287,54 @@ def _generate_description(prop) -> str:
     return "\n\n".join(p for p in paragraphs if p)
 
 
-def _extract_features_from_text(text: str) -> tuple[list, list]:
-    searchable = text.lower()
-    found_amenities = [
-        label for label, patterns in EXTENDED_AMENITIES
-        if any(p in searchable for p in patterns)
-    ]
-    found_appliances = [
-        label for label, patterns in EXTENDED_APPLIANCES
-        if any(p in searchable for p in patterns)
-    ]
-    return found_amenities, found_appliances
+# ── LLM Feature Extraction ─────────────────────────────────────────────────────
 
+def _llm_extract_features(text: str, existing_amenities: list, existing_appliances: list) -> tuple[list, list]:
+    """
+    Use the LLM to extract amenities and appliances from listing text.
+    Understands nuanced language that keyword lists miss.
+    Falls back to empty lists if the call fails.
+    """
+    if not text or len(text.strip()) < 20:
+        return [], []
+
+    user_prompt = f"""You are a property data extractor. Read the rental listing text below and extract all mentioned amenities and appliances.
+
+LISTING TEXT:
+{text}
+
+ALREADY CAPTURED (do not duplicate):
+- Amenities: {', '.join(existing_amenities) if existing_amenities else 'none yet'}
+- Appliances: {', '.join(existing_appliances) if existing_appliances else 'none yet'}
+
+EXTRACTION RULES:
+- Amenities: physical features and services (Pool, Gym, Garage, Balcony, Patio, Yard, Fireplace, EV Charging, Storage, Elevator, Doorman, Walk-in Closet, Hardwood Floors, Central Air, Basement, Hot Tub, Rooftop, Security System, Smart Home, etc.)
+- Appliances: kitchen and laundry equipment (Refrigerator, Dishwasher, Washer, Dryer, Microwave, Range/Oven, Garbage Disposal, Ice Maker, Wine Cooler, etc.)
+- Understand nuanced language: "covered 2-car parking structure with EV rough-in" → ["Garage", "EV Charging"]
+- Use standard names (capitalize properly)
+- Only include what is clearly mentioned or strongly implied
+- Do NOT duplicate items already captured
+
+Return a JSON object:
+- "amenities": array of new amenity names not already captured
+- "appliances": array of new appliance names not already captured"""
+
+    try:
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
+        result = json.loads(raw)
+        return result.get("amenities", []), result.get("appliances", [])
+    except Exception as e:
+        logger.warning("ai_enricher: LLM feature extraction failed: %s", e)
+        return [], []
+
+
+# ── Pet policy inference (rule-based, no LLM needed) ──────────────────────────
 
 def _infer_pet_policy(text: str):
     t = text.lower()
-    no_pets  = ["no pets", "no animals", "pet-free", "pets not allowed",
-                "no dogs allowed", "no cats allowed", "pet free building",
-                "sorry no pets", "pets are not", "no pet"]
+    no_pets = ["no pets", "no animals", "pet-free", "pets not allowed",
+               "no dogs allowed", "no cats allowed", "pet free building",
+               "sorry no pets", "pets are not", "no pet"]
     yes_pets = ["pets ok", "pet friendly", "pets welcome", "dogs allowed",
                 "cats allowed", "pets allowed", "pet-friendly", "pets considered",
                 "pets negotiable", "small pets", "up to", "lbs allowed"]
@@ -427,6 +344,8 @@ def _infer_pet_policy(text: str):
         return True
     return None
 
+
+# ── Property type classification (rule-based) ──────────────────────────────────
 
 def _classify_property_type(prop) -> str | None:
     searchable = " ".join(filter(None, [
@@ -441,6 +360,56 @@ def _classify_property_type(prop) -> str | None:
     return None
 
 
+# ── Title generation ───────────────────────────────────────────────────────────
+
+def _llm_generate_title(prop) -> str | None:
+    try:
+        bed = prop.bedrooms
+        ptype = (prop.property_type or "home").lower().replace("_", " ")
+        city = prop.city or ""
+        state = prop.state or ""
+        amenities = _parse_json_list(prop.amenities)
+        parking = prop.parking or ""
+        laundry = prop.laundry_type or ""
+        sqft = prop.square_footage
+
+        standouts = []
+        if "Garage" in amenities or (parking and "garage" in parking.lower()):
+            standouts.append("Garage")
+        if "In-unit" in laundry or "In Unit" in laundry:
+            standouts.append("In-Unit Laundry")
+        if "Pool" in amenities:
+            standouts.append("Pool")
+        if "Balcony" in amenities:
+            standouts.append("Balcony")
+        if "Yard" in amenities or "Fenced Yard" in amenities:
+            standouts.append("Private Yard")
+        if sqft and sqft > 1500:
+            standouts.append(f"{sqft:,} sqft")
+        if prop.pets_allowed:
+            standouts.append("Pet-Friendly")
+
+        bed_str = "Studio" if bed == 0 else (f"{bed}BR" if bed else "")
+        location = city or (state or "")
+
+        user_prompt = (
+            f"Property: {bed_str} {ptype} in {location}\n"
+            + (f"Standout features: {', '.join(standouts[:3])}\n" if standouts else "")
+            + "Generate a compelling, specific rental listing title (under 80 chars, Title Case, "
+            + "no tour/screening language, no invented facts). Return ONLY the title text."
+        )
+
+        result = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.6)
+        title = result.strip().strip('"').strip("'")
+        return title if len(title) > 10 else None
+
+    except Exception as e:
+        logger.warning("ai_enricher: title generation failed: %s", e)
+        return None
+
+
+# ── Main enrichment entry point ────────────────────────────────────────────────
+
 def enrich_property(prop_id: str, repo) -> None:
     from database.repository import AiEnrichmentLog
 
@@ -451,7 +420,7 @@ def enrich_property(prop_id: str, repo) -> None:
 
         tasks = _decide_tasks(prop)
 
-        changed  = False
+        changed = False
         log_rows = []
 
         pricing_changed = apply_pricing_rules(prop)
@@ -476,10 +445,10 @@ def enrich_property(prop_id: str, repo) -> None:
             return
 
         if "generate_description" in tasks:
-            new_desc = _deepseek_generate_description(prop)
-            method = "deepseek_llm"
+            new_desc = _llm_generate_description(prop)
+            method = f"deepseek_llm_{PROMPT_VERSION}"
             if not new_desc:
-                new_desc = _generate_description(prop)
+                new_desc = _template_generate_description(prop)
                 method = "template"
             if new_desc:
                 log_rows.append(AiEnrichmentLog(
@@ -494,35 +463,38 @@ def enrich_property(prop_id: str, repo) -> None:
                 logger.info("ai_enricher: generated description (%s) for %s", method, prop_id)
 
         if "extract_features" in tasks:
-            text = prop.description or ""
-            new_amenities, new_appliances = _extract_features_from_text(text)
-
-            existing_amenities  = _parse_json_list(prop.amenities)
+            existing_amenities = _parse_json_list(prop.amenities)
             existing_appliances = _parse_json_list(prop.appliances)
 
-            merged_amenities  = list(dict.fromkeys(existing_amenities  + new_amenities))
+            new_amenities, new_appliances = _llm_extract_features(
+                prop.description or "",
+                existing_amenities,
+                existing_appliances,
+            )
+
+            merged_amenities = list(dict.fromkeys(existing_amenities + new_amenities))
             merged_appliances = list(dict.fromkeys(existing_appliances + new_appliances))
 
             if merged_amenities != existing_amenities:
                 log_rows.append(AiEnrichmentLog(
                     property_id=prop_id,
                     field="amenities",
-                    method="rule_extraction",
+                    method=f"llm_extraction_{PROMPT_VERSION}",
                     ai_value=json.dumps(merged_amenities),
                 ))
                 prop.amenities = json.dumps(merged_amenities)
-                _add_inferred_to_prop(prop, "amenities_rule_extracted")
+                _add_inferred_to_prop(prop, "amenities_llm_extracted")
                 changed = True
 
             if merged_appliances != existing_appliances:
                 log_rows.append(AiEnrichmentLog(
                     property_id=prop_id,
                     field="appliances",
-                    method="rule_extraction",
+                    method=f"llm_extraction_{PROMPT_VERSION}",
                     ai_value=json.dumps(merged_appliances),
                 ))
                 prop.appliances = json.dumps(merged_appliances)
-                _add_inferred_to_prop(prop, "appliances_rule_extracted")
+                _add_inferred_to_prop(prop, "appliances_llm_extracted")
                 changed = True
 
         if "infer_pet_policy" in tasks:
@@ -552,12 +524,12 @@ def enrich_property(prop_id: str, repo) -> None:
                 changed = True
 
         if "generate_title" in tasks:
-            new_title = _deepseek_generate_title(prop)
+            new_title = _llm_generate_title(prop)
             if new_title:
                 log_rows.append(AiEnrichmentLog(
                     property_id=prop_id,
                     field="title",
-                    method="ai_title_generator",
+                    method=f"ai_title_{PROMPT_VERSION}",
                     ai_value=new_title[:500],
                 ))
                 prop.title = new_title
