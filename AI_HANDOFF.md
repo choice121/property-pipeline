@@ -44,9 +44,11 @@
   If you do not, the next AI starts blind and may duplicate or break your work.
 
   ### No hardcoded credentials
-  All secrets go in backend/.env only.
-  .env must be listed in .gitignore and never committed.
-  .env.example shows which variables are needed but contains no real values.
+  All credentials are stored in Replit Secrets / environment variables.
+  There is no backend/.env file — never create one or commit one.
+  GitHub Actions reads these same credentials from GitHub Repository Secrets.
+  To sync credentials from Replit → GitHub, run:
+      python3 scripts/sync-secrets-to-github.py
 
   ### No invented features
   Build exactly what is described in the stage file.
@@ -113,4 +115,51 @@
 
   After Stage 6 is complete, the owner reviews the tool before approving Stage 7.
   Do not prompt for credentials. Wait for the owner to initiate Stage 7.
+
+  ---
+
+  ## Credentials & Environment Setup (Read Before Asking the Owner Anything)
+
+  All credentials are stored in Replit as environment variables and secrets.
+  DO NOT ask the owner for credentials. Read them from the environment directly.
+  If a variable is missing, check Replit Secrets first, then ask.
+
+  ### How credentials flow
+  - Replit environment → app at runtime (automatic, already configured)
+  - Replit environment → GitHub Actions → run:  python3 scripts/sync-secrets-to-github.py
+
+  ### Required credentials (app will not work without these)
+
+  | Variable | What it is | Where to find it |
+  |---|---|---|
+  | SUPABASE_URL | Supabase project REST URL | Replit env / Supabase dashboard |
+  | SUPABASE_SERVICE_ROLE_KEY | Supabase service-role JWT | Replit Secret |
+  | DEEPSEEK_API_KEY | DeepSeek AI key for all AI features | Replit Secret |
+  | IMAGEKIT_PUBLIC_KEY | ImageKit public key for uploads | Replit env |
+  | IMAGEKIT_PRIVATE_KEY | ImageKit private key for uploads | Replit Secret |
+  | IMAGEKIT_URL_ENDPOINT | ImageKit CDN base URL | Replit env |
+
+  ### Optional credentials (features degrade gracefully without these)
+
+  | Variable | What it enables |
+  |---|---|
+  | SUPABASE_ANON_KEY | Public website reads from Supabase |
+  | SUPABASE_ACCESS_TOKEN | Supabase management API access |
+  | GEMINI_API_KEY | Gemini AI as fallback model |
+  | GEOAPIFY_API_KEY | Map/geocoding features |
+  | CLOUDFLARE_API_TOKEN | Cloudflare cache purge on publish |
+  | GOOGLE_APPS_SCRIPT_URL | Email relay via Google Apps Script |
+  | GOOGLE_APPS_SCRIPT_AUTH_TOKEN | Auth token for the above |
+  | GITHUB_TOKEN | Used by sync script to push secrets to GitHub |
+
+  ### Supabase project reference
+  - Project ID: tlfmwetmhthpyrytrcfo
+  - URL: https://tlfmwetmhthpyrytrcfo.supabase.co
+
+  ### ImageKit reference
+  - Account ID: 21rg7lvzo
+  - CDN endpoint: https://ik.imagekit.io/21rg7lvzo
+
+  ### To sync all secrets to GitHub (run once from Replit shell after any secret change)
+      python3 scripts/sync-secrets-to-github.py
   
