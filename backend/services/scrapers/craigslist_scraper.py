@@ -86,9 +86,11 @@ def _city_to_subdomain(location: str) -> str:
     loc_lower = location.strip().lower()
     loc_lower = re.sub(r",\s*[a-z]{2}$", "", loc_lower).strip()
 
-    for city, subdomain in CITY_MAP.items():
+    # Sort by key length descending so longer, more specific matches win
+    # (e.g. "atlanta" beats "la" which is a substring of "atlanta")
+    for city in sorted(CITY_MAP.keys(), key=len, reverse=True):
         if city in loc_lower:
-            return subdomain
+            return CITY_MAP[city]
 
     words = re.sub(r"[^a-z\s]", "", loc_lower).split()
     return "".join(words[:2])

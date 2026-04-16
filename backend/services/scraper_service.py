@@ -610,10 +610,7 @@ def _scrape_homeharvest(
     sort_by: Optional[str] = None,
     sort_direction: str = "desc",
 ) -> list:
-    site_name = HOMEHARVEST_SITE_MAP.get(source, "realtor.com")
-
     kwargs = dict(
-        site_name=site_name,
         location=location,
         listing_type=listing_type,
         price_min=min_price,
@@ -645,7 +642,6 @@ def _scrape_homeharvest(
         kwargs["property_type"] = property_type
 
     kwargs = {k: v for k, v in kwargs.items() if v is not None and v is not False}
-    kwargs["site_name"] = site_name
     kwargs["location"] = location
     kwargs["listing_type"] = listing_type
     kwargs["sort_direction"] = sort_direction

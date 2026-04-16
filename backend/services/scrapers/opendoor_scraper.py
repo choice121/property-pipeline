@@ -197,10 +197,13 @@ def scrape(
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     data = resp.json()
-                    homes = (
-                        data.get("homes") or data.get("listings") or
-                        data.get("results") or data.get("data") or []
-                    )
+                    if isinstance(data, list):
+                        homes = data
+                    else:
+                        homes = (
+                            data.get("homes") or data.get("listings") or
+                            data.get("results") or data.get("data") or []
+                        )
                     if isinstance(homes, list) and homes:
                         for home in homes[:limit]:
                             try:
