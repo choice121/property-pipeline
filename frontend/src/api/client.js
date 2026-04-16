@@ -36,5 +36,6 @@ export const uploadLiveImage = (id, formData) => api.post('/live-images/' + id +
 
 export const syncFromLive = () => api.post('/sync/from-live')
 export const getSyncStatus = () => api.get('/sync/status')
+export const getSetupStatus = () => api.get('/setup/status')
 
 export default api

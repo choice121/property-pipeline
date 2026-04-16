@@ -23,6 +23,12 @@ async def _background_sync_loop():
     await asyncio.sleep(10)
     while True:
         try:
+            from services import setup_service
+            readiness = setup_service.get_setup_status()
+            if not readiness["core_ready"]:
+                logger.warning("Background sync skipped: %s", readiness["summary"])
+                await asyncio.sleep(300)
+                continue
             from database.repository import Repository
             from services import live_sync_service
             repo = Repository()
@@ -71,5 +77,7 @@ app.include_router(live_images.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
+    host = os.getenv("BACKEND_HOST", "127.0.0.1")
     port = int(os.getenv("BACKEND_PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    reload = os.getenv("BACKEND_RELOAD", "true").lower() == "true"
+    uvicorn.run("main:app", host=host, port=port, reload=reload)

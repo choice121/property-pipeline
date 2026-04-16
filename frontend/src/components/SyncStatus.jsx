@@ -31,6 +31,7 @@ export default function SyncStatus() {
 
   const lastSync = status?.last_sync_at
   const hasError = !!status?.last_error
+  const errorText = status?.last_error
 
   return (
     <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -59,7 +60,12 @@ export default function SyncStatus() {
       </button>
       {syncMutation.isSuccess && (
         <span className="text-green-600">
-          +{syncMutation.data?.imported ?? 0} imported
+          +{syncMutation.data?.imported ?? 0} imported, {syncMutation.data?.updated ?? 0} updated
+        </span>
+      )}
+      {(syncMutation.isError || errorText) && (
+        <span className="text-red-600 max-w-md truncate" title={syncMutation.error?.response?.data?.detail || errorText}>
+          {syncMutation.error?.response?.data?.detail || errorText}
         </span>
       )}
     </div>

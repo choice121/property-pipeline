@@ -71,7 +71,7 @@ property-pipeline/
 ## Running the App
 
 The workflow runs `bash start.sh` which:
-1. Starts the FastAPI backend using `.venv/bin/python main.py` on port 8000 in the background
+1. Starts the FastAPI backend using `.venv/bin/python main.py` on internal host `127.0.0.1`, port `8000`, in the background
 2. Starts the Vite dev server from `frontend/` on port 5000, proxying `/api` calls to the backend
 
 Python packages are installed in `.venv/` (created via `uv venv` + `uv pip install`). Frontend packages are in `frontend/node_modules/`.
@@ -82,6 +82,9 @@ Python packages are installed in `.venv/` (created via `uv venv` + `uv pip insta
 - Frontend API calls stay same-origin (`/api`) and are proxied by Vite to the internal FastAPI backend at `127.0.0.1:8000`.
 - Vite ignores Replit internal state folders (`.local`, `.cache`) so workflow log updates do not trigger browser reload loops.
 - The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server onto port 5000.
+- New imports show a setup/readiness screen until Supabase credentials are present and verified. The app checks the `pipeline_properties` and live `properties` tables before enabling the library.
+- Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors in newly imported accounts.
+- Required setup values should be stored as Replit secrets, not committed files: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, `IMAGEKIT_URL_ENDPOINT`, and `CHOICE_LANDLORD_ID`. Optional enhancements: `SUPABASE_ANON_KEY`, `DEEPSEEK_API_KEY`.
 
 ## Key Dependencies
 

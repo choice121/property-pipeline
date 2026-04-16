@@ -1,7 +1,7 @@
 # Environment variables / secrets
-# NOTE: .env is intentionally tracked so credentials travel with the project.
-# Keep this Repl set to PRIVATE at all times.
+.env
 .env.local
+backend/.env
 
 # Python
 __pycache__/

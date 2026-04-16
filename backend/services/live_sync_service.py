@@ -193,6 +193,11 @@ def sync_from_live(repo: Repository) -> dict:
     _sync_stats['running'] = True
 
     try:
+        from services import setup_service
+        readiness = setup_service.get_setup_status()
+        if not readiness['core_ready']:
+            raise RuntimeError(readiness['summary'])
+
         sb = get_supabase()
         result = sb.table('properties').select(_SELECT_COLS).execute()
         live_props = result.data or []
