@@ -2,19 +2,31 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
+# ── System packages (Pillow native libs + Node.js 20) ─────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+    gcc curl gnupg \
+    libfreetype6-dev libjpeg-dev libpng-dev libwebp-dev \
+    libtiff-dev libopenjp2-7-dev zlib1g-dev \
+  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# ── Python dependencies ────────────────────────────────────────────────────────
+COPY backend/requirements.txt ./backend/requirements.txt
+RUN pip install --no-cache-dir -r backend/requirements.txt
 
-COPY backend/ .
+# ── Frontend dependencies ──────────────────────────────────────────────────────
+COPY frontend/package*.json ./frontend/
+RUN cd frontend && npm install --silent
 
-RUN mkdir -p storage/images data
+# ── Copy full source ───────────────────────────────────────────────────────────
+COPY . .
+
+# ── Persistent data volumes ───────────────────────────────────────────────────
+RUN mkdir -p backend/storage/images backend/data
 
 ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+EXPOSE 5000 8000
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["bash", "start.sh"]

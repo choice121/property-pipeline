@@ -70,21 +70,68 @@ property-pipeline/
 
 ## Running the App
 
-The workflow runs `bash start.sh` which:
-1. Starts the FastAPI backend using `.venv/bin/python main.py` on internal host `127.0.0.1`, port `8000`, in the background
-2. Starts the Vite dev server from `frontend/` on port 5000, proxying `/api` calls to the backend
+### Any environment — single command
 
-Python packages are installed in `.venv/` (created via `uv venv` + `uv pip install`). Frontend packages are in `frontend/node_modules/`.
+| Environment | Command |
+|---|---|
+| Replit | Click the Run button (triggers `bash start.sh`) |
+| Terminal / any AI builder | `make` or `bash start.sh` |
+| Docker / any machine | `docker-compose up --build` |
 
-## Replit Migration Notes
+### What `start.sh` does (in order)
+1. Sources `backend/.env` at the OS shell level — all vars are exported before any process starts
+2. Runs a startup validator that prints a clear status table for every required and optional credential
+3. Creates `.venv` and installs Python deps if missing
+4. Installs frontend `node_modules` if missing
+5. Starts FastAPI (Uvicorn) on `127.0.0.1:8000` in the background
+6. Starts Vite on `0.0.0.0:5000` (proxies `/api` → backend)
+
+### Useful make commands
+```
+make          # start everything
+make setup    # install deps only, don't start
+make check    # validate all credentials without starting
+make stop     # kill running services
+make docker-up   # run via Docker Compose
+```
+
+## Environment & Credentials
+
+All credentials live in `backend/.env` which is committed to the repository (this is a **private** repo — keep it private). This means any clone, Replit import, or Docker build automatically has all credentials with zero manual setup.
+
+**Required (app will not start without these):**
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role JWT
+
+**Required for publishing (ImageKit):**
+- `IMAGEKIT_PUBLIC_KEY`
+- `IMAGEKIT_PRIVATE_KEY`
+- `IMAGEKIT_URL_ENDPOINT`
+
+**Optional (features degrade gracefully if absent):**
+- `SUPABASE_ANON_KEY` — used by public website tooling
+- `DEEPSEEK_API_KEY` — enables all AI features
+- `CHOICE_LANDLORD_ID` — auto-resolved from Supabase if not set
+
+See `backend/.env.example` for a clean template.
+
+## GitHub Actions CI
+
+Every push to `main`/`master` automatically:
+1. Installs all Python and Node dependencies
+2. Validates all required credentials from `backend/.env`
+3. Builds the frontend
+4. Runs a backend smoke test against the live Supabase connection
+
+If credentials are broken or missing, the CI fails immediately and shows exactly which variable is the problem.
+
+## Replit-Specific Notes
 
 - The frontend is configured for Replit preview compatibility with `host: '0.0.0.0'`, port `5000`, `strictPort: true`, and `allowedHosts: true`.
 - Frontend API calls stay same-origin (`/api`) and are proxied by Vite to the internal FastAPI backend at `127.0.0.1:8000`.
 - Vite ignores Replit internal state folders (`.local`, `.cache`) so workflow log updates do not trigger browser reload loops.
-- The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server onto port 5000.
-- New imports show a setup/readiness screen until Supabase credentials are present and verified. The app checks the `pipeline_properties` and live `properties` tables before enabling the library.
-- Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors in newly imported accounts.
-- Required setup values should be stored as Replit secrets, not committed files: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `IMAGEKIT_PRIVATE_KEY`, `IMAGEKIT_PUBLIC_KEY`, and `IMAGEKIT_URL_ENDPOINT`. Optional enhancements: `CHOICE_LANDLORD_ID`, `SUPABASE_ANON_KEY`, `DEEPSEEK_API_KEY`.
+- The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server.
+- Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors.
 
 ## Key Dependencies
 
