@@ -120,9 +120,12 @@ fi
 echo "==> All checks passed. Starting services..."
 echo ""
 
-pkill -f "vite.*--port 5000" 2>/dev/null || true
-pkill -f "python.*main.py" 2>/dev/null || true
-sleep 1
+# Kill any stale processes occupying the ports before we start
+fuser -k 5000/tcp 2>/dev/null || true
+fuser -k 8000/tcp 2>/dev/null || true
+pkill -f "uvicorn" 2>/dev/null || true
+pkill -f "vite" 2>/dev/null || true
+sleep 2
 
 # ── Start backend ─────────────────────────────────────────────────────────────
 cd "$APP_DIR/backend"
