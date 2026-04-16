@@ -20,6 +20,7 @@ fi
 REQUIRED_VARS=(
   "SUPABASE_URL:Supabase project URL (e.g. https://xxxx.supabase.co)"
   "SUPABASE_SERVICE_ROLE_KEY:Supabase service-role JWT — allows backend read/write access"
+  "DEEPSEEK_API_KEY:DeepSeek key — required for all AI features (autofill, rewrite, SEO)"
 )
 
 PUBLISHING_VARS=(
@@ -30,7 +31,6 @@ PUBLISHING_VARS=(
 
 OPTIONAL_VARS=(
   "SUPABASE_ANON_KEY:Supabase anon key — used by the public website"
-  "DEEPSEEK_API_KEY:DeepSeek key — enables all AI features (autofill, rewrite, SEO)"
   "CHOICE_LANDLORD_ID:Landlord UUID — optional, auto-resolved from Supabase if absent"
 )
 
