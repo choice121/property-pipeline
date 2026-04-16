@@ -8,4 +8,4 @@ homeharvest>=0.6.0
 pydantic>=2.11.7
 supabase>=2.4.0
 imagekitio>=3.2.0
-google-genai>=1.0.0
+openai>=1.0.0

@@ -3,27 +3,28 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException
+from openai import OpenAI
 from pydantic import BaseModel
-from google import genai
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 def _get_client():
-    api_key = os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not configured.")
-    return genai.Client(api_key=api_key)
+        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY is not configured.")
+    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
 
 
-def _call_gemini(prompt: str) -> str:
+def _call_deepseek(prompt: str) -> str:
     client = _get_client()
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt,
+    response = client.chat.completions.create(
+        model="deepseek-chat",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
     )
-    return response.text.strip()
+    return response.choices[0].message.content.strip()
 
 
 class PropertyContext(BaseModel):
@@ -149,7 +150,7 @@ REWRITE RULES (strictly follow every one):
 9. Return only the description text, nothing else."""
 
     try:
-        result = _call_gemini(prompt)
+        result = _call_deepseek(prompt)
         return {"description": result}
     except Exception as e:
         logger.error("AI rewrite failed: %s", e)
@@ -180,7 +181,7 @@ Focus on:
 Return ONLY a raw JSON array, no markdown, no explanation."""
 
     try:
-        raw = _call_gemini(prompt)
+        raw = _call_deepseek(prompt)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -213,7 +214,7 @@ Instructions:
 - Do not include explanations or quotes"""
 
     try:
-        result = _call_gemini(prompt)
+        result = _call_deepseek(prompt)
         return {"suggestion": result}
     except Exception as e:
         logger.error("AI suggest field failed: %s", e)
@@ -224,31 +225,39 @@ Instructions:
 def chat_with_property(req: ChatRequest):
     prop_summary = _build_property_summary(req.property)
 
-    history_text = ""
-    if req.history:
-        for msg in req.history[-6:]:
-            role = "You" if msg.get("role") == "user" else "Assistant"
-            history_text += role + ": " + msg.get("content", "") + "\n"
-
-    history_section = ("Previous conversation:\n" + history_text) if history_text else ""
-
-    prompt = f"""You are a helpful assistant for a property manager using an internal listing tool called Property Pipeline. You have full context of the current property being edited.
+    messages = [
+        {
+            "role": "system",
+            "content": f"""You are a helpful assistant for a property manager using an internal listing tool called Property Pipeline. You have full context of the current property being edited.
 
 Property details:
 {prop_summary}
-
-{history_section}
-User: {req.message}
 
 Instructions:
 - Answer helpfully and concisely based on the property context
 - You can help edit descriptions, suggest values, flag issues, or answer questions
 - Stay focused on the property and listing tasks
 - If asked to write or rewrite something, provide the full text directly
-- Keep responses brief unless a longer answer is needed"""
+- Keep responses brief unless a longer answer is needed""",
+        }
+    ]
+
+    if req.history:
+        for msg in req.history[-6:]:
+            role = msg.get("role", "user")
+            if role in ("user", "assistant"):
+                messages.append({"role": role, "content": msg.get("content", "")})
+
+    messages.append({"role": "user", "content": req.message})
 
     try:
-        result = _call_gemini(prompt)
+        client = _get_client()
+        response = client.chat.completions.create(
+            model="deepseek-chat",
+            messages=messages,
+            temperature=0.7,
+        )
+        result = response.choices[0].message.content.strip()
         return {"reply": result}
     except Exception as e:
         logger.error("AI chat failed: %s", e)
@@ -302,7 +311,7 @@ Instructions:
 - Return ONLY a raw JSON object, no markdown, no explanation"""
 
     try:
-        raw = _call_gemini(prompt)
+        raw = _call_deepseek(prompt)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
