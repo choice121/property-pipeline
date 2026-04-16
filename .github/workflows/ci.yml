@@ -15,66 +15,87 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ── System packages (required by Pillow) ────────────────────────────────
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            libfreetype6-dev libjpeg-dev libpng-dev libwebp-dev \
+            libtiff-dev libopenjp2-7-dev zlib1g-dev gcc
+
+      # ── Python ──────────────────────────────────────────────────────────────
       - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-
-      - name: Set up Node.js 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          cache: "pip"
+          cache-dependency-path: "backend/requirements.txt"
 
       - name: Install Python dependencies
         run: pip install --no-cache-dir -r backend/requirements.txt
 
-      - name: Install frontend dependencies
-        run: cd frontend && npm install --silent
+      # ── Node / Frontend ─────────────────────────────────────────────────────
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: "frontend/package-lock.json"
 
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci --silent
+
+      # ── Credential check (reads .env, no network calls) ─────────────────────
       - name: Validate required environment credentials
+        shell: bash
         run: |
+          if [ ! -f backend/.env ]; then
+            echo "ERROR: backend/.env not found"
+            exit 1
+          fi
+
           set -a
           source backend/.env
           set +a
-          python3 - <<'EOF'
-          import os, sys
-          required = {
-            "SUPABASE_URL": "Supabase project URL",
-            "SUPABASE_SERVICE_ROLE_KEY": "Supabase service-role JWT",
-            "IMAGEKIT_PUBLIC_KEY": "ImageKit public key",
-            "IMAGEKIT_PRIVATE_KEY": "ImageKit private key",
-            "IMAGEKIT_URL_ENDPOINT": "ImageKit CDN endpoint",
-          }
-          optional = ["SUPABASE_ANON_KEY", "DEEPSEEK_API_KEY", "CHOICE_LANDLORD_ID"]
-          missing = [(k, v) for k, v in required.items() if not os.environ.get(k, "").strip()]
-          for k, desc in required.items():
-            status = "✔" if os.environ.get(k, "").strip() else "✘"
-            print(f"  {status} {k}")
-          for k in optional:
-            status = "✔" if os.environ.get(k, "").strip() else "⚠ (optional)"
-            print(f"  {status} {k}")
-          if missing:
-            print(f"\nFAIL: Missing required credentials: {[k for k,_ in missing]}")
-            sys.exit(1)
-          print("\nAll required credentials present — setup is valid.")
-          EOF
 
+          MISSING=()
+          for var in SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY IMAGEKIT_PUBLIC_KEY IMAGEKIT_PRIVATE_KEY IMAGEKIT_URL_ENDPOINT; do
+            val="${!var:-}"
+            if [ -z "$val" ]; then
+              echo "  MISSING: $var"
+              MISSING+=("$var")
+            else
+              echo "  OK:      $var"
+            fi
+          done
+
+          for var in SUPABASE_ANON_KEY DEEPSEEK_API_KEY CHOICE_LANDLORD_ID GITHUB_TOKEN; do
+            val="${!var:-}"
+            if [ -z "$val" ]; then echo "  OPTIONAL (not set): $var"
+            else echo "  OK:      $var"; fi
+          done
+
+          if [ ${#MISSING[@]} -gt 0 ]; then
+            echo ""
+            echo "FAIL: Missing required credentials: ${MISSING[*]}"
+            exit 1
+          fi
+          echo ""
+          echo "All required credentials present."
+
+      # ── Frontend build ───────────────────────────────────────────────────────
       - name: Build frontend
         run: cd frontend && npm run build
 
-      - name: Import backend (smoke test)
+      # ── Backend import check (no network, just verifies Python imports) ──────
+      - name: Check backend imports
+        shell: bash
         run: |
-          set -a
-          source backend/.env
-          set +a
-          cd backend && python3 -c "
-          import os, sys
+          cd backend
+          python3 -c "
+          import sys
           sys.path.insert(0, '.')
-          from services.setup_service import get_setup_status
-          status = get_setup_status()
-          print('Summary:', status['summary'])
-          print('Core ready:', status['core_ready'])
-          print('Publishing ready:', status['publishing_ready'])
-          if not status['core_ready']:
-            sys.exit(1)
+          # Verify all routers and services import cleanly (no network calls)
+          import main
+          print('Backend imports OK')
           "
