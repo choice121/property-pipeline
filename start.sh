@@ -3,26 +3,9 @@ set -e
 
 APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# ── Layer 0: Auto-configure Git credentials (runs on every boot) ──────────────
-# Reads GITHUB_TOKEN and GITHUB_REPO from backend/.env so that git push works
-# immediately after any Replit restart, new import, or fresh clone — no manual
-# token entry ever needed.
-if [ -f "$APP_DIR/backend/.env" ]; then
-  _GT=$(grep '^GITHUB_TOKEN=' "$APP_DIR/backend/.env" | cut -d= -f2- | tr -d '[:space:]')
-  _GR=$(grep '^GITHUB_REPO=' "$APP_DIR/backend/.env" | cut -d= -f2- | tr -d '[:space:]')
-  if [ -n "$_GT" ] && [ -n "$_GR" ]; then
-    git config --global credential.helper store 2>/dev/null || true
-    printf 'https://%s@github.com\n' "$_GT" > ~/.git-credentials
-    chmod 600 ~/.git-credentials
-    git config --global user.name  "Property Pipeline" 2>/dev/null || true
-    git config --global user.email "pipeline@choiceproperties.local" 2>/dev/null || true
-    echo "==> Git credentials configured (push ready)"
-  fi
-fi
-
-# ── Layer 1: Load .env into shell environment (before anything else) ──────────
-# This ensures ALL vars are exported at the OS process level, not just Python-
-# level dotenv. Any child process (uvicorn, vite, scripts) inherits them too.
+# ── Layer 0: Load .env if it exists (optional, for local dev) ─────────────────
+# On Replit, secrets are already available as environment variables.
+# The .env file is only used as a fallback for local development.
 if [ -f "$APP_DIR/backend/.env" ]; then
   set -a
   # shellcheck disable=SC1090
@@ -30,13 +13,10 @@ if [ -f "$APP_DIR/backend/.env" ]; then
   set +a
   echo "==> Credentials loaded from backend/.env"
 else
-  echo "==> WARNING: backend/.env not found — credentials may be missing."
+  echo "==> No backend/.env found — using environment variables (Replit Secrets)."
 fi
 
-# ── Layer 2: Smart startup validator ─────────────────────────────────────────
-# Defines every var the app needs, checks presence, and surfaces exactly what
-# is missing so a developer can fix it immediately with zero guesswork.
-
+# ── Layer 1: Smart startup validator ─────────────────────────────────────────
 REQUIRED_VARS=(
   "SUPABASE_URL:Supabase project URL (e.g. https://xxxx.supabase.co)"
   "SUPABASE_SERVICE_ROLE_KEY:Supabase service-role JWT — allows backend read/write access"
@@ -116,12 +96,13 @@ echo "╚═══════════════════════�
 echo ""
 
 if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
-  echo "==> FATAL: Required credentials are missing. Add them to backend/.env and restart."
-  echo "==> See backend/.env.example for a full template."
-  exit 1
+  echo "==> WARNING: Required credentials are missing."
+  echo "==> Add SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY as Replit Secrets."
+  echo "==> The app will start but features requiring Supabase will not work."
+  echo ""
 fi
 
-# ── Layer 3: Python virtual environment ──────────────────────────────────────
+# ── Layer 2: Python virtual environment ──────────────────────────────────────
 if [ ! -f "$APP_DIR/.venv/bin/python" ]; then
   echo "==> Creating Python virtual environment..."
   python3 -m venv "$APP_DIR/.venv"
@@ -130,7 +111,7 @@ fi
 echo "==> Installing / verifying Python dependencies..."
 "$APP_DIR/.venv/bin/pip" install --no-user -q -r "$APP_DIR/backend/requirements.txt"
 
-# ── Layer 4: Frontend dependencies ───────────────────────────────────────────
+# ── Layer 3: Frontend dependencies ───────────────────────────────────────────
 if [ ! -d "$APP_DIR/frontend/node_modules" ]; then
   echo "==> Installing frontend dependencies..."
   cd "$APP_DIR/frontend" && npm install --silent
@@ -155,4 +136,4 @@ trap cleanup EXIT INT TERM
 
 # ── Start frontend ────────────────────────────────────────────────────────────
 cd "$APP_DIR/frontend"
-"$APP_DIR/frontend/node_modules/.bin/vite" --host 0.0.0.0 --port 5000 --strictPort
+exec "$APP_DIR/frontend/node_modules/.bin/vite"
