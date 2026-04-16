@@ -24,10 +24,10 @@ This project has an active multi-phase AI improvement plan. Check the checklist 
 
 **Architecture note on 2D/2E:** No Supabase schema changes were made. Timestamps are embedded in the existing `inferred_features` JSON array as tagged strings (`"last_scanned:..."`, `"last_cleaned:..."`). The `update_inferred_features()` method in Repository does a targeted Supabase update that does NOT change `updated_at`, preserving the "edited since last scan" comparison logic.
 
-#### Phase 3 — Smarter Auto-Enrichment 🔲 NOT STARTED
-- [ ] 3A. LLM feature extraction already done in Phase 1C — this is complete
-- [ ] 3B. Rate-controlled enrichment queue — add delay between properties during large scrape enrichment runs
-- [ ] 3C. Smarter enrichment triggers — only re-run tasks whose input fields actually changed
+#### Phase 3 — Smarter Auto-Enrichment ✅ COMPLETE
+- [x] 3A. LLM feature extraction — done in Phase 1C
+- [x] 3B. Rate-controlled enrichment queue — new `backend/services/enrichment_queue.py` module with `enqueue_enrichment()`. Uses a global `threading.Lock` + 1s post-release sleep so at most one property enrichment runs at a time, preventing DeepSeek being hammered with 50 concurrent calls after a large scrape. `scraper.py` updated to call `enqueue_enrichment` instead of the old `enrichment_background_task` (which is now removed).
+- [x] 3C. Smarter enrichment triggers — `enrich_property()` in `ai_enricher.py` now fingerprints `CORE_SCRAPED_FIELDS` + `PROMPT_VERSION` into a 12-char MD5 sig at the start. If the stored sig matches (tag `"enriched_sig:<sig>"` in `inferred_features`), enrichment is skipped entirely. If inputs changed or PROMPT_VERSION bumped, enrichment runs and the new sig is stored. Intentionally excludes AI-generated fields (description, title, amenities, appliances) from the sig to avoid circular triggers.
 
 #### Phase 4 — New Intelligence Features 🔲 NOT STARTED
 - [ ] 4A. Streaming for rewrite-description and chat endpoints (FastAPI StreamingResponse + frontend Fetch API)
@@ -52,7 +52,7 @@ This project has an active multi-phase AI improvement plan. Check the checklist 
 6. Push to GitHub with a descriptive commit message
 7. Continue to the next phase
 
-**Current next step: Begin Phase 3 — start with 3B (rate-controlled enrichment queue), then 3C (smarter enrichment triggers — only re-run on changed input fields).**
+**Current next step: Begin Phase 4 — start with 4A (streaming for rewrite-description and chat), then 4B (neighborhood context), then 4C (duplicate detection).**
 
 ---
 
@@ -117,7 +117,8 @@ After completing each phase or sub-task, mark it [x] in the checklist above and 
 backend/
   services/
     ai_client.py        ← SHARED AI config, client, retry logic (NEW — Phase 1)
-    ai_enricher.py      ← Auto-enrichment on scrape (updated Phase 1)
+    ai_enricher.py      ← Auto-enrichment on scrape (updated Phases 1 + 3)
+    enrichment_queue.py ← Rate-controlled enrichment serializer (NEW — Phase 3B)
     pricing_service.py  ← Pricing rules applied during enrichment
   routers/
     ai.py               ← All AI API endpoints (updated Phase 1)

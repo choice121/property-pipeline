@@ -8,9 +8,8 @@ from pydantic import BaseModel
 from database.db import get_db
 from database.repository import PropertyRecord, Repository, get_repo
 from services import scraper_service, image_service
-from services.ai_enricher import enrich_property
-from services.detail_fetcher import fetch_missing_fields
-from services.enrichment_service import geocode_property, run_rule_based_enrichment
+from services.enrichment_queue import enqueue_enrichment
+from services.enrichment_service import run_rule_based_enrichment
 from services.scraper_service import _calculate_weighted_quality, generate_property_id, ALL_SOURCES
 from services.validator import validate_and_warn
 from services.watermark_filter import watermark_reasons
@@ -56,49 +55,6 @@ class ScrapeRequest(BaseModel):
 
     sort_by: Optional[str] = None
     sort_direction: Optional[str] = "desc"
-
-
-def enrichment_background_task(property_id: str):
-    repo = get_repo()
-    try:
-        geocode_property(property_id, repo)
-        fetch_missing_fields(property_id, repo)
-        enrich_property(property_id, repo)
-
-        prop = repo.get(property_id)
-        if not prop:
-            return
-
-        image_urls = []
-        try:
-            image_urls = json.loads(prop.original_image_urls or "[]")
-        except Exception:
-            pass
-
-        prop_dict = {
-            "address":        prop.address,
-            "city":           prop.city,
-            "state":          prop.state,
-            "zip":            prop.zip,
-            "monthly_rent":   prop.monthly_rent,
-            "bedrooms":       prop.bedrooms,
-            "bathrooms":      prop.bathrooms or prop.total_bathrooms,
-            "description":    prop.description,
-            "property_type":  prop.property_type,
-            "available_date": prop.available_date,
-            "amenities":      prop.amenities,
-            "appliances":     prop.appliances,
-        }
-        score, missing = _calculate_weighted_quality(prop_dict, image_urls)
-        prop.data_quality_score = score
-        prop.missing_fields = json.dumps(missing)
-        try:
-            repo.save(prop)
-            logger.info("Enrichment complete for %s — final score %d", property_id, score)
-        except Exception as e:
-            logger.error("Failed to update score after enrichment for %s: %s", property_id, e)
-    except Exception as e:
-        logger.error("Enrichment background task failed for %s: %s", property_id, e)
 
 
 def download_images_task(property_id: str, image_urls: list):
@@ -212,6 +168,6 @@ def scrape_properties(
 
         if image_urls:
             background_tasks.add_task(download_images_task, prop_id, image_urls)
-        background_tasks.add_task(enrichment_background_task, prop_id)
+        background_tasks.add_task(enqueue_enrichment, prop_id)
 
     return {"count": len(saved), "properties": [p.to_dict() for p in saved]}
