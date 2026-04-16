@@ -102,19 +102,19 @@ if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
   echo ""
 fi
 
-# ── Layer 2: Python virtual environment ──────────────────────────────────────
-if [ ! -f "$APP_DIR/.venv/bin/python" ]; then
-  echo "==> Creating Python virtual environment..."
-  python3 -m venv "$APP_DIR/.venv"
-fi
+echo "==> Verifying Python dependencies..."
+python3 - <<'PY'
+import fastapi
+import uvicorn
+import supabase
+import imagekitio
+import openai
+import homeharvest
+PY
 
-echo "==> Installing / verifying Python dependencies..."
-"$APP_DIR/.venv/bin/pip" install --no-user -q -r "$APP_DIR/backend/requirements.txt"
-
-# ── Layer 3: Frontend dependencies ───────────────────────────────────────────
-if [ ! -d "$APP_DIR/frontend/node_modules" ]; then
-  echo "==> Installing frontend dependencies..."
-  cd "$APP_DIR/frontend" && npm install --silent
+if [ ! -x "$APP_DIR/node_modules/.bin/vite" ]; then
+  echo "==> ERROR: Frontend dependencies are missing. Install Node packages before starting."
+  exit 1
 fi
 
 echo "==> All checks passed. Starting services..."
@@ -129,7 +129,7 @@ sleep 2
 
 # ── Start backend ─────────────────────────────────────────────────────────────
 cd "$APP_DIR/backend"
-"$APP_DIR/.venv/bin/python" main.py &
+python3 main.py &
 BACKEND_PID=$!
 
 cleanup() {
@@ -139,4 +139,4 @@ trap cleanup EXIT INT TERM
 
 # ── Start frontend ────────────────────────────────────────────────────────────
 cd "$APP_DIR/frontend"
-exec "$APP_DIR/frontend/node_modules/.bin/vite"
+exec "$APP_DIR/node_modules/.bin/vite"

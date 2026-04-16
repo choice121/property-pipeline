@@ -88,10 +88,10 @@ property-pipeline/
 ### What `start.sh` does (in order)
 1. Sources `backend/.env` at the OS shell level — all vars are exported before any process starts
 2. Runs a startup validator that prints a clear status table for every required and optional credential
-3. Creates `.venv` and installs Python deps if missing
-4. Installs frontend `node_modules` if missing
+3. Verifies Python dependencies are available in the Replit environment
+4. Verifies root Node dependencies are installed
 5. Starts FastAPI (Uvicorn) on `127.0.0.1:8000` in the background
-6. Starts Vite on `0.0.0.0:5000` (proxies `/api` → backend)
+6. Starts Vite on `0.0.0.0:5000` from the root dependency install (proxies `/api` → backend)
 
 ### Useful make commands
 ```
@@ -104,7 +104,7 @@ make docker-up   # run via Docker Compose
 
 ## Environment & Credentials
 
-All credentials live in `backend/.env` which is committed to the repository (this is a **private** repo — keep it private). This means any clone, Replit import, or Docker build automatically has all credentials with zero manual setup.
+Credentials should be provided through Replit environment variables/secrets. `backend/.env` is only a local-development fallback and is ignored by git.
 
 **Required (app will not start without these):**
 - `SUPABASE_URL` — Supabase project URL
@@ -126,7 +126,7 @@ See `backend/.env.example` for a clean template.
 
 Every push to `main`/`master` automatically:
 1. Installs all Python and Node dependencies
-2. Validates all required credentials from `backend/.env`
+2. Validates all required credentials from the runtime environment
 3. Builds the frontend
 4. Runs a backend smoke test against the live Supabase connection
 
@@ -135,6 +135,7 @@ If credentials are broken or missing, the CI fails immediately and shows exactly
 ## Replit-Specific Notes
 
 - The frontend is configured for Replit preview compatibility with `host: '0.0.0.0'`, port `5000`, `strictPort: true`, and `allowedHosts: true`.
+- Startup uses Replit-managed Python and Node dependencies directly instead of creating a virtual environment.
 - Frontend API calls stay same-origin (`/api`) and are proxied by Vite to the internal FastAPI backend at `127.0.0.1:8000`.
 - Vite ignores Replit internal state folders (`.local`, `.cache`) so workflow log updates do not trigger browser reload loops.
 - The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server.
