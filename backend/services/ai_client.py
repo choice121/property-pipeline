@@ -81,17 +81,33 @@ A poor listing has:
 
 PROMPT_VERSION = "v2"
 
-_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-_GEMINI_MODEL   = "gemini-2.0-flash"
-_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-_DEEPSEEK_MODEL = "deepseek-chat"
+_GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/"
+_GEMINI_MODEL       = "gemini-2.0-flash"
+_DEEPSEEK_BASE_URL  = "https://api.deepseek.com"
+_DEEPSEEK_MODEL     = "deepseek-chat"
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+_OPENROUTER_MODEL   = "meta-llama/llama-3.3-70b-instruct:free"
 
 
 def get_client() -> tuple[OpenAI, str]:
     """
     Returns (client, model_name).
-    Prefers Gemini when GEMINI_API_KEY is set; falls back to DeepSeek.
+    Priority: OpenRouter → Gemini → DeepSeek.
     """
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        return (
+            OpenAI(
+                api_key=openrouter_key,
+                base_url=_OPENROUTER_BASE_URL,
+                default_headers={
+                    "HTTP-Referer": "https://choiceproperties.app",
+                    "X-Title": "Choice Properties Pipeline",
+                },
+            ),
+            _OPENROUTER_MODEL,
+        )
+
     gemini_key = os.environ.get("GEMINI_API_KEY")
     if gemini_key:
         return (
@@ -108,7 +124,7 @@ def get_client() -> tuple[OpenAI, str]:
 
     raise HTTPException(
         status_code=500,
-        detail="No AI API key configured. Set GEMINI_API_KEY or DEEPSEEK_API_KEY.",
+        detail="No AI API key configured. Set OPENROUTER_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY.",
     )
 
 
