@@ -33,14 +33,9 @@ async def _background_sync_loop():
             from services import live_sync_service
             repo = Repository()
             live_sync_service.sync_from_live(repo)
-        except asyncio.CancelledError:
-            break
         except Exception as e:
-            logger.warning('Background sync error (will retry in 60s): %s', e)
-        try:
-            await asyncio.sleep(60)
-        except asyncio.CancelledError:
-            break
+            logger.error("Background sync error: %s", e)
+            await asyncio.sleep(300)  # Wait 5 minutes before retrying
 
 
 @asynccontextmanager

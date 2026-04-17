@@ -47,11 +47,23 @@ def _check_supabase() -> dict:
             "checks": [],
         }
 
+    # Check if credentials look like placeholders
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+
+    if url.startswith("https://placeholder") or key == "placeholder_key":
+        return {
+            "ok": False,
+            "message": "Using placeholder Supabase credentials. Configure real credentials for full functionality.",
+            "missing": [],
+            "checks": [{"name": "credentials", "ok": False, "note": "placeholder values detected"}],
+        }
+
     checks = []
     try:
         client = create_client(
-            os.environ["SUPABASE_URL"].rstrip("/"),
-            os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip(),
+            url.rstrip("/"),
+            key,
         )
 
         client.table("pipeline_properties").select("id").limit(1).execute()
