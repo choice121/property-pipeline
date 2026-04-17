@@ -4,6 +4,7 @@ import { useNavigate, Link } from 'react-router-dom'
 import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScanStart, watermarkScanStatus } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
+import ConfirmModal from '../components/ConfirmModal'
 import { computeCompleteness } from '../utils/completeness'
 
 function buildContext(p) {
@@ -70,6 +71,23 @@ export default function Library() {
   const [wmError, setWmError] = useState(null)
   const [wmDone, setWmDone] = useState(false)
   const wmPollRef = useRef(null)
+
+  const [confirmModal, setConfirmModal] = useState(null)
+  const [showOverflow, setShowOverflow] = useState(false)
+  const overflowRef = useRef(null)
+
+  const openConfirm = (opts) => setConfirmModal(opts)
+  const closeConfirm = () => setConfirmModal(null)
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (overflowRef.current && !overflowRef.current.contains(e.target)) {
+        setShowOverflow(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
@@ -171,18 +189,29 @@ export default function Library() {
       try { return JSON.parse(p.local_image_paths || '[]').length > 0 } catch { return false }
     })
     if (withImages.length === 0) {
-      alert('No unpublished properties with downloaded images found. Download images first, then use Bulk Publish.')
+      openConfirm({
+        title: 'No properties ready to publish',
+        message: 'Download images first, then use Bulk Publish.',
+        confirmLabel: 'OK',
+        cancelLabel: null,
+        onConfirm: () => {},
+      })
       return
     }
-    if (!window.confirm(`Publish ${withImages.length} propert${withImages.length === 1 ? 'y' : 'ies'} to Choice Properties? This will upload images to ImageKit and push each listing live.`)) return
-    try {
-      const res = await startBulkPublish({ ids: withImages.map(p => p.id) })
-      if (res.data.ok === false) { alert(res.data.message || 'Could not start bulk publish.'); return }
-      setBulkPublishProgress(res.data.state)
-      setBulkPublishing(true)
-    } catch (e) {
-      alert(e.response?.data?.detail || 'Failed to start bulk publish.')
-    }
+    openConfirm({
+      title: `Publish ${withImages.length} ${withImages.length === 1 ? 'property' : 'properties'}?`,
+      message: 'This will upload images to ImageKit and push each listing live to Choice Properties.',
+      confirmLabel: 'Publish',
+      danger: false,
+      onConfirm: async () => {
+        try {
+          const res = await startBulkPublish({ ids: withImages.map(p => p.id) })
+          if (res.data.ok === false) { return }
+          setBulkPublishProgress(res.data.state)
+          setBulkPublishing(true)
+        } catch { }
+      },
+    })
   }
 
   async function handleBulkImageDownload() {
@@ -190,16 +219,20 @@ export default function Library() {
     const missing = (data || []).filter(p => {
       try { return !JSON.parse(p.local_image_paths || '[]').length } catch { return true }
     })
-    if (missing.length === 0) { alert('All properties already have downloaded images.'); return }
-    if (!window.confirm(`Download images for ${missing.length} properties? This runs in the background and may take a while.`)) return
-    try {
-      const res = await startBulkImageDownload()
-      if (res.data.ok === false) { alert(res.data.message || 'Already running.'); return }
-      setImgProgress(res.data.state)
-      setImgDownloading(true)
-    } catch (e) {
-      alert(e.response?.data?.detail || 'Failed to start image download.')
-    }
+    if (missing.length === 0) return
+    openConfirm({
+      title: `Download images for ${missing.length} ${missing.length === 1 ? 'property' : 'properties'}?`,
+      message: 'This runs in the background and may take a while.',
+      confirmLabel: 'Download',
+      onConfirm: async () => {
+        try {
+          const res = await startBulkImageDownload()
+          if (res.data.ok === false) return
+          setImgProgress(res.data.state)
+          setImgDownloading(true)
+        } catch { }
+      },
+    })
   }
 
   const restoreNeeds = useMemo(() => {
@@ -258,20 +291,27 @@ export default function Library() {
   async function handleWmDeleteAll() {
     if (!wmFlagged || wmFlagged.length === 0 || wmDeleting) return
     const count = wmFlagged.length
-    if (!window.confirm(`Permanently delete ${count} propert${count === 1 ? 'y' : 'ies'}? This cannot be undone.`)) return
-    setWmDeleting(true)
-    setWmError(null)
-    try {
-      const ids = wmFlagged.map(p => p.id)
-      await bulkAction(ids, 'delete')
-      setWmDone(true)
-      setWmFlagged([])
-      queryClient.invalidateQueries({ queryKey: ['properties'] })
-    } catch (e) {
-      setWmError(e.response?.data?.detail || e.message || 'Delete failed.')
-    } finally {
-      setWmDeleting(false)
-    }
+    openConfirm({
+      title: `Delete ${count} ${count === 1 ? 'property' : 'properties'}?`,
+      message: 'These listings have watermarked images. Permanently removing them cannot be undone.',
+      confirmLabel: 'Delete All',
+      danger: true,
+      onConfirm: async () => {
+        setWmDeleting(true)
+        setWmError(null)
+        try {
+          const ids = wmFlagged.map(p => p.id)
+          await bulkAction(ids, 'delete')
+          setWmDone(true)
+          setWmFlagged([])
+          queryClient.invalidateQueries({ queryKey: ['properties'] })
+        } catch (e) {
+          setWmError(e.response?.data?.detail || e.message || 'Delete failed.')
+        } finally {
+          setWmDeleting(false)
+        }
+      },
+    })
   }
 
   function handleWmClose() {
@@ -342,55 +382,69 @@ export default function Library() {
 
   function handleBulkAction(action) {
     if (selectedIds.size === 0) return
-    const label = action === 'delete'
-      ? `Delete ${selectedIds.size} propert${selectedIds.size === 1 ? 'y' : 'ies'}? This cannot be undone.`
-      : `Apply "${action}" to ${selectedIds.size} propert${selectedIds.size === 1 ? 'y' : 'ies'}?`
-    if (!window.confirm(label)) return
-    bulkMutation.mutate({ ids: selectedIds, action })
+    const isDanger = action === 'delete'
+    openConfirm({
+      title: isDanger
+        ? `Delete ${selectedIds.size} ${selectedIds.size === 1 ? 'property' : 'properties'}?`
+        : `Apply "${action}" to ${selectedIds.size} ${selectedIds.size === 1 ? 'property' : 'properties'}?`,
+      message: isDanger ? 'This cannot be undone.' : undefined,
+      confirmLabel: isDanger ? 'Delete' : 'Apply',
+      danger: isDanger,
+      onConfirm: () => bulkMutation.mutate({ ids: selectedIds, action }),
+    })
   }
 
   async function handleBulkClean() {
     if (!data || data.length === 0) return
     const toClean = data.filter(p => p.description && p.description.length > 20).map(p => p.id)
     if (toClean.length === 0) return
-    if (!window.confirm(`Clean descriptions for ${toClean.length} properties? AI will remove contact info, tour language, and gatekeeping text.`)) return
-    setCleaning(true)
-    setCleanResult(null)
-    setCleanError(null)
-    try {
-      const res = await aiBulkClean({ property_ids: toClean })
-      setCleanResult(res.data)
-      queryClient.invalidateQueries({ queryKey: ['properties'] })
-      setTimeout(() => setCleanResult(null), 8000)
-    } catch (e) {
-      setCleanError(e.response?.data?.detail || e.message || 'Bulk clean failed.')
-      setTimeout(() => setCleanError(null), 6000)
-    } finally {
-      setCleaning(false)
-    }
+    openConfirm({
+      title: `Clean descriptions for ${toClean.length} ${toClean.length === 1 ? 'property' : 'properties'}?`,
+      message: 'AI will remove contact info, tour language, and gatekeeping text from each listing.',
+      confirmLabel: 'Clean',
+      onConfirm: async () => {
+        setCleaning(true)
+        setCleanResult(null)
+        setCleanError(null)
+        try {
+          const res = await aiBulkClean({ property_ids: toClean })
+          setCleanResult(res.data)
+          queryClient.invalidateQueries({ queryKey: ['properties'] })
+          setTimeout(() => setCleanResult(null), 8000)
+        } catch (e) {
+          setCleanError(e.response?.data?.detail || e.message || 'Bulk clean failed.')
+          setTimeout(() => setCleanError(null), 6000)
+        } finally {
+          setCleaning(false)
+        }
+      },
+    })
   }
 
   async function handleBulkEnrich() {
     if (enriching || !data || data.length === 0) return
     const eligible = data.filter(p => !p.description || (p.data_quality_score || 0) < 60)
-    if (eligible.length === 0) {
-      alert('All properties already have descriptions and good quality scores.')
-      return
-    }
-    if (!window.confirm(`Run AI enrichment on ${eligible.length} properties? This will fill in descriptions, extract features, and improve quality scores. It runs in the background.`)) return
-    setEnriching(true)
-    setEnrichResult(null)
-    setEnrichError(null)
-    try {
-      const res = await aiBulkEnrich({})
-      setEnrichResult(res.data)
-      setTimeout(() => setEnrichResult(null), 10000)
-    } catch (e) {
-      setEnrichError(e.response?.data?.detail || e.message || 'Enrichment failed.')
-      setTimeout(() => setEnrichError(null), 6000)
-    } finally {
-      setEnriching(false)
-    }
+    if (eligible.length === 0) return
+    openConfirm({
+      title: `Run AI enrichment on ${eligible.length} ${eligible.length === 1 ? 'property' : 'properties'}?`,
+      message: 'This will fill in descriptions, extract features, and improve quality scores. It runs in the background.',
+      confirmLabel: 'Enrich',
+      onConfirm: async () => {
+        setEnriching(true)
+        setEnrichResult(null)
+        setEnrichError(null)
+        try {
+          const res = await aiBulkEnrich({})
+          setEnrichResult(res.data)
+          setTimeout(() => setEnrichResult(null), 10000)
+        } catch (e) {
+          setEnrichError(e.response?.data?.detail || e.message || 'Enrichment failed.')
+          setTimeout(() => setEnrichError(null), 6000)
+        } finally {
+          setEnriching(false)
+        }
+      },
+    })
   }
 
   async function handleAiScan() {
@@ -433,86 +487,8 @@ export default function Library() {
           </span>
         </h1>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Stats toggle */}
-          <button
-            onClick={() => setShowStats(s => !s)}
-            title="Source quality stats"
-            className={`flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border transition-colors touch-target ${showStats ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
-          >
-            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
-            <span className="hidden sm:inline">Stats</span>
-          </button>
 
-          {/* Run AI Enrichment */}
-          <button
-            onClick={handleBulkEnrich}
-            disabled={enriching || !data || data.length === 0}
-            title="Run AI enrichment on all eligible properties"
-            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors touch-target"
-          >
-            <svg className={`w-4 h-4 flex-shrink-0 ${enriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              {enriching
-                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
-              }
-            </svg>
-            <span className="hidden sm:inline">{enriching ? 'Queuing…' : 'Run AI'}</span>
-            <span className="sm:hidden">{enriching ? '…' : 'AI'}</span>
-          </button>
-
-          {/* Clean All */}
-          <button
-            onClick={handleBulkClean}
-            disabled={cleaning || !data || data.length === 0}
-            title="Clean all descriptions with AI"
-            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors touch-target"
-          >
-            <svg className={`w-4 h-4 flex-shrink-0 ${cleaning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              {cleaning
-                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
-              }
-            </svg>
-            <span className="hidden sm:inline">{cleaning ? 'Cleaning…' : 'Clean All'}</span>
-            <span className="sm:hidden">{cleaning ? '…' : 'Clean'}</span>
-          </button>
-
-          {/* AI Scan — icon-only on mobile, full label on desktop */}
-          <button
-            onClick={handleAiScan}
-            disabled={scanning || filtered.length === 0}
-            title={`AI Scan (${filtered.length})`}
-            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors touch-target"
-          >
-            <svg className={`w-4 h-4 flex-shrink-0 ${scanning ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              {scanning
-                ? <><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></>
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              }
-            </svg>
-            <span className="hidden sm:inline">{scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}</span>
-            <span className="sm:hidden">{scanning ? '…' : 'Scan'}</span>
-          </button>
-
-          {/* Watermark Scan */}
-          <button
-            onClick={handleWatermarkScan}
-            disabled={wmScanning || !data || data.length === 0}
-            title="Scan all properties for watermarked photos"
-            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors touch-target"
-          >
-            <svg className={`w-4 h-4 flex-shrink-0 ${wmScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              {wmScanning
-                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
-                : <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
-              }
-            </svg>
-            <span className="hidden sm:inline">{wmScanning ? 'Scanning…' : 'Watermarks'}</span>
-            <span className="sm:hidden">{wmScanning ? '…' : 'WM'}</span>
-          </button>
-
+          {/* ── Mobile: primary actions always visible ────────────────── */}
           {/* Download Images */}
           <button
             onClick={handleBulkImageDownload}
@@ -524,7 +500,7 @@ export default function Library() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             <span className="hidden sm:inline">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Images'}</span>
-            <span className="sm:hidden">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Imgs'}</span>
+            <span className="sm:hidden text-xs font-medium">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Imgs'}</span>
           </button>
 
           {/* Bulk Publish */}
@@ -541,14 +517,128 @@ export default function Library() {
               }
             </svg>
             <span className="hidden sm:inline">
-              {bulkPublishing
-                ? `${bulkPublishProgress?.done ?? 0}/${bulkPublishProgress?.total ?? '…'}`
-                : 'Bulk Publish'}
+              {bulkPublishing ? `${bulkPublishProgress?.done ?? 0}/${bulkPublishProgress?.total ?? '…'}` : 'Bulk Publish'}
             </span>
-            <span className="sm:hidden">
+            <span className="sm:hidden text-xs font-medium">
               {bulkPublishing ? `${bulkPublishProgress?.done ?? 0}/${bulkPublishProgress?.total ?? '…'}` : 'Publish'}
             </span>
           </button>
+
+          {/* ── Desktop: secondary actions always visible ─────────────── */}
+          <div className="hidden sm:flex items-center gap-2">
+            {/* Stats toggle */}
+            <button
+              onClick={() => setShowStats(s => !s)}
+              title="Source quality stats"
+              className={`flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border transition-colors touch-target ${showStats ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            >
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+              Stats
+            </button>
+
+            {/* Run AI Enrichment */}
+            <button
+              onClick={handleBulkEnrich}
+              disabled={enriching || !data || data.length === 0}
+              title="Run AI enrichment on all eligible properties"
+              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors touch-target"
+            >
+              <svg className={`w-4 h-4 flex-shrink-0 ${enriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                {enriching
+                  ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                }
+              </svg>
+              {enriching ? 'Queuing…' : 'Run AI'}
+            </button>
+
+            {/* Clean All */}
+            <button
+              onClick={handleBulkClean}
+              disabled={cleaning || !data || data.length === 0}
+              title="Clean all descriptions with AI"
+              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 transition-colors touch-target"
+            >
+              <svg className={`w-4 h-4 flex-shrink-0 ${cleaning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                {cleaning
+                  ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                }
+              </svg>
+              {cleaning ? 'Cleaning…' : 'Clean All'}
+            </button>
+
+            {/* AI Scan */}
+            <button
+              onClick={handleAiScan}
+              disabled={scanning || filtered.length === 0}
+              title={`AI Scan (${filtered.length})`}
+              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100 disabled:opacity-50 transition-colors touch-target"
+            >
+              <svg className={`w-4 h-4 flex-shrink-0 ${scanning ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                {scanning
+                  ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" /></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                }
+              </svg>
+              {scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}
+            </button>
+
+            {/* Watermark Scan */}
+            <button
+              onClick={handleWatermarkScan}
+              disabled={wmScanning || !data || data.length === 0}
+              title="Scan all properties for watermarked photos"
+              className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors touch-target"
+            >
+              <svg className={`w-4 h-4 flex-shrink-0 ${wmScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                {wmScanning
+                  ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                }
+              </svg>
+              {wmScanning ? 'Scanning…' : 'Watermarks'}
+            </button>
+          </div>
+
+          {/* ── Mobile: overflow "More" menu ──────────────────────────── */}
+          <div className="relative sm:hidden" ref={overflowRef}>
+            <button
+              onClick={() => setShowOverflow(o => !o)}
+              className={`flex items-center justify-center w-9 h-9 rounded-lg border transition-colors touch-target ${showOverflow ? 'bg-gray-100 border-gray-400 text-gray-800' : 'border-gray-300 text-gray-500 hover:bg-gray-50'}`}
+              title="More actions"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>
+              </svg>
+            </button>
+            {showOverflow && (
+              <div className="absolute right-0 top-11 z-50 w-52 bg-white rounded-xl shadow-xl border border-gray-100 py-1.5 overflow-hidden">
+                <button onClick={() => { setShowStats(s => !s); setShowOverflow(false) }} className={`flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left transition-colors ${showStats ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-50'}`}>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                  Stats
+                </button>
+                <button onClick={() => { handleBulkEnrich(); setShowOverflow(false) }} disabled={enriching || !data || data.length === 0} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left text-blue-700 hover:bg-blue-50 disabled:opacity-50 transition-colors">
+                  <svg className={`w-4 h-4 ${enriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                  {enriching ? 'Queuing…' : 'Run AI Enrichment'}
+                </button>
+                <button onClick={() => { handleBulkClean(); setShowOverflow(false) }} disabled={cleaning || !data || data.length === 0} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 transition-colors">
+                  <svg className={`w-4 h-4 ${cleaning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                  {cleaning ? 'Cleaning…' : 'Clean All'}
+                </button>
+                <button onClick={() => { handleAiScan(); setShowOverflow(false) }} disabled={scanning || filtered.length === 0} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left text-purple-700 hover:bg-purple-50 disabled:opacity-50 transition-colors">
+                  <svg className={`w-4 h-4 ${scanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" /></svg>
+                  {scanning ? 'Scanning…' : `AI Scan (${filtered.length})`}
+                </button>
+                <button onClick={() => { handleWatermarkScan(); setShowOverflow(false) }} disabled={wmScanning || !data || data.length === 0} className="flex items-center gap-2.5 w-full px-4 py-2.5 text-sm text-left text-rose-700 hover:bg-rose-50 disabled:opacity-50 transition-colors">
+                  <svg className={`w-4 h-4 ${wmScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                  {wmScanning ? 'Scanning…' : 'Watermarks'}
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Select */}
           <button
@@ -934,7 +1024,7 @@ export default function Library() {
                   <button
                     onClick={(e) => { e.stopPropagation(); handleWmUnmark(p.id) }}
                     title="Exclude from deletion"
-                    className="absolute top-10 right-2 z-20 bg-white/95 hover:bg-white text-gray-700 hover:text-gray-900 text-xs font-semibold px-2.5 py-1 rounded-lg shadow border border-gray-200 transition-all opacity-0 group-hover:opacity-100"
+                    className="absolute top-10 right-2 z-20 bg-white/95 hover:bg-white text-gray-700 hover:text-gray-900 text-xs font-semibold px-2.5 py-1 rounded-lg shadow border border-gray-200 transition-colors"
                   >
                     Unmark
                   </button>
@@ -1069,6 +1159,18 @@ export default function Library() {
             />
           ))}
         </div>
+      )}
+
+      {confirmModal && (
+        <ConfirmModal
+          {...confirmModal}
+          onCancel={closeConfirm}
+          onConfirm={() => {
+            const fn = confirmModal.onConfirm
+            closeConfirm()
+            fn?.()
+          }}
+        />
       )}
     </div>
   )

@@ -9,6 +9,7 @@ import PublishButton from '../components/PublishButton'
 import AiAssistant from '../components/AiAssistant'
 import TagInput from '../components/TagInput'
 import ListingPreview from '../components/ListingPreview'
+import ConfirmModal from '../components/ConfirmModal'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
 
 const FIELD_LABELS = {
@@ -106,7 +107,11 @@ export default function Editor() {
   const [savedAfterPublish, setSavedAfterPublish] = useState(false)
   const [postSaveIssues, setPostSaveIssues] = useState(null)
   const [postSaveQualityScore, setPostSaveQualityScore] = useState(null)
+  const [confirmModal, setConfirmModal] = useState(null)
   const isDirty = useRef(false)
+
+  const openConfirm = (opts) => setConfirmModal(opts)
+  const closeConfirm = () => setConfirmModal(null)
 
   const { data: property, isLoading } = useQuery({
     queryKey: ['property', id],
@@ -206,7 +211,15 @@ export default function Editor() {
   }
 
   function handleBackToLibrary() {
-    if (isDirty.current && !window.confirm('You have unsaved changes. Leave without saving?')) {
+    if (isDirty.current) {
+      openConfirm({
+        title: 'Leave without saving?',
+        message: 'You have unsaved changes that will be lost.',
+        confirmLabel: 'Leave',
+        cancelLabel: 'Stay',
+        danger: false,
+        onConfirm: () => navigate('/'),
+      })
       return
     }
     navigate('/')
@@ -221,9 +234,13 @@ export default function Editor() {
   }
 
   function handleDelete() {
-    if (window.confirm('Delete this property? This cannot be undone.')) {
-      deleteMutation.mutate()
-    }
+    openConfirm({
+      title: 'Delete this property?',
+      message: 'All local images and data for this listing will be permanently removed. This cannot be undone.',
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: () => deleteMutation.mutate(),
+    })
   }
 
   async function handleDownload() {
@@ -736,9 +753,13 @@ export default function Editor() {
           {postSaveIssues.length > 0 && (
             <ul className="mt-1.5 space-y-0.5">
               {postSaveIssues.slice(0, 4).map((issue, i) => (
-                <li key={i} className="text-xs opacity-90">
-                  {issue.severity === 'error' ? '✕' : issue.severity === 'warning' ? '⚠' : '💡'}{' '}
-                  {issue.field && issue.field !== 'general' ? <strong>{issue.field}: </strong> : null}{issue.message}
+                <li key={i} className="text-xs opacity-90 flex items-start gap-1">
+                  <span className="mt-px">
+                    {issue.severity === 'error' ? '✗' : issue.severity === 'warning' ? '!' : '→'}
+                  </span>
+                  <span>
+                    {issue.field && issue.field !== 'general' ? <strong>{issue.field}: </strong> : null}{issue.message}
+                  </span>
                 </li>
               ))}
               {postSaveIssues.length > 4 && <li className="text-xs opacity-60">+{postSaveIssues.length - 4} more — check the Issues tab in AI Assistant</li>}
@@ -755,6 +776,18 @@ export default function Editor() {
 
       {showPreview && (
         <ListingPreview property={form} onClose={() => setShowPreview(false)} />
+      )}
+
+      {confirmModal && (
+        <ConfirmModal
+          {...confirmModal}
+          onCancel={closeConfirm}
+          onConfirm={() => {
+            const fn = confirmModal.onConfirm
+            closeConfirm()
+            fn?.()
+          }}
+        />
       )}
     </div>
   )
