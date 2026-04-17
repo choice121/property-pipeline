@@ -2,6 +2,8 @@ import io
 import json
 import logging
 import os
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 from urllib.parse import urlparse
@@ -17,6 +19,18 @@ from services import image_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ── Watermark scan background job state ───────────────────────────────────────
+_wm_state = {
+    "running": False,
+    "total": 0,
+    "scanned": 0,
+    "flagged": [],
+    "started_at": None,
+    "finished_at": None,
+    "error": None,
+}
+_wm_lock = threading.Lock()
 
 REFERER_MAP = {
     "rdcpix.com":       "https://www.realtor.com/",
@@ -239,13 +253,78 @@ def _scan_property_for_watermarks(prop) -> dict:
     }
 
 
+def _wm_scan_worker():
+    """Background thread: fetch all properties, scan for watermarks, update _wm_state."""
+    from database.repository import get_repo
+    repo = get_repo()
+
+    try:
+        props = repo.list()
+
+        with _wm_lock:
+            _wm_state.update({
+                "running": True,
+                "total": len(props),
+                "scanned": 0,
+                "flagged": [],
+                "started_at": time.time(),
+                "finished_at": None,
+                "error": None,
+            })
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = {executor.submit(_scan_property_for_watermarks, p): p for p in props}
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                except Exception as e:
+                    logger.warning("Watermark scan worker error: %s", e)
+                    result = None
+
+                with _wm_lock:
+                    _wm_state["scanned"] += 1
+                    if result and result.get("watermarked"):
+                        _wm_state["flagged"].append(result)
+
+    except Exception as e:
+        with _wm_lock:
+            _wm_state["error"] = str(e)
+        logger.error("Watermark scan worker crashed: %s", e)
+    finally:
+        with _wm_lock:
+            _wm_state["flagged"].sort(key=lambda r: r.get("address", ""))
+            _wm_state["running"] = False
+            _wm_state["finished_at"] = time.time()
+
+
+@router.post("/wm-scan/start")
+def watermark_scan_start():
+    """
+    Start a background watermark scan of all properties.
+    Returns immediately — poll /wm-scan/status for progress.
+    """
+    with _wm_lock:
+        if _wm_state["running"]:
+            return {"ok": False, "message": "Scan already running.", "state": dict(_wm_state)}
+
+    t = threading.Thread(target=_wm_scan_worker, daemon=True)
+    t.start()
+    return {"ok": True, "message": "Watermark scan started in background."}
+
+
+@router.get("/wm-scan/status")
+def watermark_scan_status():
+    """Return current watermark scan progress and results."""
+    with _wm_lock:
+        state = dict(_wm_state)
+        state["flagged"] = list(state["flagged"])
+        state["total_flagged"] = len(state["flagged"])
+    return state
+
+
 @router.post("/images/watermark-scan")
 def watermark_scan(repo: Repository = Depends(get_db)):
-    """
-    Scan all properties for watermarked photos.
-    Downloads up to 4 images per property and runs the branded-overlay detector.
-    Returns a list of all properties with at least one flagged image.
-    """
+    """Legacy blocking scan — kept for backward compatibility."""
     props = repo.list()
     if not props:
         return {"flagged": [], "scanned": 0, "total_flagged": 0}
@@ -255,57 +334,9 @@ def watermark_scan(repo: Repository = Depends(get_db)):
         futures = {executor.submit(_scan_property_for_watermarks, p): p for p in props}
         for future in as_completed(futures):
             try:
-                result = future.result()
-                results.append(result)
+                results.append(future.result())
             except Exception as e:
                 logger.warning("Watermark scan error: %s", e)
 
-    flagged = [r for r in results if r["watermarked"]]
-    flagged.sort(key=lambda r: r.get("address", ""))
-
-    return {
-        "flagged": flagged,
-        "scanned": len(results),
-        "total_flagged": len(flagged),
-    }
-
-
-@router.post("/images/watermark-purge")
-def watermark_purge(repo: Repository = Depends(get_db)):
-    """
-    Scan all properties for watermarked photos and immediately delete the flagged ones.
-    Returns a summary of what was deleted.
-    """
-    props = repo.list()
-    if not props:
-        return {"deleted": [], "scanned": 0, "deleted_count": 0}
-
-    results = []
-    with ThreadPoolExecutor(max_workers=8) as executor:
-        futures = {executor.submit(_scan_property_for_watermarks, p): p for p in props}
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                results.append(result)
-            except Exception as e:
-                logger.warning("Watermark purge scan error: %s", e)
-
-    flagged = [r for r in results if r["watermarked"]]
-    flagged.sort(key=lambda r: r.get("address", ""))
-
-    deleted = []
-    errors = []
-    for r in flagged:
-        try:
-            repo.delete(r["id"])
-            deleted.append(r)
-        except Exception as e:
-            logger.error("Failed to delete property %s during watermark purge: %s", r["id"], e)
-            errors.append({"id": r["id"], "address": r.get("address", ""), "error": str(e)})
-
-    return {
-        "deleted": deleted,
-        "scanned": len(results),
-        "deleted_count": len(deleted),
-        "errors": errors,
-    }
+    flagged = sorted([r for r in results if r["watermarked"]], key=lambda r: r.get("address", ""))
+    return {"flagged": flagged, "scanned": len(results), "total_flagged": len(flagged)}

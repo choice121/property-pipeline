@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScan } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScanStart, watermarkScanStatus } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -63,11 +63,13 @@ export default function Library() {
   const [restoreDismissed, setRestoreDismissed] = useState(false)
 
   const [wmScanning, setWmScanning] = useState(false)
+  const [wmProgress, setWmProgress] = useState(null)
   const [wmFlagged, setWmFlagged] = useState(null)
   const [wmScanned, setWmScanned] = useState(0)
   const [wmDeleting, setWmDeleting] = useState(false)
   const [wmError, setWmError] = useState(null)
   const [wmDone, setWmDone] = useState(false)
+  const wmPollRef = useRef(null)
 
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
@@ -133,6 +135,34 @@ export default function Library() {
     }, 3000)
     return () => clearInterval(bulkPublishPollRef.current)
   }, [bulkPublishing])
+
+  useEffect(() => {
+    if (!wmScanning) return
+    wmPollRef.current = setInterval(async () => {
+      try {
+        const res = await watermarkScanStatus()
+        const s = res.data
+        setWmProgress(s)
+        if (!s.running) {
+          clearInterval(wmPollRef.current)
+          setWmScanning(false)
+          // Join flagged IDs with full property objects
+          const flaggedList = s.flagged || []
+          const metaById = Object.fromEntries(flaggedList.map(f => [f.id, f]))
+          const flaggedIds = new Set(flaggedList.map(f => f.id))
+          const fullProps = (data || [])
+            .filter(p => flaggedIds.has(p.id))
+            .map(p => ({ ...p, _wm: metaById[p.id] }))
+          flaggedList.forEach(f => {
+            if (!fullProps.find(p => p.id === f.id)) fullProps.push({ ...f, _wm: f })
+          })
+          setWmFlagged(fullProps)
+          setWmScanned(s.scanned || 0)
+        }
+      } catch { /* ignore poll errors */ }
+    }, 2000)
+    return () => clearInterval(wmPollRef.current)
+  }, [wmScanning])
 
   async function handleBulkPublish() {
     if (bulkPublishing) return
@@ -204,30 +234,20 @@ export default function Library() {
 
   async function handleWatermarkScan() {
     if (wmScanning) return
-    setWmScanning(true)
     setWmFlagged(null)
     setWmScanned(0)
+    setWmProgress(null)
     setWmError(null)
     setWmDone(false)
     try {
-      const res = await watermarkScan()
-      const flaggedList = res.data.flagged || []
-      const metaById = Object.fromEntries(flaggedList.map(f => [f.id, f]))
-      const flaggedIds = new Set(flaggedList.map(f => f.id))
-      // Join scan results with full property objects already in the library
-      const fullProps = (data || [])
-        .filter(p => flaggedIds.has(p.id))
-        .map(p => ({ ...p, _wm: metaById[p.id] }))
-      // Fallback: if a flagged id isn't in the loaded list, use scan data directly
-      flaggedList.forEach(f => {
-        if (!fullProps.find(p => p.id === f.id)) fullProps.push({ ...f, _wm: f })
-      })
-      setWmFlagged(fullProps)
-      setWmScanned(res.data.scanned || 0)
+      const res = await watermarkScanStart()
+      if (!res.data.ok && res.data.message !== 'Scan already running.') {
+        setWmError(res.data.message || 'Could not start scan.')
+        return
+      }
+      setWmScanning(true)
     } catch (e) {
-      setWmError(e.response?.data?.detail || e.message || 'Watermark scan failed.')
-    } finally {
-      setWmScanning(false)
+      setWmError(e.response?.data?.detail || e.message || 'Watermark scan failed to start.')
     }
   }
 
@@ -255,8 +275,11 @@ export default function Library() {
   }
 
   function handleWmClose() {
+    clearInterval(wmPollRef.current)
+    setWmScanning(false)
     setWmFlagged(null)
     setWmScanned(0)
+    setWmProgress(null)
     setWmError(null)
     setWmDone(false)
   }
@@ -821,25 +844,33 @@ export default function Library() {
         </div>
       )}
 
-      {wmFlagged !== null && (
+      {(wmScanning || wmFlagged !== null) && (
         <div className="mb-6 bg-white border border-rose-200 rounded-xl shadow-sm overflow-hidden">
           {/* Header bar */}
           <div className="px-4 py-3 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
-              <svg className="w-4 h-4 text-rose-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <svg className={`w-4 h-4 text-rose-600 flex-shrink-0 ${wmScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
-              <span className="text-sm font-semibold text-gray-900">Watermark Scan Results</span>
-              <span className="text-xs text-gray-500">{wmScanned} scanned</span>
-              {wmDone
-                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done — deleted</span>
-                : wmFlagged.length > 0
-                  ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-medium">{wmFlagged.length} watermarked</span>
-                  : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">All clean</span>
-              }
+              <span className="text-sm font-semibold text-gray-900">
+                {wmScanning ? 'Scanning for watermarks…' : 'Watermark Scan Results'}
+              </span>
+              {wmScanning && wmProgress && (
+                <span className="text-xs text-gray-500">
+                  {wmProgress.scanned} / {wmProgress.total} checked
+                  {wmProgress.total_flagged > 0 && ` · ${wmProgress.total_flagged} flagged so far`}
+                </span>
+              )}
+              {!wmScanning && wmFlagged !== null && (
+                wmDone
+                  ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done — deleted</span>
+                  : wmFlagged.length > 0
+                    ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-medium">{wmFlagged.length} watermarked</span>
+                    : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">All clean</span>
+              )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
-              {wmFlagged.length > 0 && !wmDone && (
+              {!wmScanning && wmFlagged && wmFlagged.length > 0 && !wmDone && (
                 <button
                   onClick={handleWmDeleteAll}
                   disabled={wmDeleting}
@@ -855,15 +886,31 @@ export default function Library() {
             </div>
           </div>
 
+          {/* Live progress bar while scanning */}
+          {wmScanning && (
+            <div className="px-4 py-3 border-b border-rose-100">
+              <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+                <span>Downloading and checking photos…</span>
+                <span>{wmProgress?.scanned ?? 0} / {wmProgress?.total ?? '…'}</span>
+              </div>
+              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-rose-500 rounded-full transition-all duration-500"
+                  style={{ width: wmProgress?.total ? `${Math.round((wmProgress.scanned / wmProgress.total) * 100)}%` : '2%' }}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Hint */}
-          {wmFlagged.length > 0 && !wmDone && (
+          {wmFlagged && wmFlagged.length > 0 && !wmDone && (
             <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
               Click <strong>Unmark</strong> on a card to exclude it from deletion. <strong>Delete All</strong> removes all remaining flagged properties.
             </div>
           )}
 
           {/* Empty / done states */}
-          {wmFlagged.length === 0 && !wmDone && (
+          {wmFlagged && wmFlagged.length === 0 && !wmDone && (
             <div className="px-4 py-6 text-sm text-gray-600 text-center">
               No watermarked photos detected across {wmScanned} properties. Your library is clean.
             </div>
@@ -875,7 +922,7 @@ export default function Library() {
           )}
 
           {/* Full property card grid */}
-          {wmFlagged.length > 0 && !wmDone && (
+          {wmFlagged && wmFlagged.length > 0 && !wmDone && (
             <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[70vh] overflow-y-auto">
               {wmFlagged.map(p => (
                 <div key={p.id} className="relative group">
