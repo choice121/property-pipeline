@@ -353,9 +353,9 @@ Always be direct and practical. If asked to rewrite something, provide the compl
     messages.append({"role": "user", "content": req.message})
 
     try:
-        client = get_client()
+        client, model = get_client()
         response = client.chat.completions.create(
-            model="deepseek-chat",
+            model=model,
             messages=messages,
             temperature=0.7,
         )
@@ -1119,9 +1119,9 @@ HARD RULES — follow every one without exception:
 
     def generate():
         try:
-            client = get_client()
+            client, model = get_client()
             stream = client.chat.completions.create(
-                model="deepseek-chat",
+                model=model,
                 messages=[
                     {"role": "system", "content": PLATFORM_CONTEXT},
                     {"role": "user", "content": user_prompt},
@@ -1179,9 +1179,9 @@ Always be direct and practical. If asked to rewrite something, provide the compl
 
     def generate():
         try:
-            client = get_client()
+            client, model = get_client()
             stream = client.chat.completions.create(
-                model="deepseek-chat",
+                model=model,
                 messages=messages,
                 temperature=0.7,
                 stream=True,

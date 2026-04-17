@@ -81,44 +81,67 @@ A poor listing has:
 
 PROMPT_VERSION = "v2"
 
+_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+_GEMINI_MODEL   = "gemini-2.0-flash"
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+_DEEPSEEK_MODEL = "deepseek-chat"
 
-def get_client() -> OpenAI:
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="DEEPSEEK_API_KEY is not configured.")
-    return OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+
+def get_client() -> tuple[OpenAI, str]:
+    """
+    Returns (client, model_name).
+    Prefers Gemini when GEMINI_API_KEY is set; falls back to DeepSeek.
+    """
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    if gemini_key:
+        return (
+            OpenAI(api_key=gemini_key, base_url=_GEMINI_BASE_URL),
+            _GEMINI_MODEL,
+        )
+
+    deepseek_key = os.environ.get("DEEPSEEK_API_KEY")
+    if deepseek_key:
+        return (
+            OpenAI(api_key=deepseek_key, base_url=_DEEPSEEK_BASE_URL),
+            _DEEPSEEK_MODEL,
+        )
+
+    raise HTTPException(
+        status_code=500,
+        detail="No AI API key configured. Set GEMINI_API_KEY or DEEPSEEK_API_KEY.",
+    )
 
 
 def handle_deepseek_error(e: Exception):
     if isinstance(e, AuthenticationError):
         raise HTTPException(
             status_code=401,
-            detail="Invalid DeepSeek API key. Please check your DEEPSEEK_API_KEY."
+            detail="Invalid AI API key. Please check your GEMINI_API_KEY or DEEPSEEK_API_KEY."
         )
     if isinstance(e, RateLimitError):
         raise HTTPException(
             status_code=429,
-            detail="DeepSeek rate limit reached. Please wait a moment and try again."
+            detail="AI rate limit reached. Please wait a moment and try again."
         )
     if isinstance(e, APIStatusError):
         if e.status_code == 402:
             raise HTTPException(
                 status_code=402,
-                detail="DeepSeek credit exhausted. Please top up at platform.deepseek.com."
+                detail="AI API credit exhausted. Please top up your account."
             )
         if e.status_code == 429:
             raise HTTPException(
                 status_code=429,
-                detail="DeepSeek rate limit reached. Please wait a moment and try again."
+                detail="AI rate limit reached. Please wait a moment and try again."
             )
         raise HTTPException(
             status_code=500,
-            detail=f"DeepSeek API error ({e.status_code}): {e.message}"
+            detail=f"AI API error ({e.status_code}): {e.message}"
         )
     if isinstance(e, APIConnectionError):
         raise HTTPException(
             status_code=503,
-            detail="Could not connect to DeepSeek. Please check your internet connection."
+            detail="Could not connect to AI provider. Please check your internet connection."
         )
     raise HTTPException(status_code=500, detail=str(e))
 
@@ -131,20 +154,21 @@ def call_deepseek(
     max_retries: int = 3,
 ) -> str:
     """
-    Unified DeepSeek caller with retry logic and optional JSON mode.
+    Unified AI caller with retry logic and optional JSON mode.
+    Uses Gemini if GEMINI_API_KEY is set, otherwise falls back to DeepSeek.
 
-    - json_mode=True enforces valid JSON output from the model (no markdown wrapping).
+    - json_mode=True enforces valid JSON output from the model.
     - Retries up to max_retries times on rate limit or transient server errors.
     - Backs off exponentially: 1s, 2s, 4s between attempts.
-    - Fails immediately on auth errors or credit exhaustion (no point retrying).
+    - Fails immediately on auth errors or credit exhaustion.
     """
     last_error = None
 
     for attempt in range(max_retries):
         try:
-            client = get_client()
+            client, model = get_client()
             kwargs = dict(
-                model="deepseek-chat",
+                model=model,
                 messages=[
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
@@ -172,7 +196,7 @@ def call_deepseek(
                 last_error = e
                 wait = 2 ** attempt
                 logger.warning(
-                    "DeepSeek error %s, retrying in %ds (attempt %d/%d)",
+                    "AI API error %s, retrying in %ds (attempt %d/%d)",
                     getattr(e, "status_code", "?"), wait, attempt + 1, max_retries,
                 )
                 time.sleep(wait)
@@ -184,7 +208,7 @@ def call_deepseek(
             last_error = e
             wait = 2 ** attempt
             logger.warning(
-                "DeepSeek rate limit hit, retrying in %ds (attempt %d/%d)",
+                "AI rate limit hit, retrying in %ds (attempt %d/%d)",
                 wait, attempt + 1, max_retries,
             )
             time.sleep(wait)
@@ -193,7 +217,7 @@ def call_deepseek(
             last_error = e
             wait = 2 ** attempt
             logger.warning(
-                "DeepSeek connection error, retrying in %ds (attempt %d/%d)",
+                "AI connection error, retrying in %ds (attempt %d/%d)",
                 wait, attempt + 1, max_retries,
             )
             time.sleep(wait)
