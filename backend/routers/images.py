@@ -20,6 +20,55 @@ from services import image_service
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# ── Watermark flag persistence ─────────────────────────────────────────────────
+_WM_FLAGS_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "watermark_flags.json")
+_WM_FLAGS_FILE = os.path.normpath(_WM_FLAGS_FILE)
+_wm_file_lock = threading.Lock()
+
+
+def _load_wm_flags() -> dict:
+    """Load persisted watermark flags from disk. Returns {prop_id: flag_data}."""
+    try:
+        if os.path.exists(_WM_FLAGS_FILE):
+            with open(_WM_FLAGS_FILE, "r") as f:
+                return json.load(f)
+    except Exception as e:
+        logger.warning("Could not load watermark flags: %s", e)
+    return {}
+
+
+def _save_wm_flags(flags: dict) -> None:
+    """Persist watermark flags dict to disk."""
+    try:
+        os.makedirs(os.path.dirname(_WM_FLAGS_FILE), exist_ok=True)
+        with _wm_file_lock:
+            with open(_WM_FLAGS_FILE, "w") as f:
+                json.dump(flags, f)
+    except Exception as e:
+        logger.warning("Could not save watermark flags: %s", e)
+
+
+def _merge_wm_flags(new_results: list) -> None:
+    """Merge a list of scan result dicts into the persisted flags file."""
+    flags = _load_wm_flags()
+    for r in new_results:
+        pid = str(r.get("id", ""))
+        if not pid:
+            continue
+        flags[pid] = {
+            "id": pid,
+            "address": r.get("address", ""),
+            "city": r.get("city", ""),
+            "state": r.get("state", ""),
+            "flagged": r.get("flagged", 0),
+            "checked": r.get("checked", 0),
+            "total_images": r.get("total_images", 0),
+            "status": r.get("status", ""),
+            "scanned_at": r.get("scanned_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    _save_wm_flags(flags)
+
+
 # ── Watermark scan background job state ───────────────────────────────────────
 _wm_state = {
     "running": False,
@@ -295,6 +344,19 @@ def _wm_scan_worker():
             _wm_state["flagged"].sort(key=lambda r: r.get("address", ""))
             _wm_state["running"] = False
             _wm_state["finished_at"] = time.time()
+            finished_flagged = list(_wm_state["flagged"])
+
+        # Persist: replace all flags with the new scan's results (full rescan overwrites)
+        # First clear all existing flags, then write the new ones
+        _save_wm_flags({})
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        new_flags = {}
+        for r in finished_flagged:
+            pid = str(r.get("id", ""))
+            if pid:
+                new_flags[pid] = {**r, "id": pid, "scanned_at": ts}
+        _save_wm_flags(new_flags)
+        logger.info("Watermark scan complete — persisted %d flags", len(new_flags))
 
 
 @router.post("/wm-scan/start")
@@ -340,3 +402,63 @@ def watermark_scan(repo: Repository = Depends(get_db)):
 
     flagged = sorted([r for r in results if r["watermarked"]], key=lambda r: r.get("address", ""))
     return {"flagged": flagged, "scanned": len(results), "total_flagged": len(flagged)}
+
+
+@router.get("/wm-scan/flagged")
+def watermark_get_flagged(repo: Repository = Depends(get_db)):
+    """
+    Return all persistently flagged watermark properties, enriched with full property data.
+    Results survive browser refresh and server restarts.
+    """
+    flags = _load_wm_flags()
+    if not flags:
+        return {"flagged": [], "total": 0, "scanned_at": None}
+
+    # Enrich flags with latest full property data where available
+    prop_ids = list(flags.keys())
+    enriched = []
+    last_scanned_at = None
+
+    for pid in prop_ids:
+        flag = flags[pid]
+        if not last_scanned_at or (flag.get("scanned_at", "") > last_scanned_at):
+            last_scanned_at = flag.get("scanned_at")
+        try:
+            prop = repo.get(pid)
+        except Exception:
+            prop = None
+
+        if prop:
+            entry = prop.to_dict()
+            entry["_wm"] = flag
+        else:
+            # Property was deleted — skip it and remove from flags
+            continue
+        enriched.append(entry)
+
+    # Prune flags for deleted properties
+    valid_ids = {e["id"] for e in enriched}
+    if len(valid_ids) < len(flags):
+        pruned = {k: v for k, v in flags.items() if k in valid_ids}
+        _save_wm_flags(pruned)
+
+    enriched.sort(key=lambda p: (p.get("address") or ""))
+    return {"flagged": enriched, "total": len(enriched), "scanned_at": last_scanned_at}
+
+
+@router.post("/wm-scan/unflag/{prop_id}")
+def watermark_unflag(prop_id: str):
+    """Remove a single property from the persisted watermark flags (Unmark action)."""
+    flags = _load_wm_flags()
+    if prop_id in flags:
+        del flags[prop_id]
+        _save_wm_flags(flags)
+        return {"ok": True, "remaining": len(flags)}
+    return {"ok": True, "remaining": len(flags)}
+
+
+@router.delete("/wm-scan/flags")
+def watermark_clear_flags():
+    """Clear all persisted watermark flags (dismiss results panel without deleting properties)."""
+    _save_wm_flags({})
+    return {"ok": True}

@@ -57,5 +57,8 @@ export const getBulkPublishStatus = () => api.get('/bulk-publish/status')
 export const watermarkScanStart = () => api.post('/wm-scan/start')
 export const watermarkScanStatus = () => api.get('/wm-scan/status')
 export const watermarkScan = () => api.post('/images/watermark-scan')
+export const watermarkGetFlagged = () => api.get('/wm-scan/flagged')
+export const watermarkUnflag = (propId) => api.post('/wm-scan/unflag/' + propId)
+export const watermarkClearFlags = () => api.delete('/wm-scan/flags')
 
 export default api

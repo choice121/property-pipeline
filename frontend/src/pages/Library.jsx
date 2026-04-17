@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScanStart, watermarkScanStatus } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScanStart, watermarkScanStatus, watermarkGetFlagged, watermarkUnflag, watermarkClearFlags } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import ConfirmModal from '../components/ConfirmModal'
@@ -70,6 +70,8 @@ export default function Library() {
   const [wmDeleting, setWmDeleting] = useState(false)
   const [wmError, setWmError] = useState(null)
   const [wmDone, setWmDone] = useState(false)
+  const [wmScannedAt, setWmScannedAt] = useState(null)
+  const [wmFromPersisted, setWmFromPersisted] = useState(false)
   const wmPollRef = useRef(null)
 
   const [confirmModal, setConfirmModal] = useState(null)
@@ -88,6 +90,23 @@ export default function Library() {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  // Load persisted watermark flags on mount
+  const { data: persistedWmData } = useQuery({
+    queryKey: ['wm-flagged'],
+    queryFn: () => watermarkGetFlagged().then(r => r.data),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  })
+
+  useEffect(() => {
+    if (!persistedWmData || wmFlagged !== null || wmScanning) return
+    if (persistedWmData.total > 0) {
+      setWmFlagged(persistedWmData.flagged)
+      setWmScannedAt(persistedWmData.scanned_at)
+      setWmFromPersisted(true)
+    }
+  }, [persistedWmData])
 
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
@@ -176,6 +195,9 @@ export default function Library() {
           })
           setWmFlagged(fullProps)
           setWmScanned(s.scanned || 0)
+          setWmFromPersisted(false)
+          setWmScannedAt(new Date().toISOString())
+          queryClient.invalidateQueries({ queryKey: ['wm-flagged'] })
         }
       } catch { /* ignore poll errors */ }
     }, 2000)
@@ -284,8 +306,12 @@ export default function Library() {
     }
   }
 
-  function handleWmUnmark(id) {
+  async function handleWmUnmark(id) {
     setWmFlagged(prev => (prev || []).filter(p => p.id !== id))
+    try {
+      await watermarkUnflag(id)
+      queryClient.invalidateQueries({ queryKey: ['wm-flagged'] })
+    } catch { /* ignore */ }
   }
 
   async function handleWmDeleteAll() {
@@ -302,9 +328,12 @@ export default function Library() {
         try {
           const ids = wmFlagged.map(p => p.id)
           await bulkAction(ids, 'delete')
+          // Clear persisted flags for the deleted properties
+          await Promise.allSettled(ids.map(id => watermarkUnflag(id)))
           setWmDone(true)
           setWmFlagged([])
           queryClient.invalidateQueries({ queryKey: ['properties'] })
+          queryClient.invalidateQueries({ queryKey: ['wm-flagged'] })
         } catch (e) {
           setWmError(e.response?.data?.detail || e.message || 'Delete failed.')
         } finally {
@@ -315,6 +344,7 @@ export default function Library() {
   }
 
   function handleWmClose() {
+    // Just hide the panel — persisted flags remain and will reload on next visit
     clearInterval(wmPollRef.current)
     setWmScanning(false)
     setWmFlagged(null)
@@ -322,6 +352,17 @@ export default function Library() {
     setWmProgress(null)
     setWmError(null)
     setWmDone(false)
+    setWmScannedAt(null)
+    setWmFromPersisted(false)
+  }
+
+  async function handleWmClearResults() {
+    // Explicitly clear persisted flags and close the panel
+    handleWmClose()
+    try {
+      await watermarkClearFlags()
+      queryClient.invalidateQueries({ queryKey: ['wm-flagged'] })
+    } catch { /* ignore */ }
   }
 
   const filtered = useMemo(() => {
@@ -955,8 +996,14 @@ export default function Library() {
                 wmDone
                   ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done — deleted</span>
                   : wmFlagged.length > 0
-                    ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-medium">{wmFlagged.length} watermarked</span>
+                    ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-medium">{wmFlagged.length} flagged</span>
                     : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">All clean</span>
+              )}
+              {wmFromPersisted && wmScannedAt && (
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                  Saved · {new Date(wmScannedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                </span>
               )}
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -972,7 +1019,16 @@ export default function Library() {
                   }
                 </button>
               )}
-              <button onClick={handleWmClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+              {!wmScanning && (
+                <button
+                  onClick={handleWmClearResults}
+                  title="Clear all flagged results and dismiss"
+                  className="text-xs text-gray-400 hover:text-rose-600 px-2 py-1 rounded hover:bg-rose-50 transition-colors"
+                >
+                  Clear
+                </button>
+              )}
+              <button onClick={handleWmClose} title="Hide panel (results saved)" className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
           </div>
 
@@ -994,8 +1050,11 @@ export default function Library() {
 
           {/* Hint */}
           {wmFlagged && wmFlagged.length > 0 && !wmDone && (
-            <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
-              Click <strong>Unmark</strong> on a card to exclude it from deletion. <strong>Delete All</strong> removes all remaining flagged properties.
+            <div className="px-4 py-2.5 text-xs text-gray-500 bg-gray-50 border-b border-gray-100 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>
+                Results are <strong>automatically saved</strong> and will persist across refreshes.
+                Click a card to edit, <strong>Unmark</strong> to exclude from deletion, or <strong>Delete All</strong> to remove flagged listings.
+              </span>
             </div>
           )}
 
@@ -1017,20 +1076,29 @@ export default function Library() {
               {wmFlagged.map(p => (
                 <div key={p.id} className="relative group">
                   {/* Watermark badge */}
-                  <div className="absolute top-2 right-10 z-20 bg-rose-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full shadow">
+                  <div className="absolute top-2 left-2 z-20 bg-rose-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full shadow">
                     {p._wm?.flagged ?? 0}/{p._wm?.checked ?? 0} watermarked
                   </div>
-                  {/* Unmark button — visible on hover */}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleWmUnmark(p.id) }}
-                    title="Exclude from deletion"
-                    className="absolute top-10 right-2 z-20 bg-white/95 hover:bg-white text-gray-700 hover:text-gray-900 text-xs font-semibold px-2.5 py-1 rounded-lg shadow border border-gray-200 transition-colors"
-                  >
-                    Unmark
-                  </button>
+                  {/* Action buttons row */}
+                  <div className="absolute top-2 right-2 z-20 flex gap-1.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); navigate(`/edit/${p.id}`) }}
+                      title="Edit this property"
+                      className="bg-white/95 hover:bg-blue-600 hover:text-white text-gray-700 text-xs font-semibold px-2 py-1 rounded-lg shadow border border-gray-200 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleWmUnmark(p.id) }}
+                      title="Remove from flagged list"
+                      className="bg-white/95 hover:bg-white text-gray-700 hover:text-gray-900 text-xs font-semibold px-2 py-1 rounded-lg shadow border border-gray-200 transition-colors"
+                    >
+                      Unmark
+                    </button>
+                  </div>
                   <PropertyCard
                     property={p}
-                    onClick={() => navigate(`/property/${p.id}`)}
+                    onClick={() => navigate(`/edit/${p.id}`)}
                   />
                 </div>
               ))}
