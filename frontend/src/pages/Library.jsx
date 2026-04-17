@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScan } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkPurge } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -62,10 +62,9 @@ export default function Library() {
   const [restoreError, setRestoreError] = useState(null)
   const [restoreDismissed, setRestoreDismissed] = useState(false)
 
-  const [wmScanning, setWmScanning] = useState(false)
+  const [wmRunning, setWmRunning] = useState(false)
   const [wmResult, setWmResult] = useState(null)
   const [wmError, setWmError] = useState(null)
-  const [wmDeleting, setWmDeleting] = useState(false)
 
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
@@ -200,35 +199,20 @@ export default function Library() {
     }
   }
 
-  async function handleWatermarkScan() {
-    if (wmScanning) return
-    setWmScanning(true)
+  async function handleWatermarkPurge() {
+    if (wmRunning) return
+    if (!window.confirm('This will scan all properties for watermarked photos and permanently delete any that are flagged. Continue?')) return
+    setWmRunning(true)
     setWmResult(null)
     setWmError(null)
     try {
-      const res = await watermarkScan()
+      const res = await watermarkPurge()
       setWmResult(res.data)
-    } catch (e) {
-      setWmError(e.response?.data?.detail || e.message || 'Watermark scan failed.')
-    } finally {
-      setWmScanning(false)
-    }
-  }
-
-  async function handleDeleteWatermarked() {
-    if (!wmResult || wmResult.flagged.length === 0 || wmDeleting) return
-    const count = wmResult.flagged.length
-    if (!window.confirm(`Delete ${count} propert${count === 1 ? 'y' : 'ies'} with watermarked photos? This cannot be undone.`)) return
-    setWmDeleting(true)
-    try {
-      const ids = wmResult.flagged.map(p => p.id)
-      await bulkAction(ids, 'delete')
-      setWmResult(null)
       queryClient.invalidateQueries({ queryKey: ['properties'] })
     } catch (e) {
-      setWmError(e.response?.data?.detail || e.message || 'Delete failed.')
+      setWmError(e.response?.data?.detail || e.message || 'Watermark purge failed.')
     } finally {
-      setWmDeleting(false)
+      setWmRunning(false)
     }
   }
 
@@ -444,21 +428,21 @@ export default function Library() {
             <span className="sm:hidden">{scanning ? '…' : 'Scan'}</span>
           </button>
 
-          {/* Watermark Scan */}
+          {/* Watermark Purge */}
           <button
-            onClick={handleWatermarkScan}
-            disabled={wmScanning || !data || data.length === 0}
-            title="Scan all property photos for watermarks"
+            onClick={handleWatermarkPurge}
+            disabled={wmRunning || !data || data.length === 0}
+            title="Scan and delete all properties with watermarked photos"
             className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-50 transition-colors touch-target"
           >
-            <svg className={`w-4 h-4 flex-shrink-0 ${wmScanning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              {wmScanning
+            <svg className={`w-4 h-4 flex-shrink-0 ${wmRunning ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              {wmRunning
                 ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
                 : <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
               }
             </svg>
-            <span className="hidden sm:inline">{wmScanning ? 'Scanning…' : 'Watermarks'}</span>
-            <span className="sm:hidden">{wmScanning ? '…' : 'WM'}</span>
+            <span className="hidden sm:inline">{wmRunning ? 'Purging…' : 'Watermarks'}</span>
+            <span className="sm:hidden">{wmRunning ? '…' : 'WM'}</span>
           </button>
 
           {/* Download Images */}
@@ -784,10 +768,10 @@ export default function Library() {
         </div>
       )}
 
-      {/* Watermark scan results */}
+      {/* Watermark purge results */}
       {wmError && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
-          <span>Watermark scan failed: {wmError}</span>
+          <span>Watermark purge failed: {wmError}</span>
           <button onClick={() => setWmError(null)} className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none">&times;</button>
         </div>
       )}
@@ -800,51 +784,41 @@ export default function Library() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <span className="text-sm font-semibold text-rose-900">
-                Watermark Scan — {wmResult.scanned} properties checked
+                Watermark Purge — {wmResult.scanned} properties scanned
               </span>
-              {wmResult.total_flagged > 0
-                ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">{wmResult.total_flagged} flagged</span>
-                : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">All clear</span>
+              {wmResult.deleted_count > 0
+                ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full">{wmResult.deleted_count} deleted</span>
+                : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">All clean — nothing deleted</span>
               }
             </div>
             <button onClick={() => setWmResult(null)} className="text-rose-400 hover:text-rose-600 text-lg leading-none">&times;</button>
           </div>
 
-          {wmResult.total_flagged === 0 ? (
+          {wmResult.deleted_count === 0 ? (
             <div className="px-4 py-3 text-sm text-rose-700">
-              No watermarked photos detected across {wmResult.scanned} properties.
+              No watermarked photos detected across {wmResult.scanned} properties. Your library is clean.
             </div>
           ) : (
             <>
               <div className="px-4 py-2 text-xs text-rose-700 bg-rose-50 border-b border-rose-100">
-                These properties have photos with branded watermarks (Zillow, Realtor.com, Redfin logos). They should be deleted.
+                The following properties were deleted because their photos contained branded watermarks.
               </div>
               <div className="divide-y divide-rose-100 max-h-64 overflow-y-auto">
-                {wmResult.flagged.map(p => (
+                {wmResult.deleted.map(p => (
                   <div key={p.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">{p.address}</p>
-                      <p className="text-xs text-gray-500">{[p.city, p.state].filter(Boolean).join(', ')} &middot; {p.flagged}/{p.checked} photos watermarked &middot; <span className="capitalize">{p.status}</span></p>
+                      <p className="text-xs text-gray-500">{[p.city, p.state].filter(Boolean).join(', ')} &middot; {p.flagged}/{p.checked} photos flagged &middot; <span className="capitalize">{p.status}</span></p>
                     </div>
-                    <span className="flex-shrink-0 text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-medium">
-                      {p.flagged} flagged
-                    </span>
+                    <span className="flex-shrink-0 text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">deleted</span>
                   </div>
                 ))}
               </div>
-              <div className="px-4 py-3 bg-rose-50 border-t border-rose-100 flex items-center gap-3">
-                <button
-                  onClick={handleDeleteWatermarked}
-                  disabled={wmDeleting}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg disabled:opacity-50 transition-colors"
-                >
-                  {wmDeleting
-                    ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>Deleting…</>
-                    : `Delete All ${wmResult.total_flagged} Properties`
-                  }
-                </button>
-                <span className="text-xs text-rose-600">This permanently deletes all flagged properties.</span>
-              </div>
+              {wmResult.errors && wmResult.errors.length > 0 && (
+                <div className="px-4 py-2 text-xs text-amber-700 bg-amber-50 border-t border-amber-100">
+                  {wmResult.errors.length} propert{wmResult.errors.length === 1 ? 'y' : 'ies'} could not be deleted — check server logs.
+                </div>
+              )}
             </>
           )}
         </div>

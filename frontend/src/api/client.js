@@ -55,5 +55,6 @@ export const restoreLibrary = () => api.post('/library/restore')
 export const startBulkPublish = (data = {}) => api.post('/bulk-publish/start', data)
 export const getBulkPublishStatus = () => api.get('/bulk-publish/status')
 export const watermarkScan = () => api.post('/images/watermark-scan')
+export const watermarkPurge = () => api.post('/images/watermark-purge')
 
 export default api

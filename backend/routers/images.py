@@ -268,3 +268,44 @@ def watermark_scan(repo: Repository = Depends(get_db)):
         "scanned": len(results),
         "total_flagged": len(flagged),
     }
+
+
+@router.post("/images/watermark-purge")
+def watermark_purge(repo: Repository = Depends(get_db)):
+    """
+    Scan all properties for watermarked photos and immediately delete the flagged ones.
+    Returns a summary of what was deleted.
+    """
+    props = repo.list()
+    if not props:
+        return {"deleted": [], "scanned": 0, "deleted_count": 0}
+
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_scan_property_for_watermarks, p): p for p in props}
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.warning("Watermark purge scan error: %s", e)
+
+    flagged = [r for r in results if r["watermarked"]]
+    flagged.sort(key=lambda r: r.get("address", ""))
+
+    deleted = []
+    errors = []
+    for r in flagged:
+        try:
+            repo.delete(r["id"])
+            deleted.append(r)
+        except Exception as e:
+            logger.error("Failed to delete property %s during watermark purge: %s", r["id"], e)
+            errors.append({"id": r["id"], "address": r.get("address", ""), "error": str(e)})
+
+    return {
+        "deleted": deleted,
+        "scanned": len(results),
+        "deleted_count": len(deleted),
+        "errors": errors,
+    }
