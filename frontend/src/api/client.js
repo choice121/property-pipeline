@@ -52,5 +52,7 @@ export const aiBulkEnrich = (data) => api.post('/ai/bulk-enrich', data || {})
 export const startBulkImageDownload = (data = {}) => api.post('/img-batch/start', data)
 export const getBulkImageDownloadStatus = () => api.get('/img-batch/status')
 export const restoreLibrary = () => api.post('/library/restore')
+export const startBulkPublish = (data = {}) => api.post('/bulk-publish/start', data)
+export const getBulkPublishStatus = () => api.get('/bulk-publish/status')
 
 export default api

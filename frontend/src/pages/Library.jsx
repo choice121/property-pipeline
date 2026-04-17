@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -52,6 +52,10 @@ export default function Library() {
   const [imgDownloading, setImgDownloading] = useState(false)
   const [imgProgress, setImgProgress] = useState(null)
   const imgPollRef = useRef(null)
+
+  const [bulkPublishing, setBulkPublishing] = useState(false)
+  const [bulkPublishProgress, setBulkPublishProgress] = useState(null)
+  const bulkPublishPollRef = useRef(null)
 
   const [restoring, setRestoring] = useState(false)
   const [restoreResult, setRestoreResult] = useState(null)
@@ -105,6 +109,44 @@ export default function Library() {
     }, 2500)
     return () => clearInterval(imgPollRef.current)
   }, [imgDownloading])
+
+  useEffect(() => {
+    if (!bulkPublishing) return
+    bulkPublishPollRef.current = setInterval(async () => {
+      try {
+        const res = await getBulkPublishStatus()
+        const s = res.data
+        setBulkPublishProgress(s)
+        if (!s.running) {
+          setBulkPublishing(false)
+          clearInterval(bulkPublishPollRef.current)
+          queryClient.invalidateQueries({ queryKey: ['properties'] })
+        }
+      } catch { /* ignore */ }
+    }, 3000)
+    return () => clearInterval(bulkPublishPollRef.current)
+  }, [bulkPublishing])
+
+  async function handleBulkPublish() {
+    if (bulkPublishing) return
+    const unpublished = (data || []).filter(p => !p.choice_property_id)
+    const withImages = unpublished.filter(p => {
+      try { return JSON.parse(p.local_image_paths || '[]').length > 0 } catch { return false }
+    })
+    if (withImages.length === 0) {
+      alert('No unpublished properties with downloaded images found. Download images first, then use Bulk Publish.')
+      return
+    }
+    if (!window.confirm(`Publish ${withImages.length} propert${withImages.length === 1 ? 'y' : 'ies'} to Choice Properties? This will upload images to ImageKit and push each listing live.`)) return
+    try {
+      const res = await startBulkPublish({ ids: withImages.map(p => p.id) })
+      if (res.data.ok === false) { alert(res.data.message || 'Could not start bulk publish.'); return }
+      setBulkPublishProgress(res.data.state)
+      setBulkPublishing(true)
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to start bulk publish.')
+    }
+  }
 
   async function handleBulkImageDownload() {
     if (imgDownloading) return
@@ -379,6 +421,29 @@ export default function Library() {
             <span className="sm:hidden">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Imgs'}</span>
           </button>
 
+          {/* Bulk Publish */}
+          <button
+            onClick={handleBulkPublish}
+            disabled={bulkPublishing || !data || data.length === 0}
+            title="Publish all unpublished properties with downloaded images"
+            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-green-400 bg-green-50 text-green-700 hover:bg-green-100 disabled:opacity-50 transition-colors touch-target"
+          >
+            <svg className={`w-4 h-4 flex-shrink-0 ${bulkPublishing ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              {bulkPublishing
+                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+              }
+            </svg>
+            <span className="hidden sm:inline">
+              {bulkPublishing
+                ? `${bulkPublishProgress?.done ?? 0}/${bulkPublishProgress?.total ?? '…'}`
+                : 'Bulk Publish'}
+            </span>
+            <span className="sm:hidden">
+              {bulkPublishing ? `${bulkPublishProgress?.done ?? 0}/${bulkPublishProgress?.total ?? '…'}` : 'Publish'}
+            </span>
+          </button>
+
           {/* Select */}
           <button
             onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
@@ -483,6 +548,40 @@ export default function Library() {
                 style={{ width: imgProgress.total ? `${Math.round(((imgProgress.done + imgProgress.failed) / imgProgress.total) * 100)}%` : '0%' }}
               />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Bulk Publish progress banner */}
+      {bulkPublishProgress && (
+        <div className="mb-4 px-4 py-3 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-green-900">
+              {bulkPublishProgress.running
+                ? `Publishing — ${bulkPublishProgress.done} / ${bulkPublishProgress.total} properties`
+                : `Bulk publish complete — ${bulkPublishProgress.done} published, ${bulkPublishProgress.failed} failed, ${bulkPublishProgress.skipped} skipped`}
+            </span>
+            {!bulkPublishProgress.running && (
+              <button onClick={() => setBulkPublishProgress(null)} className="text-green-400 hover:text-green-600 text-lg leading-none">&times;</button>
+            )}
+          </div>
+          {bulkPublishProgress.running && (
+            <div className="mt-2 h-1.5 bg-green-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-green-500 rounded-full transition-all duration-500"
+                style={{ width: bulkPublishProgress.total ? `${Math.round(((bulkPublishProgress.done + bulkPublishProgress.failed + bulkPublishProgress.skipped) / bulkPublishProgress.total) * 100)}%` : '0%' }}
+              />
+            </div>
+          )}
+          {!bulkPublishProgress.running && bulkPublishProgress.errors?.length > 0 && (
+            <details className="mt-2">
+              <summary className="text-xs text-green-700 cursor-pointer hover:underline">{bulkPublishProgress.errors.length} error{bulkPublishProgress.errors.length !== 1 ? 's' : ''} — click to view</summary>
+              <ul className="mt-1 space-y-0.5">
+                {bulkPublishProgress.errors.slice(0, 10).map((e, i) => (
+                  <li key={i} className="text-xs text-red-700 font-mono truncate">{e.id?.slice(0, 12)}… — {e.error}</li>
+                ))}
+              </ul>
+            </details>
           )}
         </div>
       )}

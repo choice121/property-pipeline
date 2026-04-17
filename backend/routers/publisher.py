@@ -1,4 +1,6 @@
 import logging
+import threading
+import time
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -8,6 +10,71 @@ from services import publisher_service
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# ── Bulk publish state ────────────────────────────────────────────────────────
+_bulk_state = {
+    "running": False,
+    "total": 0,
+    "done": 0,
+    "failed": 0,
+    "skipped": 0,
+    "current": None,
+    "errors": [],
+    "started_at": None,
+    "finished_at": None,
+}
+_bulk_lock = threading.Lock()
+
+
+def _bulk_publish_worker(ids: list[str]):
+    global _bulk_state
+    with _bulk_lock:
+        _bulk_state.update({
+            "running": True,
+            "total": len(ids),
+            "done": 0,
+            "failed": 0,
+            "skipped": 0,
+            "current": None,
+            "errors": [],
+            "started_at": time.time(),
+            "finished_at": None,
+        })
+
+    from database.repository import get_repo
+
+    for prop_id in ids:
+        with _bulk_lock:
+            _bulk_state["current"] = prop_id
+
+        try:
+            repo = get_repo()
+            prop = repo.get(prop_id)
+
+            if prop is None:
+                with _bulk_lock:
+                    _bulk_state["skipped"] += 1
+                continue
+
+            if prop.choice_property_id:
+                with _bulk_lock:
+                    _bulk_state["skipped"] += 1
+                continue
+
+            publisher_service.publish(prop, repo)
+            with _bulk_lock:
+                _bulk_state["done"] += 1
+
+        except Exception as e:
+            logger.warning("Bulk publish failed for %s: %s", prop_id, e)
+            with _bulk_lock:
+                _bulk_state["failed"] += 1
+                _bulk_state["errors"].append({"id": prop_id, "error": str(e)[:120]})
+
+    with _bulk_lock:
+        _bulk_state["running"] = False
+        _bulk_state["current"] = None
+        _bulk_state["finished_at"] = time.time()
 
 
 @router.post("/publish/{id}")
@@ -117,3 +184,42 @@ def set_listing_status(id: str, body: dict, repo: Repository = Depends(get_db)):
         raise HTTPException(status_code=500, detail=f"Status update failed: {str(e)}")
 
     return result
+
+
+@router.post("/bulk-publish/start")
+def start_bulk_publish(body: dict = None, repo: Repository = Depends(get_db)):
+    global _bulk_state
+    with _bulk_lock:
+        if _bulk_state["running"]:
+            return {"ok": False, "message": "Bulk publish is already running.", "state": dict(_bulk_state)}
+
+    ids = (body or {}).get("ids") or None
+
+    if ids is None:
+        from database.supabase_client import get_supabase
+        sb = get_supabase()
+        result = (
+            sb.table("pipeline_properties")
+            .select("id, local_image_paths")
+            .is_("choice_property_id", "null")
+            .not_.in_("status", ["published", "archived", "rented"])
+            .execute()
+        )
+        ids = [
+            row["id"] for row in (result.data or [])
+            if row.get("local_image_paths") and row["local_image_paths"] not in ("[]", "null", "", None)
+        ]
+
+    if not ids:
+        return {"ok": False, "message": "No eligible unpublished properties with downloaded images found.", "state": dict(_bulk_state)}
+
+    t = threading.Thread(target=_bulk_publish_worker, args=(ids,), daemon=True)
+    t.start()
+
+    return {"ok": True, "total": len(ids), "state": dict(_bulk_state)}
+
+
+@router.get("/bulk-publish/status")
+def get_bulk_publish_status():
+    with _bulk_lock:
+        return dict(_bulk_state)
