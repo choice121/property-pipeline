@@ -112,7 +112,7 @@ import openai
 import homeharvest
 PY
 
-if [ ! -x "$APP_DIR/node_modules/.bin/vite" ]; then
+if [ ! -x "$APP_DIR/frontend/node_modules/.bin/vite" ]; then
   echo "==> ERROR: Frontend dependencies are missing. Install Node packages before starting."
   exit 1
 fi
@@ -139,4 +139,4 @@ trap cleanup EXIT INT TERM
 
 # ── Start frontend ────────────────────────────────────────────────────────────
 cd "$APP_DIR/frontend"
-exec "$APP_DIR/node_modules/.bin/vite"
+exec "$APP_DIR/frontend/node_modules/.bin/vite"
