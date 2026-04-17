@@ -86,7 +86,7 @@ _GEMINI_MODEL       = "gemini-2.0-flash"
 _DEEPSEEK_BASE_URL  = "https://api.deepseek.com"
 _DEEPSEEK_MODEL     = "deepseek-chat"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-_OPENROUTER_MODEL   = "meta-llama/llama-3.3-70b-instruct:free"
+_OPENROUTER_MODEL   = "openai/gpt-oss-120b:free"
 
 
 def get_client() -> tuple[OpenAI, str]:
