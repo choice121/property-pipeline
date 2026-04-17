@@ -1,6 +1,8 @@
+import io
 import json
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List
 from urllib.parse import urlparse
 
@@ -149,3 +151,120 @@ def reorder_images(id: str, body: ReorderRequest, repo: Repository = Depends(get
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to save new image order")
     return prop.to_dict()
+
+
+# ── Watermark Scan ─────────────────────────────────────────────────────────────
+
+_SCAN_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "image/webp,image/apng,image/*,*/*;q=0.8",
+}
+
+_REFERER_DOMAINS = {
+    "rdcpix.com":       "https://www.realtor.com/",
+    "realtor.com":      "https://www.realtor.com/",
+    "zillowstatic.com": "https://www.zillow.com/",
+    "zillow.com":       "https://www.zillow.com/",
+    "cdn-redfin.com":   "https://www.redfin.com/",
+    "redfin.com":       "https://www.redfin.com/",
+}
+
+
+def _referer_for(url: str) -> str | None:
+    try:
+        host = urlparse(url).hostname or ""
+        for domain, ref in _REFERER_DOMAINS.items():
+            if host.endswith(domain):
+                return ref
+    except Exception:
+        pass
+    return None
+
+
+def _fetch_image_bytes(url: str, timeout: int = 8) -> bytes | None:
+    try:
+        headers = dict(_SCAN_HEADERS)
+        ref = _referer_for(url)
+        if ref:
+            headers["Referer"] = ref
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(url, headers=headers)
+        if resp.status_code != 200:
+            return None
+        ct = resp.headers.get("content-type", "")
+        if not ct.startswith("image/"):
+            return None
+        if len(resp.content) < 5 * 1024:
+            return None
+        return resp.content
+    except Exception:
+        return None
+
+
+def _scan_property_for_watermarks(prop) -> dict:
+    """
+    Download the first 4 images for a property and check each for watermarks.
+    Returns a result dict with flagged image count and property metadata.
+    """
+    try:
+        urls = json.loads(prop.original_image_urls or "[]")
+    except Exception:
+        urls = []
+
+    if not urls:
+        return {"id": str(prop.id), "watermarked": False, "flagged": 0, "checked": 0}
+
+    sample = urls[:4]
+    flagged = 0
+    checked = 0
+
+    for url in sample:
+        data = _fetch_image_bytes(url)
+        if data is None:
+            continue
+        checked += 1
+        if image_service._has_branded_overlay(data):
+            flagged += 1
+
+    return {
+        "id": str(prop.id),
+        "address": prop.address or "(no address)",
+        "city": prop.city or "",
+        "state": prop.state or "",
+        "watermarked": flagged > 0,
+        "flagged": flagged,
+        "checked": checked,
+        "total_images": len(urls),
+        "status": prop.status or "unknown",
+    }
+
+
+@router.post("/images/watermark-scan")
+def watermark_scan(repo: Repository = Depends(get_db)):
+    """
+    Scan all properties for watermarked photos.
+    Downloads up to 4 images per property and runs the branded-overlay detector.
+    Returns a list of all properties with at least one flagged image.
+    """
+    props = repo.list()
+    if not props:
+        return {"flagged": [], "scanned": 0, "total_flagged": 0}
+
+    results = []
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_scan_property_for_watermarks, p): p for p in props}
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                logger.warning("Watermark scan error: %s", e)
+
+    flagged = [r for r in results if r["watermarked"]]
+    flagged.sort(key=lambda r: r.get("address", ""))
+
+    return {
+        "flagged": flagged,
+        "scanned": len(results),
+        "total_flagged": len(flagged),
+    }
