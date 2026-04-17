@@ -1,7 +1,7 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -49,6 +49,10 @@ export default function Library() {
   const [enrichError, setEnrichError] = useState(null)
   const [showStats, setShowStats] = useState(false)
 
+  const [imgDownloading, setImgDownloading] = useState(false)
+  const [imgProgress, setImgProgress] = useState(null)
+  const imgPollRef = useRef(null)
+
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
     queryFn: () => getQualityStats().then(r => r.data),
@@ -79,6 +83,40 @@ export default function Library() {
       setTimeout(() => setBulkResult(null), 4000)
     },
   })
+
+  useEffect(() => {
+    if (!imgDownloading) return
+    imgPollRef.current = setInterval(async () => {
+      try {
+        const res = await getBulkImageDownloadStatus()
+        const s = res.data
+        setImgProgress(s)
+        if (!s.running) {
+          setImgDownloading(false)
+          clearInterval(imgPollRef.current)
+          queryClient.invalidateQueries({ queryKey: ['properties'] })
+        }
+      } catch { /* ignore */ }
+    }, 2500)
+    return () => clearInterval(imgPollRef.current)
+  }, [imgDownloading])
+
+  async function handleBulkImageDownload() {
+    if (imgDownloading) return
+    const missing = (data || []).filter(p => {
+      try { return !JSON.parse(p.local_image_paths || '[]').length } catch { return true }
+    })
+    if (missing.length === 0) { alert('All properties already have downloaded images.'); return }
+    if (!window.confirm(`Download images for ${missing.length} properties? This runs in the background and may take a while.`)) return
+    try {
+      const res = await startBulkImageDownload()
+      if (res.data.ok === false) { alert(res.data.message || 'Already running.'); return }
+      setImgProgress(res.data.state)
+      setImgDownloading(true)
+    } catch (e) {
+      alert(e.response?.data?.detail || 'Failed to start image download.')
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!data) return []
@@ -292,6 +330,20 @@ export default function Library() {
             <span className="sm:hidden">{scanning ? '…' : 'Scan'}</span>
           </button>
 
+          {/* Download Images */}
+          <button
+            onClick={handleBulkImageDownload}
+            disabled={imgDownloading || !data || data.length === 0}
+            title="Download all missing property images locally"
+            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 disabled:opacity-50 transition-colors touch-target"
+          >
+            <svg className={`w-4 h-4 flex-shrink-0 ${imgDownloading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span className="hidden sm:inline">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Images'}</span>
+            <span className="sm:hidden">{imgDownloading ? `${imgProgress?.done ?? 0}/${imgProgress?.total ?? '…'}` : 'Imgs'}</span>
+          </button>
+
           {/* Select */}
           <button
             onClick={() => { setSelectMode(!selectMode); setSelectedIds(new Set()) }}
@@ -373,6 +425,30 @@ export default function Library() {
             <button onClick={() => setEnrichResult(null)} className="text-blue-400 hover:text-blue-600 text-lg leading-none">&times;</button>
           </div>
           <p className="text-sm text-blue-700 mt-1">{enrichResult.message}</p>
+        </div>
+      )}
+
+      {/* Image download progress banner */}
+      {imgProgress && (
+        <div className="mb-4 px-4 py-3 bg-orange-50 border border-orange-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-orange-900">
+              {imgProgress.running
+                ? `Downloading images — ${imgProgress.done} / ${imgProgress.total} properties`
+                : `Image download complete — ${imgProgress.done} saved, ${imgProgress.failed} failed`}
+            </span>
+            {!imgProgress.running && (
+              <button onClick={() => setImgProgress(null)} className="text-orange-400 hover:text-orange-600 text-lg leading-none">&times;</button>
+            )}
+          </div>
+          {imgProgress.running && (
+            <div className="mt-2 h-1.5 bg-orange-200 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-orange-500 rounded-full transition-all duration-500"
+                style={{ width: imgProgress.total ? `${Math.round(((imgProgress.done + imgProgress.failed) / imgProgress.total) * 100)}%` : '0%' }}
+              />
+            </div>
+          )}
         </div>
       )}
 

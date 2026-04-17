@@ -49,5 +49,7 @@ export const getSetupStatus = () => api.get('/setup/status')
 export const getQualityStats = () => api.get('/stats/quality')
 export const getScrapeRuns = (limit) => api.get('/stats/scrape-runs', { params: limit ? { limit } : {} })
 export const aiBulkEnrich = (data) => api.post('/ai/bulk-enrich', data || {})
+export const startBulkImageDownload = () => api.post('/img-batch/start')
+export const getBulkImageDownloadStatus = () => api.get('/img-batch/status')
 
 export default api
