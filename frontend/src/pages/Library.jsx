@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -52,6 +52,11 @@ export default function Library() {
   const [imgDownloading, setImgDownloading] = useState(false)
   const [imgProgress, setImgProgress] = useState(null)
   const imgPollRef = useRef(null)
+
+  const [restoring, setRestoring] = useState(false)
+  const [restoreResult, setRestoreResult] = useState(null)
+  const [restoreError, setRestoreError] = useState(null)
+  const [restoreDismissed, setRestoreDismissed] = useState(false)
 
   const { data: qualityStats } = useQuery({
     queryKey: ['quality-stats'],
@@ -115,6 +120,36 @@ export default function Library() {
       setImgDownloading(true)
     } catch (e) {
       alert(e.response?.data?.detail || 'Failed to start image download.')
+    }
+  }
+
+  const restoreNeeds = useMemo(() => {
+    if (!data) return { noPhotos: 0, noAI: 0, total: 0 }
+    let noPhotos = 0, noAI = 0
+    data.forEach(p => {
+      try { if (!JSON.parse(p.local_image_paths || '[]').length) noPhotos++ } catch { noPhotos++ }
+      const inf = (() => { try { return JSON.parse(p.inferred_features || '[]') } catch { return [] } })()
+      if (!inf.includes('enriched_sig') || !p.description || (p.data_quality_score || 0) < 60) noAI++
+    })
+    return { noPhotos, noAI, total: noPhotos + noAI }
+  }, [data])
+
+  async function handleRestoreLibrary() {
+    if (restoring) return
+    setRestoring(true)
+    setRestoreResult(null)
+    setRestoreError(null)
+    setRestoreDismissed(false)
+    try {
+      const res = await restoreLibrary()
+      setRestoreResult(res.data)
+      setImgProgress({ running: true, total: res.data.images_queued, done: 0, failed: 0 })
+      setImgDownloading(true)
+    } catch (e) {
+      setRestoreError(e.response?.data?.detail || e.message || 'Restore failed.')
+      setTimeout(() => setRestoreError(null), 8000)
+    } finally {
+      setRestoring(false)
     }
   }
 
@@ -449,6 +484,86 @@ export default function Library() {
               />
             </div>
           )}
+        </div>
+      )}
+
+      {/* Library Restore Panel — auto-shows when photos or AI enrichment are missing */}
+      {!restoreDismissed && !restoring && !restoreResult && restoreNeeds.total > 0 && !imgDownloading && (
+        <div className="mb-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <svg className="w-4 h-4 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+                <span className="text-sm font-semibold text-amber-900">Your library needs attention</span>
+              </div>
+              <div className="flex flex-wrap gap-x-5 gap-y-0.5 text-sm text-amber-800 mb-3 ml-6">
+                {restoreNeeds.noPhotos > 0 && (
+                  <span>{restoreNeeds.noPhotos} {restoreNeeds.noPhotos === 1 ? 'property is' : 'properties are'} missing local photos</span>
+                )}
+                {restoreNeeds.noAI > 0 && (
+                  <span>{restoreNeeds.noAI} {restoreNeeds.noAI === 1 ? 'property needs' : 'properties need'} AI enrichment</span>
+                )}
+              </div>
+              <div className="flex items-center gap-2 ml-6">
+                <button
+                  onClick={handleRestoreLibrary}
+                  disabled={restoring}
+                  className="inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Fix Everything
+                </button>
+                <span className="text-xs text-amber-700">Re-downloads all photos &amp; runs AI on every property</span>
+              </div>
+            </div>
+            <button
+              onClick={() => setRestoreDismissed(true)}
+              className="text-amber-400 hover:text-amber-600 text-xl leading-none flex-shrink-0 mt-0.5"
+              title="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+
+      {restoring && (
+        <div className="mb-4 bg-amber-50 border border-amber-300 rounded-lg px-4 py-4">
+          <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+            <svg className="w-4 h-4 animate-spin text-amber-600" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            Starting library restore…
+          </div>
+        </div>
+      )}
+
+      {restoreResult && (
+        <div className="mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-0.5">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="text-sm font-semibold text-green-900">Library restore started</span>
+              </div>
+              <p className="text-sm text-green-800 ml-6">{restoreResult.message}</p>
+            </div>
+            <button onClick={() => setRestoreResult(null)} className="text-green-400 hover:text-green-600 text-xl leading-none flex-shrink-0">&times;</button>
+          </div>
+        </div>
+      )}
+
+      {restoreError && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <span>Restore failed: {restoreError}</span>
+          <button onClick={() => setRestoreError(null)} className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none">&times;</button>
         </div>
       )}
 

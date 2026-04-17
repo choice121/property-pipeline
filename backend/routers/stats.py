@@ -1,8 +1,9 @@
 import json
 import logging
+import os
 import threading
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Body, Depends
 
 from database.db import get_db
 from database.repository import Repository
@@ -31,17 +32,36 @@ def bulk_download_status():
 
 
 @router.post("/img-batch/start")
-def start_bulk_download(background_tasks: BackgroundTasks, repo: Repository = Depends(get_db)):
+def start_bulk_download(
+    background_tasks: BackgroundTasks,
+    repo: Repository = Depends(get_db),
+    force: bool = Body(default=False),
+):
     with _bulk_img_lock:
         if _bulk_img_state["running"]:
             return {"ok": False, "message": "Already running", "state": dict(_bulk_img_state)}
 
     all_props = repo.list()
-    needs = [
-        p for p in all_props
-        if json.loads(p.original_image_urls or "[]")
-        and not json.loads(p.local_image_paths or "[]")
-    ]
+
+    if force:
+        # Include properties with no local paths OR paths that no longer exist on disk (migration case)
+        needs = [
+            p for p in all_props
+            if json.loads(p.original_image_urls or "[]") and (
+                not json.loads(p.local_image_paths or "[]") or
+                any(
+                    not os.path.exists(f)
+                    for f in json.loads(p.local_image_paths or "[]")
+                )
+            )
+        ]
+    else:
+        needs = [
+            p for p in all_props
+            if json.loads(p.original_image_urls or "[]")
+            and not json.loads(p.local_image_paths or "[]")
+        ]
+
     if not needs:
         return {"ok": True, "message": "All properties already have downloaded images.", "state": dict(_bulk_img_state)}
 
@@ -50,6 +70,54 @@ def start_bulk_download(background_tasks: BackgroundTasks, repo: Repository = De
 
     background_tasks.add_task(_run_bulk_download, needs)
     return {"ok": True, "queued": len(needs), "state": dict(_bulk_img_state)}
+
+
+@router.post("/library/restore")
+def restore_library(
+    background_tasks: BackgroundTasks,
+    repo: Repository = Depends(get_db),
+):
+    """
+    Full library restore: force re-download all images from original URLs
+    (including stale paths from migration) and run AI enrichment on every property.
+    """
+    from services.enrichment_queue import enqueue_enrichment
+
+    all_props = repo.list()
+
+    # Image restore: target properties with no local paths OR stale paths (files missing on disk)
+    needs_images = [
+        p for p in all_props
+        if json.loads(p.original_image_urls or "[]") and (
+            not json.loads(p.local_image_paths or "[]") or
+            any(
+                not os.path.exists(f)
+                for f in json.loads(p.local_image_paths or "[]")
+            )
+        )
+    ]
+
+    images_queued = 0
+    with _bulk_img_lock:
+        if not _bulk_img_state["running"] and needs_images:
+            _bulk_img_state.update(running=True, total=len(needs_images), done=0, failed=0)
+            background_tasks.add_task(_run_bulk_download, needs_images)
+            images_queued = len(needs_images)
+
+    # AI enrichment: queue every property (force mode)
+    for prop in all_props:
+        background_tasks.add_task(enqueue_enrichment, prop.id)
+
+    return {
+        "ok": True,
+        "images_queued": images_queued,
+        "enrichment_queued": len(all_props),
+        "message": (
+            f"Restoring {images_queued} properties' photos and running AI enrichment "
+            f"on all {len(all_props)} properties. This runs in the background — "
+            f"refresh in a few minutes to see results."
+        ),
+    }
 
 
 def _run_bulk_download(props: list):

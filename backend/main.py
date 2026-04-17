@@ -20,22 +20,25 @@ os.makedirs(os.path.join(BASE_DIR, "storage", "images"), exist_ok=True)
 
 
 async def _background_sync_loop():
-    await asyncio.sleep(10)
+    await asyncio.sleep(30)
     while True:
         try:
             from services import setup_service
-            readiness = setup_service.get_setup_status()
+            from database.repository import Repository
+            from services import live_sync_service
+
+            # Run blocking I/O in a thread so the event loop stays responsive
+            readiness = await asyncio.to_thread(setup_service.get_setup_status)
             if not readiness["core_ready"]:
                 logger.warning("Background sync skipped: %s", readiness["summary"])
                 await asyncio.sleep(300)
                 continue
-            from database.repository import Repository
-            from services import live_sync_service
+
             repo = Repository()
-            live_sync_service.sync_from_live(repo)
+            await asyncio.to_thread(live_sync_service.sync_from_live, repo)
         except Exception as e:
             logger.error("Background sync error: %s", e)
-            await asyncio.sleep(300)  # Wait 5 minutes before retrying
+        await asyncio.sleep(300)  # Wait 5 minutes between syncs
 
 
 @asynccontextmanager
