@@ -211,7 +211,18 @@ export default function Library() {
     setWmDone(false)
     try {
       const res = await watermarkScan()
-      setWmFlagged(res.data.flagged || [])
+      const flaggedList = res.data.flagged || []
+      const metaById = Object.fromEntries(flaggedList.map(f => [f.id, f]))
+      const flaggedIds = new Set(flaggedList.map(f => f.id))
+      // Join scan results with full property objects already in the library
+      const fullProps = (data || [])
+        .filter(p => flaggedIds.has(p.id))
+        .map(p => ({ ...p, _wm: metaById[p.id] }))
+      // Fallback: if a flagged id isn't in the loaded list, use scan data directly
+      flaggedList.forEach(f => {
+        if (!fullProps.find(p => p.id === f.id)) fullProps.push({ ...f, _wm: f })
+      })
+      setWmFlagged(fullProps)
       setWmScanned(res.data.scanned || 0)
     } catch (e) {
       setWmError(e.response?.data?.detail || e.message || 'Watermark scan failed.')
@@ -811,89 +822,82 @@ export default function Library() {
       )}
 
       {wmFlagged !== null && (
-        <div className="mb-4 bg-white border border-rose-200 rounded-xl shadow-sm overflow-hidden">
-          {/* Header */}
-          <div className="px-4 py-3 bg-rose-50 border-b border-rose-100 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
+        <div className="mb-6 bg-white border border-rose-200 rounded-xl shadow-sm overflow-hidden">
+          {/* Header bar */}
+          <div className="px-4 py-3 bg-rose-50 border-b border-rose-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
               <svg className="w-4 h-4 text-rose-600 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <span className="text-sm font-semibold text-gray-900">Watermark Scan Results</span>
-              <span className="text-xs text-gray-500">{wmScanned} properties scanned</span>
+              <span className="text-xs text-gray-500">{wmScanned} scanned</span>
               {wmDone
-                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done — properties deleted</span>
+                ? <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">Done — deleted</span>
                 : wmFlagged.length > 0
                   ? <span className="text-xs bg-rose-600 text-white px-2 py-0.5 rounded-full font-medium">{wmFlagged.length} watermarked</span>
                   : <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">All clean</span>
               }
             </div>
-            <button onClick={handleWmClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">&times;</button>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {wmFlagged.length > 0 && !wmDone && (
+                <button
+                  onClick={handleWmDeleteAll}
+                  disabled={wmDeleting}
+                  className="flex items-center gap-1.5 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {wmDeleting
+                    ? <><svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>Deleting…</>
+                    : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>Delete All {wmFlagged.length}</>
+                  }
+                </button>
+              )}
+              <button onClick={handleWmClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
           </div>
 
-          {wmFlagged.length === 0 && !wmDone && (
-            <div className="px-4 py-4 text-sm text-gray-600">
-              No watermarked photos detected across {wmScanned} properties. Your library is clean.
+          {/* Hint */}
+          {wmFlagged.length > 0 && !wmDone && (
+            <div className="px-4 py-2 text-xs text-gray-500 bg-gray-50 border-b border-gray-100">
+              Click <strong>Unmark</strong> on a card to exclude it from deletion. <strong>Delete All</strong> removes all remaining flagged properties.
             </div>
           )}
 
+          {/* Empty / done states */}
+          {wmFlagged.length === 0 && !wmDone && (
+            <div className="px-4 py-6 text-sm text-gray-600 text-center">
+              No watermarked photos detected across {wmScanned} properties. Your library is clean.
+            </div>
+          )}
           {wmDone && (
-            <div className="px-4 py-4 text-sm text-green-700 bg-green-50">
+            <div className="px-4 py-6 text-sm text-green-700 bg-green-50 text-center">
               All flagged properties were successfully deleted.
             </div>
           )}
 
-          {wmFlagged.length > 0 && (
-            <>
-              <div className="px-4 py-2 text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
-                Click <strong>Unmark</strong> on any property to exclude it from deletion, then use <strong>Delete All</strong> to remove the rest.
-              </div>
-
-              <div className="divide-y divide-gray-100 max-h-72 overflow-y-auto">
-                {wmFlagged.map(p => (
-                  <div key={p.id} className="px-4 py-3 flex items-center gap-3 hover:bg-rose-50 transition-colors">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-gray-900 truncate">{p.address}</p>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        {[p.city, p.state].filter(Boolean).join(', ')}
-                        {p.checked > 0 && <> &middot; {p.flagged} of {p.checked} photos watermarked</>}
-                        {p.status && <> &middot; <span className="capitalize">{p.status}</span></>}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <span className="text-xs bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-medium">
-                        {p.flagged} flagged
-                      </span>
-                      <button
-                        onClick={() => handleWmUnmark(p.id)}
-                        title="Remove from deletion list"
-                        className="text-xs px-2.5 py-1 rounded-lg border border-gray-300 bg-white text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors font-medium"
-                      >
-                        Unmark
-                      </button>
-                    </div>
+          {/* Full property card grid */}
+          {wmFlagged.length > 0 && !wmDone && (
+            <div className="p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 max-h-[70vh] overflow-y-auto">
+              {wmFlagged.map(p => (
+                <div key={p.id} className="relative group">
+                  {/* Watermark badge */}
+                  <div className="absolute top-2 right-10 z-20 bg-rose-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full shadow">
+                    {p._wm?.flagged ?? 0}/{p._wm?.checked ?? 0} watermarked
                   </div>
-                ))}
-              </div>
-
-              <div className="px-4 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-3">
-                <p className="text-xs text-gray-500">
-                  {wmFlagged.length} propert{wmFlagged.length === 1 ? 'y' : 'ies'} selected for deletion
-                </p>
-                <button
-                  onClick={handleWmDeleteAll}
-                  disabled={wmDeleting || wmFlagged.length === 0}
-                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-                >
-                  {wmDeleting
-                    ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>Deleting…</>
-                    : <>
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                        Delete All {wmFlagged.length}
-                      </>
-                  }
-                </button>
-              </div>
-            </>
+                  {/* Unmark button — visible on hover */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleWmUnmark(p.id) }}
+                    title="Exclude from deletion"
+                    className="absolute top-10 right-2 z-20 bg-white/95 hover:bg-white text-gray-700 hover:text-gray-900 text-xs font-semibold px-2.5 py-1 rounded-lg shadow border border-gray-200 transition-all opacity-0 group-hover:opacity-100"
+                  >
+                    Unmark
+                  </button>
+                  <PropertyCard
+                    property={p}
+                    onClick={() => navigate(`/property/${p.id}`)}
+                  />
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}
