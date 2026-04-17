@@ -191,6 +191,62 @@ class Repository:
                 "Could not update inferred_features for %s: %s", prop_id, e
             )
 
+    def save_chat_message(self, property_id: str, session_id: str, role: str, content: str) -> None:
+        """Save a chat message to the conversation history."""
+        try:
+            self._client.table("pipeline_chat_conversations").insert({
+                "property_id": property_id,
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+            }).execute()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not save chat message: %s", e
+            )
+
+    def get_chat_history(self, property_id: str, session_id: str, limit: int = 50) -> list[dict]:
+        """Retrieve chat history for a property session."""
+        try:
+            result = (
+                self._client.table("pipeline_chat_conversations")
+                .select("*")
+                .eq("property_id", property_id)
+                .eq("session_id", session_id)
+                .order("created_at", desc=False)
+                .limit(limit)
+                .execute()
+            )
+            if result.data:
+                return [
+                    {
+                        "role": row["role"],
+                        "content": row["content"],
+                        "timestamp": row["created_at"]
+                    }
+                    for row in result.data
+                ]
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not fetch chat history: %s", e
+        )
+        return []
+
+    def clear_old_chat_history(self, days_old: int = 30) -> None:
+        """Clean up chat history older than specified days."""
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=days_old)
+            self._client.table("pipeline_chat_conversations").delete().lt(
+                "created_at", cutoff.isoformat()
+            ).execute()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Could not clear old chat history: %s", e
+            )
+
     def list_logs_by_field(self, prop_id: str, field: str, limit: int = 10) -> list[AiEnrichmentLog]:
         try:
             result = (

@@ -79,14 +79,14 @@ A poor listing has:
 - Contradictory data (e.g. 2 beds but description says 3)
 """
 
-PROMPT_VERSION = "v2"
+PROMPT_VERSION = "v3"
 
 _GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/"
-_GEMINI_MODEL       = "gemini-2.0-flash"
+_GEMINI_MODEL       = "gemini-1.5-pro"
 _DEEPSEEK_BASE_URL  = "https://api.deepseek.com"
 _DEEPSEEK_MODEL     = "deepseek-chat"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-_OPENROUTER_MODEL   = "openai/gpt-oss-120b:free"
+_OPENROUTER_MODEL   = "anthropic/claude-3.5-sonnet"
 
 
 def get_client() -> tuple[OpenAI, str]:
@@ -162,12 +162,57 @@ def handle_deepseek_error(e: Exception):
     raise HTTPException(status_code=500, detail=str(e))
 
 
+def verify_facts(generated_text: str, fact_data: dict) -> bool:
+    """
+    Basic fact verification to prevent AI hallucinations.
+    Checks if generated content contradicts known facts about the property.
+    Returns False if contradictions found, True if content appears factual.
+    """
+    text_lower = generated_text.lower()
+
+    # Check bedroom/bathroom counts
+    if "bedrooms" in fact_data and fact_data["bedrooms"] is not None:
+        bed_count = fact_data["bedrooms"]
+        # Look for contradictory bedroom mentions
+        if bed_count == 0 and ("bedroom" in text_lower or "bed" in text_lower):
+            if "studio" not in text_lower:
+                return False
+        elif bed_count > 0:
+            # Check if text mentions different bedroom count
+            import re
+            bed_matches = re.findall(r'(\d+)\s*(?:bed|bedroom)', text_lower)
+            if bed_matches and str(bed_count) not in bed_matches:
+                return False
+
+    # Check rent amounts
+    if "monthly_rent" in fact_data and fact_data["monthly_rent"] is not None:
+        rent = fact_data["monthly_rent"]
+        # Look for rent figures that are way off (more than 50% difference)
+        import re
+        rent_matches = re.findall(r'\$([0-9,]+)', generated_text)
+        for match in rent_matches:
+            match_clean = int(match.replace(',', ''))
+            if abs(match_clean - rent) / rent > 0.5:  # More than 50% difference
+                return False
+
+    # Check property type consistency
+    if "property_type" in fact_data and fact_data["property_type"]:
+        prop_type = fact_data["property_type"].lower()
+        if prop_type == "apartment" and "house" in text_lower and "apartment" not in text_lower:
+            return False
+        if prop_type == "house" and "apartment" in text_lower and "house" not in text_lower:
+            return False
+
+    return True
+
+
 def call_deepseek(
     system: str,
     user: str,
     temperature: float = 0.7,
     json_mode: bool = False,
     max_retries: int = 3,
+    fact_check_data: dict | None = None,
 ) -> str:
     """
     Unified AI caller with retry logic and optional JSON mode.
@@ -177,6 +222,7 @@ def call_deepseek(
     - Retries up to max_retries times on rate limit or transient server errors.
     - Backs off exponentially: 1s, 2s, 4s between attempts.
     - Fails immediately on auth errors or credit exhaustion.
+    - fact_check_data: dict of ground truth facts to verify against hallucinations
     """
     last_error = None
 
@@ -195,7 +241,19 @@ def call_deepseek(
                 kwargs["response_format"] = {"type": "json_object"}
 
             response = client.chat.completions.create(**kwargs)
-            return response.choices[0].message.content.strip()
+            result = response.choices[0].message.content.strip()
+
+            # Fact verification layer
+            if fact_check_data and not verify_facts(result, fact_check_data):
+                logger.warning("AI output failed fact verification, retrying...")
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+                else:
+                    logger.warning("AI output failed fact verification, using anyway")
+                    # Could implement fallback to template generation here
+
+            return result
 
         except HTTPException:
             raise

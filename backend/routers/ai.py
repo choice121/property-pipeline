@@ -78,6 +78,7 @@ class ChatRequest(BaseModel):
     property: PropertyContext
     message: str
     history: list[dict] | None = None
+    session_id: str | None = None
 
 
 class AutoFillRequest(BaseModel):
@@ -321,7 +322,7 @@ INSTRUCTIONS:
 
 
 @router.post("/ai/chat")
-def chat_with_property(req: ChatRequest):
+def chat_with_property(req: ChatRequest, repo: Repository = Depends(get_db)):
     prop_summary = _build_property_summary(req.property)
 
     system_message = f"""{PLATFORM_CONTEXT}
@@ -344,6 +345,16 @@ Always be direct and practical. If asked to rewrite something, provide the compl
 
     messages = [{"role": "system", "content": system_message}]
 
+    # Generate session ID if not provided
+    session_id = getattr(req, 'session_id', None) or f"session_{req.property.address or 'unknown'}_{int(time.time())}"
+
+    # Load conversation history
+    if repo:
+        history = repo.get_chat_history(str(getattr(req.property, 'id', 'unknown')), session_id, limit=20)
+        for msg in history:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Add any additional history from request
     if req.history:
         for msg in req.history[-10:]:
             role = msg.get("role", "user")
@@ -360,7 +371,23 @@ Always be direct and practical. If asked to rewrite something, provide the compl
             temperature=0.7,
         )
         result = response.choices[0].message.content.strip()
-        return {"reply": result}
+
+        # Save conversation to database
+        if repo:
+            repo.save_chat_message(
+                str(getattr(req.property, 'id', 'unknown')),
+                session_id,
+                "user",
+                req.message
+            )
+            repo.save_chat_message(
+                str(getattr(req.property, 'id', 'unknown')),
+                session_id,
+                "assistant",
+                result
+            )
+
+        return {"reply": result, "session_id": session_id}
     except HTTPException:
         raise
     except Exception as e:

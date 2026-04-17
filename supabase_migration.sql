@@ -98,6 +98,26 @@ CREATE TABLE IF NOT EXISTS pipeline_scrape_runs (
   location       TEXT NOT NULL,
   count_total    INTEGER DEFAULT 0,
   count_new      INTEGER DEFAULT 0,
+  count_error    INTEGER DEFAULT 0,
+  started_at     TIMESTAMPTZ DEFAULT NOW(),
+  completed_at   TIMESTAMPTZ
+);
+
+-- Phase 6: AI Chat Conversations
+CREATE TABLE IF NOT EXISTS pipeline_chat_conversations (
+  id             BIGSERIAL PRIMARY KEY,
+  property_id    TEXT NOT NULL REFERENCES pipeline_properties(id) ON DELETE CASCADE,
+  session_id     TEXT NOT NULL,
+  role           TEXT NOT NULL CHECK (role IN ('user', 'assistant')),
+  content        TEXT NOT NULL,
+  created_at     TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_chat_conversations_property_session
+  ON pipeline_chat_conversations (property_id, session_id);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_chat_conversations_created_at
+  ON pipeline_chat_conversations (created_at);
   avg_score      DOUBLE PRECISION,
   error_message  TEXT,
   started_at     TIMESTAMPTZ DEFAULT NOW(),
