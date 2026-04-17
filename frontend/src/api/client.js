@@ -46,4 +46,8 @@ export const syncFromLive = () => api.post('/sync/from-live')
 export const getSyncStatus = () => api.get('/sync/status')
 export const getSetupStatus = () => api.get('/setup/status')
 
+export const getQualityStats = () => api.get('/stats/quality')
+export const getScrapeRuns = (limit) => api.get('/stats/scrape-runs', { params: limit ? { limit } : {} })
+export const aiBulkEnrich = (data) => api.post('/ai/bulk-enrich', data || {})
+
 export default api

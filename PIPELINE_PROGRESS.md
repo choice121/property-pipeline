@@ -40,8 +40,8 @@
 ## Phase 4 · Monitoring & UI
 *Goal: Surface data quality trends and catch scraper failures early.*
 
-- [ ] **`scrape_runs` table** — Log every scrape invocation (source, location, count, avg_score, errors).
-- [ ] **`GET /api/stats/quality` endpoint** — Aggregate quality stats by source for dashboard.
+- [x] **`scrape_runs` table** — `pipeline_scrape_runs` table created in Supabase; `ScrapeRunRecord` + `add_scrape_run()` / `list_scrape_runs()` added to Repository; scraper router logs every run (source, location, count_total, count_new, avg_score).
+- [x] **`GET /api/stats/quality` endpoint** — `backend/routers/stats.py` with `GET /api/stats/quality` (aggregates count, avg/min/max score, by-status breakdown grouped by source) and `GET /api/stats/scrape-runs`; "Stats" toggle button on Library page reveals live panel; "Run AI" button queues bulk enrichment via `POST /api/ai/bulk-enrich`.
 - [ ] **Quality score badges in Library.jsx** — Show score and blocked/ready status in the property list.
 - [ ] **"Enrich with AI" button in Editor.jsx** — Trigger AI enrichment for blocked/low-score properties.
 - [ ] **Canary health check** — Detect when a source stops returning expected fields.

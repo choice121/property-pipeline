@@ -116,9 +116,23 @@ class Repository:
 
         return props
 
+    _INTEGER_FIELDS = {
+        "bedrooms", "half_bathrooms", "square_footage", "lot_size_sqft",
+        "monthly_rent", "year_built", "floors", "total_units", "garage_spaces",
+        "pet_weight_limit", "minimum_lease_months", "security_deposit",
+        "last_months_rent", "application_fee", "pet_deposit", "admin_fee",
+        "parking_fee",
+    }
+
     def save(self, prop: PropertyRecord) -> None:
         prop.updated_at = datetime.now(timezone.utc).isoformat()
         data = {k: v for k, v in prop.to_dict().items() if v is not None}
+        for field in self._INTEGER_FIELDS:
+            if field in data and data[field] is not None:
+                try:
+                    data[field] = int(float(data[field]))
+                except (ValueError, TypeError):
+                    pass
         self._client.table("pipeline_properties").upsert(data, on_conflict="id").execute()
 
     def delete(self, prop_id: str) -> None:
@@ -194,11 +208,110 @@ class Repository:
             pass
         return []
 
+    def add_scrape_run(self, run: "ScrapeRunRecord") -> None:
+        try:
+            self._client.table("pipeline_scrape_runs").insert({
+                "source":       run.source,
+                "location":     run.location,
+                "count_total":  run.count_total,
+                "count_new":    run.count_new,
+                "avg_score":    run.avg_score,
+                "error_message": run.error_message,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }).execute()
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Could not log scrape run: %s", e)
+
+    def list_scrape_runs(self, limit: int = 50) -> list:
+        try:
+            result = (
+                self._client.table("pipeline_scrape_runs")
+                .select("*")
+                .order("completed_at", desc=True)
+                .limit(limit)
+                .execute()
+            )
+            if result.data:
+                return result.data
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Could not fetch scrape runs: %s", e)
+        return []
+
+    def quality_stats_by_source(self) -> list[dict]:
+        """Aggregate quality stats grouped by source."""
+        try:
+            result = self._client.table("pipeline_properties").select(
+                "source, data_quality_score, status"
+            ).execute()
+            rows = result.data or []
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning("Could not fetch quality stats: %s", e)
+            return []
+
+        from collections import defaultdict
+        buckets: dict[str, dict] = defaultdict(lambda: {
+            "count": 0,
+            "scores": [],
+            "by_status": defaultdict(int),
+        })
+        for row in rows:
+            src = row.get("source") or "unknown"
+            score = row.get("data_quality_score")
+            status = row.get("status") or "unknown"
+            buckets[src]["count"] += 1
+            if score is not None:
+                buckets[src]["scores"].append(score)
+            buckets[src]["by_status"][status] += 1
+
+        out = []
+        for src, data in sorted(buckets.items()):
+            scores = data["scores"]
+            out.append({
+                "source":      src,
+                "count":       data["count"],
+                "avg_score":   round(sum(scores) / len(scores), 1) if scores else None,
+                "min_score":   min(scores) if scores else None,
+                "max_score":   max(scores) if scores else None,
+                "by_status":   dict(data["by_status"]),
+            })
+        return out
+
     def commit(self):
         pass
 
     def refresh(self, prop: PropertyRecord):
         pass
+
+
+class ScrapeRunRecord:
+    def __init__(self, source, location, count_total=0, count_new=0,
+                 avg_score=None, error_message=None,
+                 id=None, started_at=None, completed_at=None):
+        self.id = id
+        self.source = source
+        self.location = location
+        self.count_total = count_total
+        self.count_new = count_new
+        self.avg_score = avg_score
+        self.error_message = error_message
+        self.started_at = started_at
+        self.completed_at = completed_at
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "source": self.source,
+            "location": self.location,
+            "count_total": self.count_total,
+            "count_new": self.count_new,
+            "avg_score": self.avg_score,
+            "error_message": self.error_message,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+        }
 
 
 def get_repo() -> Repository:

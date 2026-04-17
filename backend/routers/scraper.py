@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from database.db import get_db
-from database.repository import PropertyRecord, Repository, get_repo
+from database.repository import PropertyRecord, Repository, ScrapeRunRecord, get_repo
 from services import scraper_service, image_service
 from services.enrichment_queue import enqueue_enrichment
 from services.enrichment_service import run_rule_based_enrichment
@@ -119,6 +119,7 @@ def scrape_properties(
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
     results = scraper_service._inject_source(results, req.source or "realtor")
+    total_scraped = len(results)
 
     saved = []
     for data in results:
@@ -169,5 +170,20 @@ def scrape_properties(
         if image_urls:
             background_tasks.add_task(download_images_task, prop_id, image_urls)
         background_tasks.add_task(enqueue_enrichment, prop_id)
+
+    new_scores = [
+        p.data_quality_score for p in saved
+        if hasattr(p, "data_quality_score") and p.data_quality_score is not None
+    ]
+    avg_score = round(sum(new_scores) / len(new_scores), 1) if new_scores else None
+
+    run = ScrapeRunRecord(
+        source=source,
+        location=req.location,
+        count_total=total_scraped,
+        count_new=len(saved),
+        avg_score=avg_score,
+    )
+    repo.add_scrape_run(run)
 
     return {"count": len(saved), "properties": [p.to_dict() for p in saved]}

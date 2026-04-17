@@ -90,3 +90,22 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_properties_source_listing_id
 
 CREATE INDEX IF NOT EXISTS idx_pipeline_enrichment_log_property_id
   ON pipeline_enrichment_log (property_id);
+
+-- Phase 4: Scrape run tracking
+CREATE TABLE IF NOT EXISTS pipeline_scrape_runs (
+  id             BIGSERIAL PRIMARY KEY,
+  source         TEXT NOT NULL,
+  location       TEXT NOT NULL,
+  count_total    INTEGER DEFAULT 0,
+  count_new      INTEGER DEFAULT 0,
+  avg_score      DOUBLE PRECISION,
+  error_message  TEXT,
+  started_at     TIMESTAMPTZ DEFAULT NOW(),
+  completed_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_scrape_runs_source
+  ON pipeline_scrape_runs (source);
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_scrape_runs_completed_at
+  ON pipeline_scrape_runs (completed_at DESC);

@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import OpenAI
 from pydantic import BaseModel
@@ -1347,3 +1347,44 @@ def get_description_history(property_id: str, repo: Repository = Depends(get_db)
     except Exception as e:
         logger.warning("Description history fetch failed: %s", e)
         return {"history": []}
+
+
+# ── Phase 4: Bulk AI Enrichment ─────────────────────────────────────────────────
+
+class BulkEnrichRequest(BaseModel):
+    property_ids: list[str] | None = None
+    force: bool = False
+
+
+@router.post("/ai/bulk-enrich")
+def bulk_enrich(req: BulkEnrichRequest, background_tasks: BackgroundTasks, repo: Repository = Depends(get_db)):
+    """
+    Queue full AI enrichment (geocode → detail-fetch → AI enrich → score) for
+    properties that are missing a description or have a quality score below 60.
+    Pass property_ids to target specific properties, or omit to target all eligible.
+    Set force=True to re-enrich even already-enriched properties.
+    """
+    from services.enrichment_queue import enqueue_enrichment
+
+    if req.property_ids:
+        props = [repo.get(pid) for pid in req.property_ids]
+        props = [p for p in props if p]
+    else:
+        props = repo.list()
+
+    if req.force:
+        targets = props
+    else:
+        targets = [
+            p for p in props
+            if not p.description or (p.data_quality_score or 0) < 60
+        ]
+
+    for prop in targets:
+        background_tasks.add_task(enqueue_enrichment, prop.id)
+
+    return {
+        "queued": len(targets),
+        "total_checked": len(props),
+        "message": f"Queued {len(targets)} properties for AI enrichment. This runs in the background — refresh the library in a minute to see updated scores and descriptions.",
+    }

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
-import { getProperties, bulkAction, aiBulkScan, aiBulkClean } from '../api/client'
+import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import { computeCompleteness } from '../utils/completeness'
@@ -43,6 +43,18 @@ export default function Library() {
   const [cleaning, setCleaning] = useState(false)
   const [cleanResult, setCleanResult] = useState(null)
   const [cleanError, setCleanError] = useState(null)
+
+  const [enriching, setEnriching] = useState(false)
+  const [enrichResult, setEnrichResult] = useState(null)
+  const [enrichError, setEnrichError] = useState(null)
+  const [showStats, setShowStats] = useState(false)
+
+  const { data: qualityStats } = useQuery({
+    queryKey: ['quality-stats'],
+    queryFn: () => getQualityStats().then(r => r.data),
+    enabled: showStats,
+    staleTime: 60000,
+  })
 
   const { data, isLoading } = useQuery({
     queryKey: ['properties'],
@@ -154,6 +166,29 @@ export default function Library() {
     }
   }
 
+  async function handleBulkEnrich() {
+    if (enriching || !data || data.length === 0) return
+    const eligible = data.filter(p => !p.description || (p.data_quality_score || 0) < 60)
+    if (eligible.length === 0) {
+      alert('All properties already have descriptions and good quality scores.')
+      return
+    }
+    if (!window.confirm(`Run AI enrichment on ${eligible.length} properties? This will fill in descriptions, extract features, and improve quality scores. It runs in the background.`)) return
+    setEnriching(true)
+    setEnrichResult(null)
+    setEnrichError(null)
+    try {
+      const res = await aiBulkEnrich({})
+      setEnrichResult(res.data)
+      setTimeout(() => setEnrichResult(null), 10000)
+    } catch (e) {
+      setEnrichError(e.response?.data?.detail || e.message || 'Enrichment failed.')
+      setTimeout(() => setEnrichError(null), 6000)
+    } finally {
+      setEnriching(false)
+    }
+  }
+
   async function handleAiScan() {
     if (scanning || filtered.length === 0) return
     setScanning(true)
@@ -194,6 +229,35 @@ export default function Library() {
           </span>
         </h1>
         <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Stats toggle */}
+          <button
+            onClick={() => setShowStats(s => !s)}
+            title="Source quality stats"
+            className={`flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border transition-colors touch-target ${showStats ? 'bg-blue-100 border-blue-300 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            <span className="hidden sm:inline">Stats</span>
+          </button>
+
+          {/* Run AI Enrichment */}
+          <button
+            onClick={handleBulkEnrich}
+            disabled={enriching || !data || data.length === 0}
+            title="Run AI enrichment on all eligible properties"
+            className="flex items-center gap-1.5 text-sm px-2.5 sm:px-3 py-2 rounded-lg border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition-colors touch-target"
+          >
+            <svg className={`w-4 h-4 flex-shrink-0 ${enriching ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              {enriching
+                ? <><circle className="opacity-25" cx="12" cy="12" r="10" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></>
+                : <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              }
+            </svg>
+            <span className="hidden sm:inline">{enriching ? 'Queuing…' : 'Run AI'}</span>
+            <span className="sm:hidden">{enriching ? '…' : 'AI'}</span>
+          </button>
+
           {/* Clean All */}
           <button
             onClick={handleBulkClean}
@@ -255,6 +319,62 @@ export default function Library() {
       <div className="flex items-center justify-between mb-4">
         <SyncStatus />
       </div>
+
+      {/* Quality stats panel */}
+      {showStats && (
+        <div className="mb-4 bg-white border border-gray-200 rounded-lg overflow-hidden">
+          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <span className="text-sm font-semibold text-gray-800">Source Quality Stats</span>
+            <button onClick={() => setShowStats(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+          </div>
+          {!qualityStats ? (
+            <div className="px-4 py-3 text-sm text-gray-400">Loading…</div>
+          ) : qualityStats.length === 0 ? (
+            <div className="px-4 py-3 text-sm text-gray-400">No data yet.</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {qualityStats.map(row => (
+                <div key={row.source} className="px-4 py-3 flex flex-wrap items-center gap-x-6 gap-y-1">
+                  <span className="text-sm font-medium text-gray-800 capitalize w-24">{row.source}</span>
+                  <span className="text-sm text-gray-500"><strong className="text-gray-800">{row.count}</strong> listings</span>
+                  {row.avg_score != null && (
+                    <span className="text-sm text-gray-500">
+                      Avg score: <strong className={`${row.avg_score >= 70 ? 'text-green-700' : row.avg_score >= 40 ? 'text-amber-700' : 'text-red-700'}`}>{row.avg_score}</strong>
+                    </span>
+                  )}
+                  <span className="text-sm text-gray-500">Range: {row.min_score ?? '—'} – {row.max_score ?? '—'}</span>
+                  <div className="flex gap-2 flex-wrap ml-auto">
+                    {Object.entries(row.by_status || {}).map(([status, cnt]) => (
+                      <span key={status} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        {status}: {cnt}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Enrichment banners */}
+      {enrichError && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700 flex items-center justify-between">
+          <span>AI Enrichment failed: {enrichError}</span>
+          <button onClick={() => setEnrichError(null)} className="text-red-400 hover:text-red-600 ml-3 text-lg leading-none">&times;</button>
+        </div>
+      )}
+      {enrichResult && (
+        <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-blue-900">
+              AI Enrichment Queued — {enrichResult.queued} properties
+            </span>
+            <button onClick={() => setEnrichResult(null)} className="text-blue-400 hover:text-blue-600 text-lg leading-none">&times;</button>
+          </div>
+          <p className="text-sm text-blue-700 mt-1">{enrichResult.message}</p>
+        </div>
+      )}
 
       {/* Clean results banners */}
       {cleanError && (
