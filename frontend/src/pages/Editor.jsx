@@ -128,6 +128,12 @@ export default function Editor() {
   }, [property])
 
   useEffect(() => {
+    if (property?.id != null) {
+      import('../utils/recentlyViewed').then(({ markViewed }) => markViewed(property.id))
+    }
+  }, [property?.id])
+
+  useEffect(() => {
     function handleBeforeUnload(e) {
       if (isDirty.current) {
         e.preventDefault()

@@ -164,9 +164,9 @@ The frontend is built phone-first. Property managers are expected to use this on
 
 **Per-page mobile layouts**
 - `Layout.jsx` — top header on every screen, plus a fixed bottom tab bar on mobile (`Library / Scrape / Create / Audit`) with safe-area padding.
-- `Editor.jsx` — sticky bottom save bar on mobile + AI floating action button that opens the AI Assistant in a bottom sheet.
+- `Editor.jsx` — sticky bottom save bar on mobile + AI floating action button that opens the AI Assistant in a bottom sheet. Records every visit to `recentlyViewed` localStorage on load.
 - `Audit.jsx` — uses the table on `md+` screens and a card list on smaller screens, color-coded by issue severity.
-- `Library.jsx` — `SkeletonCard` placeholders during load, pull-to-refresh, long-press to enter bulk-select mode.
+- `Library.jsx` — `SkeletonCard` placeholders during load, pull-to-refresh, long-press to enter bulk-select mode, and a horizontal-scroll "Recently viewed" strip (`components/RecentlyViewedStrip.jsx`) of properties opened in the last 24 hours, persisted via `utils/recentlyViewed.js`.
 
 **TanStack Query defaults**
 - `staleTime: 30s`, `gcTime: 5m`, `networkMode: 'offlineFirst'`, `refetchOnWindowFocus: false`, set in `main.jsx` so navigating between tabs feels instant and the app stays usable on flaky mobile networks.
