@@ -60,9 +60,9 @@ The audit IDs in parentheses (e.g. `(C1)`) refer to entries in `SCRAPING_AUDIT.m
 - [x] **3.1** Promote `validate_and_warn` to `validate_and_filter`: hard-reject rows where `monthly_rent is None` *or* `monthly_rent < 200` *or* `address is None` *(C4)*. Increment `metrics.validation_rejected`. *— Implemented in `services/validator.py`; wired into scraper.py router loop.*
 - [x] **3.2** Add `neighborhood`, `broker_name`, `agent_name`, `tax_value`, `hoa_fee` to `normalize_row` and `PROPERTY_FIELDS` *(M2)*. Migration note in `replit.md`: ALTER TABLE add nullable columns. *— Added to PROPERTY_FIELDS in repository.py. Migration SQL in `supabase_migration_phase3_4.sql`. Until applied, repository silently skips via live-schema cache.*
 - [x] **3.3** Decide on `showing_instructions` *(M3)*: either remove from schema, or have the AI enricher generate a default ("Contact listing agent to schedule.") — recommended: generate a default. *— Rule-based enrichment in `scraper_service.py` sets `"Contact listing agent to schedule a showing."` when upstream field is blank.*
-- [ ] **3.4** Allow-list what we keep in `original_data` *(M5)*. Strip everything except the upstream identifiers, raw price, raw description. Cap the JSON payload at 4 KB. *— Deferred; current storage is not causing issues and the cap is low-priority.*
+- [x] **3.4** Allow-list what we keep in `original_data` *(M5)*. Strip everything except the upstream identifiers, raw price, raw description. Cap the JSON payload at 4 KB. *— `_compact_original_data()` in `scraper_service.py` (lines 147–191): allow-list of 17 upstream identifier/price keys + any `_`-prefixed internal flags; hard 4 096-byte cap with truncation fallback. Used at every normalize_row call.*
 - [x] **3.5** De-double-count amenities in `normalize_row` *(L3)* — run a final `set()` over each amenity / appliance / utility list before persisting. *— Implemented in `scraper_service.py` normalize_row via ordered-set dedup.*
-- [ ] **3.6** Add a unit test `tests/test_validator.py` that locks in the new reject rules so they cannot regress. *— Deferred; test harness not yet set up.*
+- [x] **3.6** Add a unit test `tests/test_validator.py` that locks in the new reject rules so they cannot regress. *— 16 tests across `backend/tests/test_validator.py` (8) + `backend/tests/test_compact_original_data.py` (8); all pass. Run from project root: `PYTHONPATH=backend python3 -m pytest backend/tests/ -v`.*
 
 ### Acceptance criteria
 - Library no longer contains rows with `monthly_rent = null`.
@@ -114,7 +114,7 @@ The audit IDs in parentheses (e.g. `(C1)`) refer to entries in `SCRAPING_AUDIT.m
 |---|---|---|---|
 | 1 — Observability | Agent | ✅ done | 2026-04-26 |
 | 2 — Reliability | Agent | ✅ done (2.3 deferred, 2.5 partial) | 2026-04-26 |
-| 3 — Data correctness | Agent | ✅ done (3.4, 3.6 deferred) | 2026-04-26 |
+| 3 — Data correctness | Agent | ✅ fully done (all 6 tasks) | 2026-04-26 |
 | 4 — Frontend UX | Agent | ✅ done | 2026-04-26 |
 | 5 — Anti-fragility | Agent | ✅ 5.2+5.3 done; 5.1, 5.4–5.6 deferred | 2026-04-26 |
 
