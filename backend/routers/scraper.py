@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
@@ -23,6 +24,11 @@ from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+# Phase 2 (2.3): wall-clock cap on the scrape() call.
+# Single-source scrapes get 90 s; multi-source ("all") gets 120 s.
+_SINGLE_SOURCE_TIMEOUT = int(__import__("os").environ.get("PIPELINE_SCRAPE_TIMEOUT_SINGLE", "90"))
+_ALL_SOURCE_TIMEOUT    = int(__import__("os").environ.get("PIPELINE_SCRAPE_TIMEOUT_ALL",    "120"))
 
 
 class ScrapeRequest(BaseModel):
@@ -64,13 +70,47 @@ class ScrapeRequest(BaseModel):
     sort_direction: Optional[str] = "desc"
 
 
+def _merge_download_stats(existing_json: str, reason_counts: dict) -> str:
+    """Phase 2 (2.5): merge image download reason_counts into inferred_features JSON.
+
+    inferred_features is a JSON-encoded list of strings used for display. We
+    append one entry per non-ok reason so the UI can see download health without
+    a schema migration.
+    """
+    try:
+        features = json.loads(existing_json or "[]")
+        if not isinstance(features, list):
+            features = []
+    except Exception:
+        features = []
+
+    total = sum(reason_counts.values())
+    ok = reason_counts.get("ok", 0)
+    failed = total - ok
+    if total:
+        summary = f"_img_ok={ok} _img_failed={failed}"
+        if failed:
+            detail = " ".join(f"_img_{k}={v}" for k, v in reason_counts.items() if k != "ok" and v)
+            summary += f" ({detail})"
+        # Remove any previous _img_ summary entries so we don't accumulate duplicates
+        features = [f for f in features if not (isinstance(f, str) and f.startswith("_img_"))]
+        features.append(summary)
+
+    return json.dumps(features)
+
+
 def download_images_task(property_id: str, image_urls: list):
+    """Background task: download images and persist download stats (Phase 2.5)."""
     repo = get_repo()
     try:
-        paths = image_service.download_images(property_id, image_urls)
+        paths, reason_counts = image_service.download_images(property_id, image_urls)
         prop = repo.get(property_id)
         if prop:
             prop.local_image_paths = json.dumps(paths)
+            # Phase 2 (2.5): persist download stats into inferred_features
+            prop.inferred_features = _merge_download_stats(
+                prop.inferred_features or "[]", reason_counts
+            )
             try:
                 repo.save(prop)
             except Exception as e:
@@ -80,11 +120,7 @@ def download_images_task(property_id: str, image_urls: list):
 
 
 def _make_idempotency_key(req: ScrapeRequest) -> str:
-    """Phase 5 (5.3): stable hash over the fields that define a distinct scrape.
-
-    If the caller sends the same request twice within 30 seconds the router
-    returns the stored run record with a 409 rather than hammering upstream.
-    """
+    """Phase 5 (5.3): stable hash over the fields that define a distinct scrape."""
     canonical = json.dumps({
         "location":     (req.location or "").strip().lower(),
         "source":       (req.source or "realtor").lower(),
@@ -110,7 +146,7 @@ def scrape_properties(
             detail=f"Unsupported source '{source}'. Supported: {', '.join(sorted(ALL_SOURCES))}."
         )
 
-    # Phase 5 (5.3): idempotency — reject duplicate requests within 30s.
+    # Phase 5 (5.3): idempotency — reject duplicate requests within 30 s.
     idem_key = _make_idempotency_key(req)
     cutoff = datetime.now(timezone.utc) - timedelta(seconds=30)
     recent_runs = repo.list_scrape_runs(limit=20)
@@ -134,44 +170,56 @@ def scrape_properties(
             except Exception:
                 pass
 
+    # Phase 2 (2.3): wall-clock cap on the scrape call.
+    timeout_s = _ALL_SOURCE_TIMEOUT if source == "all" else _SINGLE_SOURCE_TIMEOUT
+    metrics = ScrapeMetrics()
+
     try:
-        results = scraper_service.scrape(
-            location=req.location,
-            source=source,
-            listing_type=req.listing_type,
-            property_type=req.property_type,
-            min_price=req.min_price,
-            max_price=req.max_price,
-            beds_min=req.beds_min,
-            beds_max=req.beds_max,
-            baths_min=req.baths_min,
-            baths_max=req.baths_max,
-            sqft_min=req.sqft_min,
-            sqft_max=req.sqft_max,
-            lot_sqft_min=req.lot_sqft_min,
-            lot_sqft_max=req.lot_sqft_max,
-            year_built_min=req.year_built_min,
-            year_built_max=req.year_built_max,
-            past_days=req.past_days,
-            past_hours=req.past_hours,
-            date_from=req.date_from,
-            date_to=req.date_to,
-            radius=req.radius,
-            limit=req.limit,
-            mls_only=req.mls_only,
-            foreclosure=req.foreclosure,
-            exclude_pending=req.exclude_pending,
-            sort_by=req.sort_by,
-            sort_direction=req.sort_direction,
-        )
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(
+                scraper_service.scrape,
+                location=req.location,
+                source=source,
+                listing_type=req.listing_type,
+                property_type=req.property_type,
+                min_price=req.min_price,
+                max_price=req.max_price,
+                beds_min=req.beds_min,
+                beds_max=req.beds_max,
+                baths_min=req.baths_min,
+                baths_max=req.baths_max,
+                sqft_min=req.sqft_min,
+                sqft_max=req.sqft_max,
+                lot_sqft_min=req.lot_sqft_min,
+                lot_sqft_max=req.lot_sqft_max,
+                year_built_min=req.year_built_min,
+                year_built_max=req.year_built_max,
+                past_days=req.past_days,
+                past_hours=req.past_hours,
+                date_from=req.date_from,
+                date_to=req.date_to,
+                radius=req.radius,
+                limit=req.limit,
+                mls_only=req.mls_only,
+                foreclosure=req.foreclosure,
+                exclude_pending=req.exclude_pending,
+                sort_by=req.sort_by,
+                sort_direction=req.sort_direction,
+            )
+            results = future.result(timeout=timeout_s)
+    except FuturesTimeoutError:
+        msg = f"scrape_timeout:{timeout_s}s"
+        metrics.errors.append(msg)
+        metrics.partial = True
+        logger.warning("Scrape timed out after %ds for %s/%s", timeout_s, source, req.location)
+        results = []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
-    # Phase 1 (C1, H4): use _ensure_source so per-source attribution from the
-    # multi-source dispatcher is preserved instead of being overwritten.
+    # Phase 1 (C1, H4): preserve per-source attribution.
     results = scraper_service._ensure_source(results, req.source or "realtor")
 
-    metrics = ScrapeMetrics(total_scraped=len(results))
+    metrics.total_scraped = len(results)
     for r in results:
         src = r.get("source") or source
         metrics.per_source_counts[src] = metrics.per_source_counts.get(src, 0) + 1
@@ -199,9 +247,7 @@ def scrape_properties(
             saved.append(existing)
             continue
 
-        # Phase 3 (3.1): hard-reject unsalvageable rows instead of saving
-        # garbage. validate_and_filter returns (None, reason) for anything
-        # missing rent / address or with rent below the floor.
+        # Phase 3 (3.1): hard-reject unsalvageable rows.
         data, reject_reason = validate_and_filter(data)
         if reject_reason:
             metrics.validation_rejected += 1
@@ -248,10 +294,10 @@ def scrape_properties(
     ]
     avg_score = round(sum(new_scores) / len(new_scores), 1) if new_scores else None
 
-    # Phase 1.5 / Phase 4 (4.1): persist metrics. We write both the legacy
-    # error_message JSON blob (backward compat) AND the new typed columns.
-    # If the migration hasn't been applied yet the repository silently skips
-    # the new columns — zero data loss either way.
+    # Phase 2 (2.3): set partial=True whenever any source had errors.
+    if metrics.errors and not metrics.partial:
+        metrics.partial = True
+
     run = ScrapeRunRecord(
         source=source,
         location=req.location,
@@ -259,7 +305,6 @@ def scrape_properties(
         count_new=metrics.saved,
         avg_score=avg_score,
         error_message=metrics.to_json(),
-        # Phase 4 (4.1) typed metric columns
         count_watermarked=metrics.watermarked_dropped,
         count_duplicate=metrics.duplicate_skipped,
         count_validation_rejected=metrics.validation_rejected,

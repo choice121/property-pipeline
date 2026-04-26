@@ -1,0 +1,82 @@
+{
+  "nodes": [
+    {
+      "data": [
+        {
+          "featuredHomes": 1
+        },
+        [2],
+        {
+          "properties": 3,
+          "groupName": 4
+        },
+        [5],
+        "Available Homes",
+        {
+          "address_1": 6,
+          "city": 7,
+          "state": 8,
+          "zipcode": 9,
+          "beds": 10,
+          "baths": 11,
+          "sqft": 12,
+          "market_rent": 13,
+          "lat": 14,
+          "lng": 15,
+          "longdesc": 16,
+          "property_type": 17,
+          "slug": 18,
+          "amenities_list": 19,
+          "is_pet_friendly": 20,
+          "has_pool": 21,
+          "has_garage": 22,
+          "photos": 23,
+          "property_status": 24,
+          "market_slug": 25,
+          "days_on_market": 26,
+          "available_at": 27,
+          "has_fireplace": 28,
+          "has_deck": 29,
+          "has_patio": 30,
+          "has_fenced_yard": 31,
+          "has_washer_dryer": 32,
+          "has_walk_in_closet": 33,
+          "has_finished_basement": 34,
+          "has_hardwood_floors": 35,
+          "has_vaulted_ceilings": 36
+        },
+        "456 Oak Ave",
+        "Dallas",
+        "TX",
+        "75201",
+        3,
+        2.0,
+        1800,
+        2100,
+        32.7767,
+        -96.7970,
+        "Spacious 3BR home in Dallas. Large backyard, 2-car garage.",
+        "Single Family Home",
+        "invh-dallas-456-oak",
+        "Pool,Garage",
+        true,
+        true,
+        true,
+        [],
+        "available",
+        "dallas-texas",
+        14,
+        "2024-05-01",
+        false,
+        false,
+        true,
+        false,
+        true,
+        true,
+        false,
+        false,
+        false
+      ]
+    }
+  ]
+}

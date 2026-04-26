@@ -1,0 +1,26 @@
+{
+  "id": "hp-12345",
+  "listingId": "hp-12345",
+  "address": {
+    "streetAddress": "123 Main St",
+    "city": "Austin",
+    "state": "TX",
+    "zip": "78701"
+  },
+  "price": 1850,
+  "bedrooms": 2,
+  "bathrooms": 1.5,
+  "squareFootage": 950,
+  "propertyType": "Apartment",
+  "description": "Modern 2BR apartment in downtown Austin. Hardwood floors, granite counters.",
+  "latitude": 30.2671,
+  "longitude": -97.7430,
+  "url": "/apt/austin-tx/123-main-st/12345",
+  "photos": [
+    "https://example.com/img/1.jpg",
+    "https://example.com/img/2.jpg"
+  ],
+  "amenities": ["Pool", "Gym", "Pet Friendly"],
+  "petsAllowed": true,
+  "status": "active"
+}

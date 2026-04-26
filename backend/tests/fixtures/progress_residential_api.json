@@ -1,0 +1,42 @@
+{
+  "properties": [
+    {
+      "id": "PR-789",
+      "address": "789 Pine St",
+      "city": "Phoenix",
+      "state": "AZ",
+      "zip": "85001",
+      "beds": 3,
+      "baths": 2.0,
+      "sqft": 1400,
+      "rent": 1950,
+      "lat": 33.4484,
+      "lng": -112.0740,
+      "description": "Beautiful 3BR/2BA home in Phoenix with large backyard.",
+      "property_type": "Single Family",
+      "photos": [
+        "https://example.com/pr/1.jpg"
+      ],
+      "amenities": ["Garage", "Backyard"],
+      "status": "available"
+    },
+    {
+      "id": "PR-790",
+      "address": "101 Maple Dr",
+      "city": "Phoenix",
+      "state": "AZ",
+      "zip": "85002",
+      "beds": 4,
+      "baths": 2.5,
+      "sqft": 1800,
+      "rent": 2400,
+      "lat": 33.5000,
+      "lng": -112.1000,
+      "description": "Spacious 4BR home with pool in north Phoenix.",
+      "property_type": "Single Family",
+      "photos": [],
+      "amenities": ["Pool", "Garage"],
+      "status": "available"
+    }
+  ]
+}

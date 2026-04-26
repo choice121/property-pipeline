@@ -1,6 +1,11 @@
 """
 HotPads scraper — fetches rental listings from HotPads (a Zillow Group company).
-Uses their public search API.
+
+Phase 5 (5.1, 5.5): fallback chain:
+  1. API v1 listings endpoint        — JSON, full fields
+  2. Rental-listings page endpoint   — HTML with embedded JSON state
+  3. Embedded __INITIAL_STATE__ JSON — last-resort HTML parsing
+original_data is compact: only allow-listed identifier + price fields.
 """
 
 import json
@@ -18,6 +23,11 @@ logger = logging.getLogger(__name__)
 # Phase 2 (2.8): UA rotation — UA supplied per-request by random_headers().
 HEADER_EXTRAS = {
     "Accept": "application/json, */*",
+    "Referer": "https://hotpads.com/",
+}
+
+HTML_HEADER_EXTRAS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Referer": "https://hotpads.com/",
 }
 
@@ -146,7 +156,13 @@ def _normalize(listing: dict) -> Optional[dict]:
             "flooring": "[]",
             "lease_terms": "[]",
             "pet_types_allowed": "[]",
-            "original_data": json.dumps(listing),
+            # Phase 5.5: compact original_data — only allow-listed keys
+            "original_data": json.dumps({
+                "listing_id": listing_id,
+                "property_url": url,
+                "list_price": price,
+                "status": listing.get("status") or listing.get("listingStatus") or "active",
+            }),
             "scraped_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
             "_list_date": None,
@@ -155,6 +171,115 @@ def _normalize(listing: dict) -> Optional[dict]:
     except Exception as e:
         logger.warning("HotPads normalize error: %s", e)
         return None
+
+
+def _try_api_endpoints(location_encoded: str, params: dict, limit: int) -> list:
+    """Layer 1: Try HotPads JSON API endpoints."""
+    api_endpoints = [
+        f"{BASE_URL}/api/v1/listings",
+    ]
+
+    for endpoint in api_endpoints:
+        try:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+                resp = client.get(endpoint, params=params)
+                if resp.status_code == 200:
+                    try:
+                        data = resp.json()
+                        listings = (
+                            data.get("listings") or data.get("results") or
+                            data.get("data") or data.get("properties") or []
+                        )
+                        if isinstance(listings, list) and listings:
+                            results = []
+                            for item in listings[:limit]:
+                                normalized = _normalize(item)
+                                if normalized:
+                                    results.append(normalized)
+                            if results:
+                                logger.info("HotPads API: fetched %d listings from %s", len(results), endpoint)
+                                return results
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug("HotPads API endpoint %s failed: %s", endpoint, e)
+
+    return []
+
+
+def _try_html_embedded(location_encoded: str, params: dict, limit: int) -> list:
+    """Layer 2+3: Fetch HotPads HTML page and extract embedded JSON state.
+
+    Tries:
+      - JSON-LD <script type="application/ld+json"> blocks
+      - window.__REDUX_STATE__ / __INITIAL_STATE__ inline JSON
+      - Generic "listings" JSON array pattern
+    """
+    page_url = f"{BASE_URL}/rental-listings/{location_encoded}"
+    try:
+        with httpx.Client(headers=random_headers(HTML_HEADER_EXTRAS), timeout=25, follow_redirects=True, proxies=get_proxy_map()) as client:
+            resp = client.get(page_url)
+            if resp.status_code != 200:
+                logger.debug("HotPads HTML page returned %d for %s", resp.status_code, page_url)
+                return []
+
+            html = resp.text
+            results = []
+
+            # JSON-LD first
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, "lxml")
+                for script in soup.find_all("script", type="application/ld+json"):
+                    try:
+                        obj = json.loads(script.string or "")
+                        items = obj if isinstance(obj, list) else [obj]
+                        for item in items:
+                            if isinstance(item, dict) and item.get("@type") in (
+                                "Apartment", "SingleFamilyResidence", "RentAction", "Residence"
+                            ):
+                                results.append(item)
+                    except Exception:
+                        pass
+                if results:
+                    normalized = [_normalize(r) for r in results[:limit]]
+                    normalized = [r for r in normalized if r]
+                    if normalized:
+                        logger.info("HotPads JSON-LD: got %d results", len(normalized))
+                        return normalized
+            except Exception:
+                pass
+
+            # Inline state JSON
+            for pattern in [
+                r'window\.__REDUX_STATE__\s*=\s*(\{.+?\});',
+                r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\});',
+                r'window\.__APP_STATE__\s*=\s*(\{.+?\});',
+                r'"listings"\s*:\s*(\[.+?\])',
+                r'"searchResults"\s*:\s*(\[.+?\])',
+            ]:
+                m = re.search(pattern, html, re.DOTALL)
+                if m:
+                    try:
+                        state_data = json.loads(m.group(1))
+                        listings = (
+                            state_data if isinstance(state_data, list)
+                            else (state_data.get("listings") or state_data.get("searchResults")
+                                  or state_data.get("results") or state_data.get("properties") or [])
+                        )
+                        if isinstance(listings, list) and listings:
+                            normalized = [_normalize(item) for item in listings[:limit] if isinstance(item, dict)]
+                            normalized = [r for r in normalized if r]
+                            if normalized:
+                                logger.info("HotPads inline JSON: got %d results", len(normalized))
+                                return normalized
+                    except Exception:
+                        pass
+
+    except Exception as e:
+        logger.debug("HotPads HTML fallback failed for %s: %s", page_url, e)
+
+    return []
 
 
 def scrape(
@@ -166,7 +291,13 @@ def scrape(
     limit: int = 200,
     **kwargs,
 ) -> list:
-    """Scrape HotPads rental listings."""
+    """Scrape HotPads rental listings.
+
+    Phase 5.1 fallback chain:
+      1. JSON API endpoint       — structured, full fields
+      2. HTML embedded JSON-LD   — schema.org annotations
+      3. HTML inline state JSON  — __REDUX_STATE__ / __INITIAL_STATE__
+    """
     location_encoded = location.strip().lower().replace(",", "").replace("  ", " ").replace(" ", "-")
 
     params = {
@@ -182,35 +313,15 @@ def scrape(
     if beds_max:
         params["maxBeds"] = beds_max
 
-    results = []
+    # Layer 1: JSON API
+    results = _try_api_endpoints(location_encoded, params, limit)
+    if results:
+        return results
 
-    api_endpoints = [
-        f"{BASE_URL}/api/v1/listings",
-        f"{BASE_URL}/rental-listings/{location_encoded}",
-    ]
+    # Layer 2+3: HTML embedded JSON
+    results = _try_html_embedded(location_encoded, params, limit)
+    if results:
+        return results
 
-    for endpoint in api_endpoints:
-        try:
-            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
-                resp = client.get(endpoint, params=params)
-                if resp.status_code == 200:
-                    try:
-                        data = resp.json()
-                        listings = (
-                            data.get("listings") or data.get("results") or
-                            data.get("data") or data.get("properties") or []
-                        )
-                        if isinstance(listings, list) and listings:
-                            for item in listings[:limit]:
-                                normalized = _normalize(item)
-                                if normalized:
-                                    results.append(normalized)
-                            logger.info("HotPads: fetched %d listings", len(results))
-                            return results
-                    except Exception:
-                        pass
-        except Exception as e:
-            logger.warning("HotPads endpoint %s failed: %s", endpoint, e)
-            continue
-
-    return results
+    logger.warning("HotPads: all layers exhausted for '%s'", location)
+    return []

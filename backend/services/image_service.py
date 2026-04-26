@@ -2,7 +2,7 @@ import io
 import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List
+from typing import List, Tuple
 
 import httpx
 
@@ -138,7 +138,15 @@ def _download_one(url: str, filepath: str) -> tuple[bool, str]:
     return False, last_reason
 
 
-def download_images(property_id: str, image_urls: list) -> List[str]:
+def download_images(property_id: str, image_urls: list) -> Tuple[List[str], dict]:
+    """Download images for a property.
+
+    Returns:
+      (final_paths, reason_counts) — Phase 2 (2.5): callers now receive the
+      per-reason breakdown so they can persist it alongside the image paths.
+      reason_counts keys: 'ok' | 'http_N' | 'not_image' | 'too_small' |
+                          'low_quality' | 'watermarked' | 'transient' | 'error'
+    """
     prop_dir = get_property_dir(property_id)
     os.makedirs(prop_dir, exist_ok=True)
 
@@ -176,7 +184,7 @@ def download_images(property_id: str, image_urls: list) -> List[str]:
             os.rename(old_path, new_path)
         final_paths.append(f"storage/images/{property_id}/{new_pos}.jpg")
 
-    return final_paths
+    return final_paths, reason_counts
 
 
 def delete_image(property_id: str, index: int) -> List[str]:

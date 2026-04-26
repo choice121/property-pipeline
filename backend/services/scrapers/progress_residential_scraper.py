@@ -202,7 +202,13 @@ def _normalize_json(home: dict, source_url: str = "") -> Optional[dict]:
             "flooring": "[]",
             "lease_terms": "[]",
             "pet_types_allowed": "[]",
-            "original_data": json.dumps(home),
+            # Phase 5.5: compact original_data — only allow-listed identifier + price keys
+            "original_data": json.dumps({
+                "listing_id": listing_id,
+                "property_url": url,
+                "list_price": rent,
+                "status": home.get("status") or home.get("listing_status") or "active",
+            }),
             "scraped_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat(),
             "_list_date": None,
