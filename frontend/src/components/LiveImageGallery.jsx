@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getLiveImages, deleteLiveImage, reorderLiveImages, uploadLiveImage } from '../api/client'
+import { transformImage } from '../utils/imageUrl'
 
 export default function LiveImageGallery({ propertyId }) {
   const queryClient = useQueryClient()
@@ -149,8 +150,12 @@ export default function LiveImageGallery({ propertyId }) {
                 </span>
               )}
               <img
-                src={photo.url}
+                src={transformImage(photo.url, { w: 300, q: 70 })}
+                srcSet={`${transformImage(photo.url, { w: 200, q: 70 })} 200w, ${transformImage(photo.url, { w: 400, q: 70 })} 400w, ${transformImage(photo.url, { w: 600, q: 70 })} 600w`}
+                sizes="(max-width: 640px) 33vw, 200px"
                 alt={`Photo ${idx + 1}`}
+                loading="lazy"
+                decoding="async"
                 className="w-full h-full object-cover"
                 draggable={false}
               />

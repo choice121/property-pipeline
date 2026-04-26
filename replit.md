@@ -141,6 +141,36 @@ If credentials are broken or missing, the CI fails immediately and shows exactly
 - The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server.
 - Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors.
 
+## Mobile-First Architecture (added April 2026)
+
+The frontend is built phone-first. Property managers are expected to use this on a phone in the field.
+
+**Installable PWA**
+- `vite-plugin-pwa` generates a service worker that caches the app shell, ImageKit images (CacheFirst, 30-day expiry), and recently-fetched listings (NetworkFirst with 4s timeout).
+- Manifest at `frontend/public/manifest.webmanifest`; "Add to Home Screen" works on iOS and Android.
+- Auto-updates via `registerType: 'autoUpdate'`.
+
+**Touch-first interactions**
+- `frontend/src/components/BottomSheet.jsx` — swipe-down-to-dismiss bottom sheet (hosts the AI Assistant on mobile via a floating action button in the Editor).
+- `frontend/src/components/PullToRefresh.jsx` — wraps the Library list; refetches the properties query on pull.
+- `frontend/src/components/SwipeableCard.jsx` — reusable swipe-to-action drawer for cards.
+- `frontend/src/utils/longPress.js` — long-press hook used by the Library to enter multi-select mode.
+- `frontend/src/utils/haptics.js` — small haptic feedback wrappers (Vibration API).
+
+**Responsive imagery (ImageKit)**
+- `frontend/src/utils/imageUrl.js` exports `transformImage()` and `responsiveImage()` which add `tr=w-…,q-…,f-auto,pr-true` parameters when the source is an ImageKit URL.
+- `PropertyCard`, `LiveImageGallery`, and `ImageGallery` request appropriate sizes via `srcSet`/`sizes` plus `loading="lazy"` and `decoding="async"`.
+- The Vite config exposes `VITE_IMAGEKIT_URL_ENDPOINT` from the `IMAGEKIT_URL_ENDPOINT` secret so the frontend can detect ImageKit assets.
+
+**Per-page mobile layouts**
+- `Layout.jsx` — top header on every screen, plus a fixed bottom tab bar on mobile (`Library / Scrape / Create / Audit`) with safe-area padding.
+- `Editor.jsx` — sticky bottom save bar on mobile + AI floating action button that opens the AI Assistant in a bottom sheet.
+- `Audit.jsx` — uses the table on `md+` screens and a card list on smaller screens, color-coded by issue severity.
+- `Library.jsx` — `SkeletonCard` placeholders during load, pull-to-refresh, long-press to enter bulk-select mode.
+
+**TanStack Query defaults**
+- `staleTime: 30s`, `gcTime: 5m`, `networkMode: 'offlineFirst'`, `refetchOnWindowFocus: false`, set in `main.jsx` so navigating between tabs feels instant and the app stays usable on flaky mobile networks.
+
 ## Key Dependencies
 
 ### Backend (Python)

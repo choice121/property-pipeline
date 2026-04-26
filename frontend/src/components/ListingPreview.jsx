@@ -137,7 +137,7 @@ export default function ListingPreview({ property, onClose }) {
             <div className="flex gap-2 overflow-x-auto px-5 py-3 border-b border-gray-100">
               {images.map((src, i) => (
                 <button key={i} onClick={() => setActiveImg(i)} className={`flex-shrink-0 rounded-md overflow-hidden border-2 transition-colors ${i === activeImg ? 'border-gray-900' : 'border-transparent'}`}>
-                  <img src={src} alt={`Thumb ${i + 1}`} className="w-16 h-12 object-cover" />
+                  <img src={src} alt={`Thumb ${i + 1}`} loading="lazy" decoding="async" className="w-16 h-12 object-cover" />
                 </button>
               ))}
             </div>

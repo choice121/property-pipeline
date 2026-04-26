@@ -86,7 +86,7 @@ function ThumbnailSlot({ src, onClick, active }) {
       } ${error ? 'bg-gray-700' : ''}`}
     >
       {!error ? (
-        <img src={src} alt="" className="w-full h-full object-cover" onError={() => setError(true)} />
+        <img src={src} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" onError={() => setError(true)} />
       ) : (
         <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">×</div>
       )}
