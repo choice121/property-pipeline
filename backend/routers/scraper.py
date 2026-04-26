@@ -1,5 +1,7 @@
+import hashlib
 import json
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -77,6 +79,24 @@ def download_images_task(property_id: str, image_urls: list):
         logger.error("Image download task failed for %s: %s", property_id, e)
 
 
+def _make_idempotency_key(req: ScrapeRequest) -> str:
+    """Phase 5 (5.3): stable hash over the fields that define a distinct scrape.
+
+    If the caller sends the same request twice within 30 seconds the router
+    returns the stored run record with a 409 rather than hammering upstream.
+    """
+    canonical = json.dumps({
+        "location":     (req.location or "").strip().lower(),
+        "source":       (req.source or "realtor").lower(),
+        "listing_type": (req.listing_type or "for_rent").lower(),
+        "min_price":    req.min_price,
+        "max_price":    req.max_price,
+        "beds_min":     req.beds_min,
+        "beds_max":     req.beds_max,
+    }, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:24]
+
+
 @router.post("/scrape")
 def scrape_properties(
     req: ScrapeRequest,
@@ -89,6 +109,30 @@ def scrape_properties(
             status_code=400,
             detail=f"Unsupported source '{source}'. Supported: {', '.join(sorted(ALL_SOURCES))}."
         )
+
+    # Phase 5 (5.3): idempotency — reject duplicate requests within 30s.
+    idem_key = _make_idempotency_key(req)
+    cutoff = datetime.now(timezone.utc) - timedelta(seconds=30)
+    recent_runs = repo.list_scrape_runs(limit=20)
+    for run in recent_runs:
+        run_key = run.get("idempotency_key") if isinstance(run, dict) else getattr(run, "idempotency_key", None)
+        run_at_raw = run.get("completed_at") if isinstance(run, dict) else getattr(run, "completed_at", None)
+        if run_key == idem_key and run_at_raw:
+            try:
+                run_at = datetime.fromisoformat(run_at_raw.replace("Z", "+00:00"))
+                if run_at >= cutoff:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "message": "Duplicate scrape request — identical run completed within the last 30 seconds.",
+                            "idempotency_key": idem_key,
+                            "existing_run": run if isinstance(run, dict) else run.to_dict(),
+                        },
+                    )
+            except HTTPException:
+                raise
+            except Exception:
+                pass
 
     try:
         results = scraper_service.scrape(
@@ -204,9 +248,10 @@ def scrape_properties(
     ]
     avg_score = round(sum(new_scores) / len(new_scores), 1) if new_scores else None
 
-    # Phase 1.5: persist metrics as JSON in the existing error_message column.
-    # Phase 4 will give these proper columns; for now we piggy-back so we can
-    # ship observability without a schema migration.
+    # Phase 1.5 / Phase 4 (4.1): persist metrics. We write both the legacy
+    # error_message JSON blob (backward compat) AND the new typed columns.
+    # If the migration hasn't been applied yet the repository silently skips
+    # the new columns — zero data loss either way.
     run = ScrapeRunRecord(
         source=source,
         location=req.location,
@@ -214,6 +259,13 @@ def scrape_properties(
         count_new=metrics.saved,
         avg_score=avg_score,
         error_message=metrics.to_json(),
+        # Phase 4 (4.1) typed metric columns
+        count_watermarked=metrics.watermarked_dropped,
+        count_duplicate=metrics.duplicate_skipped,
+        count_validation_rejected=metrics.validation_rejected,
+        count_image_failed=0,
+        meta_json=metrics.to_json(),
+        idempotency_key=idem_key,
     )
     repo.add_scrape_run(run)
 

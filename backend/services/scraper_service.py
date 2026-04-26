@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from homeharvest import scrape_property
 
-from services.http_utils import retry_with_backoff
+from services.http_utils import retry_with_backoff, get_homeharvest_proxy_kwarg
 
 logger = logging.getLogger(__name__)
 
@@ -793,7 +793,8 @@ def _scrape_homeharvest(
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
     def _do_call():
-        return scrape_property(**kwargs)
+        # Phase 5 (5.2): pass proxy when PIPELINE_SCRAPER_PROXY is set.
+        return scrape_property(**kwargs, **get_homeharvest_proxy_kwarg())
 
     with ThreadPoolExecutor(max_workers=1) as ex:
         future = ex.submit(

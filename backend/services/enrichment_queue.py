@@ -13,6 +13,7 @@ Usage (in scraper.py):
 """
 
 import logging
+import os
 import threading
 import time
 
@@ -23,7 +24,10 @@ logger = logging.getLogger(__name__)
 
 _enrichment_lock = threading.Lock()
 
-INTER_ENRICHMENT_DELAY = 1.0
+# Phase 4 (4.5): env-driven so operators can tune without a code change.
+# PIPELINE_ENRICHMENT_DELAY_MS defaults to 1000ms (1 second).
+_delay_ms = os.environ.get("PIPELINE_ENRICHMENT_DELAY_MS")
+INTER_ENRICHMENT_DELAY = float(_delay_ms) / 1000.0 if _delay_ms else 1.0
 
 
 def enqueue_enrichment(property_id: str) -> None:

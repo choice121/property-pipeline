@@ -227,8 +227,25 @@ A multi-phase plan lives in `docs/SCRAPING_PHASED_PLAN.md` with the deep audit i
 - **Deferred**: 2.3 (request-level `asyncio.wait_for`) — covered transitively by 2.2 + the existing `as_completed(timeout=PER_SOURCE_DEADLINE_SECONDS * 2)`. Promoting routes to `async def` is a larger refactor; revisit if traces show requests still hanging.
 - **Partial**: 2.5 (per-property image-download stats) — currently logged only; DB persistence into `inferred_features` deferred to Phase 4 to avoid a write-shape change here.
 
-### Phases 3–5 — not started
-See `docs/SCRAPING_PHASED_PLAN.md` for the full task list. Phase 3 (data correctness — normalization, dedup keys, watermark fixes) is the next unblocked phase.
+### Phase 3 — Data correctness ✅ done (2026-04-26)
+- `services/validator.py` now hard-rejects rows with `monthly_rent is None`, `monthly_rent < 200`, or `address is None`. Counter goes into `metrics.validation_rejected`.
+- `PROPERTY_FIELDS` in `repository.py` expanded: `neighborhood`, `broker_name`, `agent_name`, `tax_value`, `hoa_fee`. Run `supabase_migration_phase3_4.sql` in the Supabase SQL Editor to add the columns; until then the live-schema cache silently skips them.
+- Rule-based enrichment sets `showing_instructions = "Contact listing agent to schedule a showing."` when the upstream is blank.
+- `normalize_row` runs an ordered-set dedup over amenity, appliance, and utility arrays (eliminates the duplicate-value bug from multiple data sources).
+- **Deferred**: 3.4 (original_data allow-list), 3.6 (unit tests) — low urgency.
+
+### Phase 4 — Frontend UX ✅ done (2026-04-26)
+- `ScrapeRunRecord` expanded with typed metric columns: `count_watermarked`, `count_duplicate`, `count_validation_rejected`, `count_image_failed`, `meta_json`, `idempotency_key`. `add_scrape_run` writes all columns; backwards-compat via silent-skip before migration.
+- `GET /stats/scrape-runs` (already existed) returns full run history including new columns.
+- `Scraper.jsx` telemetry strip now shows per-source pills (`realtor: 12 ✓ · zillow: 0 ✗`) from `meta.per_source_counts` for multi-source runs.
+- "Retry N failed" button appears in the strip when any source returned 0 results; re-runs each failed source individually and appends results.
+- `Audit.jsx` now shows a "Last 10 Scrape Runs" table at page bottom, parsing both new typed columns and the legacy JSON blob for older rows.
+- `INTER_ENRICHMENT_DELAY` is now env-driven: `PIPELINE_ENRICHMENT_DELAY_MS` (default 1000ms).
+
+### Phase 5 — Anti-fragility ✅ 5.2+5.3 done; 5.1, 5.4–5.6 deferred (2026-04-26)
+- **5.2 Proxy support**: `services/http_utils.py` adds `get_proxy_map()` (for httpx clients) and `get_homeharvest_proxy_kwarg()` (for HomeHarvest). Set `PIPELINE_SCRAPER_PROXY=http://user:pass@host:port` to route all outbound scraper traffic through a proxy. Zero overhead when unset.
+- **5.3 Idempotency key**: `POST /scrape` computes a SHA-256 hash of the normalized request (location + source + listing_type + price/bed filters); stores it on `pipeline_scrape_runs.idempotency_key`. A second identical request within 30s gets a `409` with the cached run record.
+- **Deferred**: 5.1 (scraper fallback chains), 5.4 (background worker process), 5.5 (scraper hardening), 5.6 (integration tests).
 
 ## Development Status
 

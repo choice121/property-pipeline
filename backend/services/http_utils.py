@@ -21,6 +21,7 @@ Used by:
 from __future__ import annotations
 
 import logging
+import os
 import random
 import threading
 import time
@@ -167,3 +168,45 @@ class _RateLimiter:
 
 
 nominatim_limiter = _RateLimiter(min_interval=1.05)
+
+
+# ── Phase 5 (5.2): optional outbound proxy ────────────────────────────────────
+# Set PIPELINE_SCRAPER_PROXY to route all custom scrapers + httpx clients through
+# a proxy. Format: http://user:pass@host:port or socks5://host:port.
+# HomeHarvest uses the same env var via get_homeharvest_proxy_kwarg().
+#
+# Usage in custom scrapers:
+#   with httpx.Client(proxies=get_proxy_map(), ...) as client:
+#       ...
+# Usage in HomeHarvest calls:
+#   scrape_property(..., **get_homeharvest_proxy_kwarg())
+
+
+def get_proxy_url() -> Optional[str]:
+    """Return the configured proxy URL or None if not set."""
+    return os.environ.get("PIPELINE_SCRAPER_PROXY") or None
+
+
+def get_proxy_map() -> Optional[dict]:
+    """Return an httpx `proxies` dict or None.
+
+    Pass the result directly to ``httpx.Client(proxies=...)`` or
+    ``httpx.AsyncClient(proxies=...)``.  Returns None when no proxy is
+    configured so callers can use ``proxies=get_proxy_map()`` and httpx will
+    just use direct connections.
+    """
+    url = get_proxy_url()
+    if not url:
+        return None
+    return {"http://": url, "https://": url}
+
+
+def get_homeharvest_proxy_kwarg() -> dict:
+    """Return ``{"proxy": url}`` for HomeHarvest's scrape_property, or ``{}``.
+
+    HomeHarvest accepts a ``proxy`` keyword argument on its scrape_property
+    call.  When no proxy is configured this returns an empty dict so callers
+    can always splat it: ``scrape_property(..., **get_homeharvest_proxy_kwarg())``.
+    """
+    url = get_proxy_url()
+    return {"proxy": url} if url else {}

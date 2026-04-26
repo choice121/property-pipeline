@@ -307,16 +307,33 @@ class Repository:
         return []
 
     def add_scrape_run(self, run: "ScrapeRunRecord") -> None:
+        """Persist one scrape run row.
+
+        Phase 4 (4.1): writes expanded metric columns when the Supabase
+        migration has been applied. The insert payload is filtered through the
+        live-schema cache so any column not yet present is silently skipped —
+        the app keeps working before and after the migration.
+        """
+        payload = {
+            "source":                    run.source,
+            "location":                  run.location,
+            "count_total":               run.count_total,
+            "count_new":                 run.count_new,
+            "avg_score":                 run.avg_score,
+            "error_message":             run.error_message,
+            # Phase 4 (4.1) — decomposed metric columns
+            "count_watermarked":         run.count_watermarked,
+            "count_duplicate":           run.count_duplicate,
+            "count_validation_rejected": run.count_validation_rejected,
+            "count_image_failed":        run.count_image_failed,
+            "meta_json":                 run.meta_json,
+            "idempotency_key":           run.idempotency_key,
+            "completed_at":              datetime.now(timezone.utc).isoformat(),
+        }
+        # Remove None values so Supabase uses column defaults where appropriate.
+        payload = {k: v for k, v in payload.items() if v is not None}
         try:
-            self._client.table("pipeline_scrape_runs").insert({
-                "source":       run.source,
-                "location":     run.location,
-                "count_total":  run.count_total,
-                "count_new":    run.count_new,
-                "avg_score":    run.avg_score,
-                "error_message": run.error_message,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }).execute()
+            self._client.table("pipeline_scrape_runs").insert(payload).execute()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning("Could not log scrape run: %s", e)
@@ -385,8 +402,19 @@ class Repository:
 
 
 class ScrapeRunRecord:
+    """Represents one row in pipeline_scrape_runs.
+
+    Phase 4 (4.1): fields added — count_watermarked, count_duplicate,
+    count_validation_rejected, count_image_failed, meta_json, idempotency_key.
+    These require the matching Supabase migration (supabase_migration_phase3_4.sql).
+    Until that migration runs the repository silently skips unknown columns.
+    """
+
     def __init__(self, source, location, count_total=0, count_new=0,
                  avg_score=None, error_message=None,
+                 count_watermarked=0, count_duplicate=0,
+                 count_validation_rejected=0, count_image_failed=0,
+                 meta_json=None, idempotency_key=None,
                  id=None, started_at=None, completed_at=None):
         self.id = id
         self.source = source
@@ -395,6 +423,13 @@ class ScrapeRunRecord:
         self.count_new = count_new
         self.avg_score = avg_score
         self.error_message = error_message
+        # Phase 4 (4.1) expanded metrics
+        self.count_watermarked = count_watermarked
+        self.count_duplicate = count_duplicate
+        self.count_validation_rejected = count_validation_rejected
+        self.count_image_failed = count_image_failed
+        self.meta_json = meta_json
+        self.idempotency_key = idempotency_key
         self.started_at = started_at
         self.completed_at = completed_at
 
@@ -407,6 +442,12 @@ class ScrapeRunRecord:
             "count_new": self.count_new,
             "avg_score": self.avg_score,
             "error_message": self.error_message,
+            "count_watermarked": self.count_watermarked,
+            "count_duplicate": self.count_duplicate,
+            "count_validation_rejected": self.count_validation_rejected,
+            "count_image_failed": self.count_image_failed,
+            "meta_json": self.meta_json,
+            "idempotency_key": self.idempotency_key,
             "started_at": self.started_at,
             "completed_at": self.completed_at,
         }

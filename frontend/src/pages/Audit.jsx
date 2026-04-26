@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { getProperties, aiBulkScan, aiBulkClean } from '../api/client'
+import { getProperties, aiBulkScan, aiBulkClean, getScrapeRuns } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import { computeCompleteness } from '../utils/completeness'
 
@@ -54,6 +54,72 @@ function SparkleIcon({ spin = false }) {
   )
 }
 
+function parseMeta(run) {
+  const raw = run.meta_json || run.error_message || ''
+  if (!raw) return {}
+  try { return JSON.parse(raw) } catch { return {} }
+}
+
+function RunHistorySection({ runs }) {
+  if (!runs || runs.length === 0) return null
+  return (
+    <div className="mt-8 bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100">
+        <h2 className="text-sm font-semibold text-gray-900">Last {runs.length} Scrape Runs</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Most recent first. Drop counts come from the metrics blob stored at run time.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left border-b border-gray-100 text-gray-500">
+              <th className="px-4 py-2 font-medium">When</th>
+              <th className="px-4 py-2 font-medium">Source</th>
+              <th className="px-4 py-2 font-medium">Location</th>
+              <th className="px-4 py-2 font-medium text-right">Scraped</th>
+              <th className="px-4 py-2 font-medium text-right">Saved</th>
+              <th className="px-4 py-2 font-medium text-right">Wm</th>
+              <th className="px-4 py-2 font-medium text-right">Dup</th>
+              <th className="px-4 py-2 font-medium text-right">Invalid</th>
+              <th className="px-4 py-2 font-medium text-right">Avg Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {runs.map((run, i) => {
+              const meta = parseMeta(run)
+              const wm = run.count_watermarked ?? meta.watermarked_dropped ?? 0
+              const dup = run.count_duplicate ?? meta.duplicate_skipped ?? 0
+              const inv = run.count_validation_rejected ?? meta.validation_rejected ?? 0
+              return (
+                <tr key={run.id || i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
+                    {run.completed_at ? formatRelativeTime(run.completed_at) : '—'}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <span className="inline-block bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-xs font-mono">
+                      {run.source || '—'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-2.5 text-gray-700 max-w-[160px] truncate">{run.location || '—'}</td>
+                  <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{run.count_total ?? 0}</td>
+                  <td className="px-4 py-2.5 text-right text-emerald-700 font-semibold">{run.count_new ?? 0}</td>
+                  <td className="px-4 py-2.5 text-right">{wm > 0 ? <span className="text-amber-600">{wm}</span> : <span className="text-gray-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right">{dup > 0 ? <span className="text-gray-500">{dup}</span> : <span className="text-gray-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right">{inv > 0 ? <span className="text-rose-600">{inv}</span> : <span className="text-gray-300">—</span>}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    {run.avg_score != null
+                      ? <span className={run.avg_score >= 70 ? 'text-emerald-600 font-semibold' : run.avg_score >= 50 ? 'text-amber-600 font-semibold' : 'text-rose-600 font-semibold'}>{run.avg_score}</span>
+                      : <span className="text-gray-300">—</span>}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export default function Audit() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
@@ -72,6 +138,12 @@ export default function Audit() {
   const { data: properties, isLoading } = useQuery({
     queryKey: ['properties'],
     queryFn: () => getProperties().then(r => r.data),
+  })
+
+  const { data: scrapeRuns } = useQuery({
+    queryKey: ['scrapeRuns'],
+    queryFn: () => getScrapeRuns(10).then(r => r.data),
+    staleTime: 60_000,
   })
 
   const filtered = useMemo(() => {
@@ -469,6 +541,9 @@ export default function Audit() {
         </div>
         </>
       )}
+
+      {/* Phase 4 (4.4): last 10 scrape runs history */}
+      <RunHistorySection runs={scrapeRuns} />
     </div>
   )
 }

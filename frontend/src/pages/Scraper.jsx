@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { searchProperties, saveProperty, getProperties } from '../api/client'
+
 import SearchResultCard, { SearchResultRow } from '../components/SearchResultCard'
 import PropertyPreviewModal from '../components/PropertyPreviewModal'
 import ResultsFilterBar from '../components/ResultsFilterBar'
@@ -180,6 +181,10 @@ export default function Scraper() {
   const [resultFilters, setResultFilters] = useState(defaultResultFilters)
   const [libraryIds, setLibraryIds] = useState(new Set())
 
+  // Phase 4 (4.3 + 4.6): retry support
+  const [lastPayload, setLastPayload] = useState(null)
+  const [retrying, setRetrying] = useState(false)
+
   useEffect(() => {
     getProperties()
       .then((res) => {
@@ -270,6 +275,7 @@ export default function Scraper() {
     setSearchResults(null)
     setBlockedWatermarkCount(0)
     setSourceCounts(null)
+    setRunMeta(null)
     setSearchError(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
@@ -279,6 +285,8 @@ export default function Scraper() {
     setVisibleCount(PAGE_SIZE)
     setShowForm(true)
     setShowAdvanced(false)
+    setLastPayload(null)
+    setRetrying(false)
   }, [])
 
   function buildPayload() {
@@ -329,9 +337,12 @@ export default function Scraper() {
     setResultSort('default')
     setResultFilters(defaultResultFilters)
     setVisibleCount(PAGE_SIZE)
+    setRetrying(false)
     setSearching(true)
+    const payload = buildPayload()
+    setLastPayload(payload)
     try {
-      const res = await searchProperties(buildPayload())
+      const res = await searchProperties(payload)
       setSearchResults(res.data.results)
       setBlockedWatermarkCount(res.data.blocked_watermark_count || 0)
       setSourceCounts(res.data.source_counts || null)
@@ -343,6 +354,38 @@ export default function Scraper() {
       setSearching(false)
     }
   }, [form])
+
+  // Phase 4 (4.6): retry sources that returned 0 results in the last run.
+  const handleRetryFailed = useCallback(async () => {
+    if (!runMeta?.per_source_counts || !lastPayload) return
+    const failedSources = Object.entries(runMeta.per_source_counts)
+      .filter(([, count]) => count === 0)
+      .map(([src]) => src)
+    if (failedSources.length === 0) return
+    setRetrying(true)
+    const newResults = []
+    const retriedCounts = {}
+    for (const src of failedSources) {
+      try {
+        const res = await searchProperties({ ...lastPayload, source: src })
+        const srcResults = res.data.results || []
+        retriedCounts[src] = srcResults.length
+        newResults.push(...srcResults)
+      } catch {
+        retriedCounts[src] = 0
+      }
+    }
+    if (newResults.length > 0) {
+      setSearchResults(prev => [...(prev || []), ...newResults])
+    }
+    // Merge retried counts back into runMeta so the pills update
+    setRunMeta(prev => {
+      if (!prev) return prev
+      const merged = { ...prev.per_source_counts, ...retriedCounts }
+      return { ...prev, per_source_counts: merged }
+    })
+    setRetrying(false)
+  }, [runMeta, lastPayload])
 
   const handleSave = useCallback(async (result) => {
     const key = result.temp_key
@@ -689,11 +732,11 @@ export default function Scraper() {
       {/* Results section */}
       {searchResults !== null && (
         <div>
-          {/* Phase 1: per-run telemetry strip — shows everything that was
-              dropped or skipped so users understand why the visible count
-              differs from what was scraped upstream. */}
+          {/* Phase 1 / 4.3: per-run telemetry strip — shows aggregate counts,
+              per-source breakdown pills, and the retry button for zero sources. */}
           {runMeta && runMeta.total_scraped > 0 && (
-            <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 space-y-2.5">
+              {/* Aggregate row */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-700">
                 <span>
                   <span className="font-semibold text-gray-900">{runMeta.total_scraped}</span> scraped
@@ -733,6 +776,52 @@ export default function Scraper() {
                   </>
                 )}
               </div>
+
+              {/* Phase 4 (4.3): per-source pills */}
+              {runMeta.per_source_counts && Object.keys(runMeta.per_source_counts).length > 1 && (() => {
+                const failedSources = Object.entries(runMeta.per_source_counts).filter(([, n]) => n === 0)
+                return (
+                  <div className="flex flex-wrap items-center gap-2">
+                    {Object.entries(runMeta.per_source_counts)
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([src, count]) => (
+                        <span
+                          key={src}
+                          className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full font-medium border ${
+                            count > 0
+                              ? 'bg-white border-gray-200 text-gray-700'
+                              : 'bg-rose-50 border-rose-200 text-rose-700'
+                          }`}
+                        >
+                          {src}
+                          <span className={`font-semibold ${count > 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            {count > 0 ? `${count} ✓` : '0 ✗'}
+                          </span>
+                        </span>
+                      ))}
+                    {/* Phase 4 (4.6): retry button */}
+                    {failedSources.length > 0 && (
+                      <button
+                        onClick={handleRetryFailed}
+                        disabled={retrying}
+                        className="inline-flex items-center gap-1.5 text-xs px-3 py-1 rounded-full bg-orange-50 border border-orange-200 text-orange-700 hover:bg-orange-100 disabled:opacity-50 transition-colors font-medium"
+                      >
+                        {retrying ? (
+                          <>
+                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                            </svg>
+                            Retrying…
+                          </>
+                        ) : (
+                          <>↺ Retry {failedSources.length} failed</>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
 
