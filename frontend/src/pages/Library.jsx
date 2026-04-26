@@ -11,6 +11,7 @@ import RecentlyViewedStrip from '../components/RecentlyViewedStrip'
 import FavoritesStrip from '../components/FavoritesStrip'
 import { useLongPress } from '../utils/longPress'
 import { computeCompleteness } from '../utils/completeness'
+import { getFavoriteIdSet, FAVORITES_EVENT } from '../utils/favorites'
 
 function buildContext(p) {
   const tryArr = (v) => { try { return JSON.parse(v || '[]').join(', ') } catch { return v || '' } }
@@ -59,6 +60,18 @@ export default function Library() {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [sort, setSort] = useState('scraped_at')
+  const [favoritesOnly, setFavoritesOnly] = useState(false)
+  const [favIds, setFavIds] = useState(() => getFavoriteIdSet())
+
+  useEffect(() => {
+    function sync() { setFavIds(getFavoriteIdSet()) }
+    window.addEventListener(FAVORITES_EVENT, sync)
+    return () => window.removeEventListener(FAVORITES_EVENT, sync)
+  }, [])
+
+  useEffect(() => {
+    if (favoritesOnly && favIds.size === 0) setFavoritesOnly(false)
+  }, [favoritesOnly, favIds])
   const [selectMode, setSelectMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [bulkResult, setBulkResult] = useState(null)
@@ -399,6 +412,10 @@ export default function Library() {
       list = list.filter((p) => p.status === statusFilter)
     }
 
+    if (favoritesOnly) {
+      list = list.filter((p) => favIds.has(String(p.id)))
+    }
+
     if (search.trim()) {
       const term = search.toLowerCase()
       list = list.filter(
@@ -423,7 +440,7 @@ export default function Library() {
     }
 
     return list
-  }, [data, search, statusFilter, sort])
+  }, [data, search, statusFilter, sort, favoritesOnly, favIds])
 
   function toggleSelect(id) {
     setSelectedIds(prev => {
@@ -1193,6 +1210,28 @@ export default function Library() {
           className="border border-gray-300 rounded-lg px-3 py-2.5 sm:py-2 flex-1 focus:outline-none focus:ring-2 focus:ring-gray-400"
         />
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => setFavoritesOnly((v) => !v)}
+            disabled={favIds.size === 0}
+            aria-pressed={favoritesOnly}
+            title={favIds.size === 0 ? 'Star a property to filter by favorites' : (favoritesOnly ? 'Show all properties' : 'Show favorites only')}
+            className={`flex items-center gap-1.5 px-3 py-2.5 sm:py-2 rounded-lg border transition-colors touch-target text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed ${
+              favoritesOnly
+                ? 'border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 20 20" fill={favoritesOnly ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6">
+              <path strokeLinejoin="round" d="M10 1.5l2.625 5.32 5.875.855-4.25 4.14 1.005 5.85L10 14.91l-5.255 2.755L5.75 11.815 1.5 7.675l5.875-.855L10 1.5z" />
+            </svg>
+            <span className="hidden sm:inline">Favorites</span>
+            {favIds.size > 0 && (
+              <span className={`text-xs px-1.5 py-0.5 rounded-full ${favoritesOnly ? 'bg-amber-200 text-amber-900' : 'bg-gray-100 text-gray-600'}`}>
+                {favIds.size}
+              </span>
+            )}
+          </button>
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -1224,7 +1263,7 @@ export default function Library() {
 
       {!selectMode && data && data.length > 0 && (
         <>
-          <FavoritesStrip properties={data} />
+          {!favoritesOnly && <FavoritesStrip properties={data} />}
           <RecentlyViewedStrip properties={data} />
         </>
       )}
