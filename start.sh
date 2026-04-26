@@ -103,7 +103,7 @@ if [ ${#MISSING_REQUIRED[@]} -gt 0 ]; then
 fi
 
 echo "==> Verifying Python dependencies..."
-python3.11 - <<'PY'
+python3 - <<'PY'
 import fastapi
 import uvicorn
 import supabase
@@ -129,7 +129,7 @@ sleep 2
 
 # ── Start backend ─────────────────────────────────────────────────────────────
 cd "$APP_DIR/backend"
-python3.11 main.py &
+python3 main.py &
 BACKEND_PID=$!
 
 cleanup() {
