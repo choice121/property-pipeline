@@ -5,6 +5,7 @@
 /* Remove 300ms tap delay on all clickable elements */
 a, button, [role="button"], input[type="submit"], label {
   touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Prevent iOS Safari auto-zoom on input focus — needs font-size >= 16px */
@@ -17,11 +18,16 @@ html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Avoid white margin under bottom safe area when in standalone PWA */
+  background: #f9fafb;
 }
 
 /* No horizontal bleed on any screen */
 body {
   overflow-x: hidden;
+  overscroll-behavior-y: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Safe area utility for notched phones (iPhone X+, many Androids) */
@@ -39,4 +45,47 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* ── Bottom sheet animation ─────────────────────────────────────────────── */
+@keyframes slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
+}
+
+/* ── Swipeable card track ──────────────────────────────────────────────── */
+.swipe-track {
+  touch-action: pan-y;
+}
+.swipe-content {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.swipe-content.dragging {
+  transition: none;
+}
+
+/* Prevent text selection during long-press / multi-select gestures */
+.no-select {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Image fade-in when loaded */
+img.fade-in {
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+}
+img.fade-in.loaded {
+  opacity: 1;
 }

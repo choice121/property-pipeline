@@ -288,7 +288,81 @@ export default function Audit() {
           <p className="text-lg">No properties found.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+        <>
+        {/* ── Mobile card list ── */}
+        <div className="md:hidden space-y-2">
+          {sorted.map(prop => {
+            const health = healthMap ? (healthMap[String(prop.id)] || null) : null
+            const { score } = computeCompleteness(prop)
+            const days = daysSinceUpdate(prop.updated_at)
+            const isStale = days > 30
+            const hasErrors = health?.errors > 0
+            const hasWarnings = health?.warnings > 0
+            const accent = hasErrors
+              ? 'border-l-red-500 bg-red-50/30'
+              : hasWarnings
+                ? 'border-l-amber-400 bg-amber-50/30'
+                : health
+                  ? 'border-l-green-500 bg-green-50/20'
+                  : 'border-l-gray-300'
+            return (
+              <button
+                key={prop.id}
+                onClick={() => navigate(`/edit/${prop.id}`)}
+                className={`w-full text-left bg-white rounded-lg border border-gray-200 border-l-4 ${accent} p-3 active:scale-[0.99] transition-transform shadow-sm`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{prop.title || prop.address || 'No address'}</p>
+                    <p className="text-xs text-gray-500 truncate mt-0.5">
+                      {[prop.city, prop.state].filter(Boolean).join(', ')}
+                      {prop.monthly_rent ? ` · $${Number(prop.monthly_rent).toLocaleString()}/mo` : ''}
+                    </p>
+                  </div>
+                  <StatusBadge status={prop.status} />
+                </div>
+
+                <div className="flex items-center justify-between mt-2.5 gap-2">
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden flex-shrink-0">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${score}%`,
+                          backgroundColor: score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : '#ef4444',
+                        }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 font-medium">{score}%</span>
+                  </div>
+                  <span className="text-[11px] text-gray-400">{formatRelativeTime(prop.updated_at)}</span>
+                </div>
+
+                {(health || isStale) && (
+                  <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                    {health?.errors > 0 && <SeverityDot count={health.errors} color="bg-red-100 text-red-700" />}
+                    {health?.warnings > 0 && <SeverityDot count={health.warnings} color="bg-amber-100 text-amber-700" />}
+                    {health?.suggestions > 0 && <SeverityDot count={health.suggestions} color="bg-blue-100 text-blue-700" />}
+                    {health && health.errors === 0 && health.warnings === 0 && health.suggestions === 0 && (
+                      <span className="text-[11px] text-green-700 font-medium bg-green-100 px-1.5 py-0.5 rounded-full">Clean</span>
+                    )}
+                    {isStale && (
+                      <span className="text-[11px] font-medium text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                        Stale {days}d
+                      </span>
+                    )}
+                    {health?.top_issue && (
+                      <span className="text-[11px] text-gray-500 truncate w-full">{health.top_issue}</span>
+                    )}
+                  </div>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* ── Desktop table ── */}
+        <div className="hidden md:block bg-white rounded-lg border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -393,6 +467,7 @@ export default function Audit() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   )

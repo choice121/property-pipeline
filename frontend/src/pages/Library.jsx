@@ -5,6 +5,9 @@ import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQu
 import PropertyCard from '../components/PropertyCard'
 import SyncStatus from '../components/SyncStatus'
 import ConfirmModal from '../components/ConfirmModal'
+import PullToRefresh from '../components/PullToRefresh'
+import { SkeletonCard } from '../components/Skeleton'
+import { useLongPress } from '../utils/longPress'
 import { computeCompleteness } from '../utils/completeness'
 
 function buildContext(p) {
@@ -25,6 +28,27 @@ function buildContext(p) {
     flooring: tryArr(p.flooring),
     has_basement: p.has_basement ?? null, has_central_air: p.has_central_air ?? null,
   }
+}
+
+function LongPressPropertyCard({ property, selectMode, selected, onTap, onToggleSelect, onLongPressEnter, aiHealth }) {
+  const lp = useLongPress(onLongPressEnter, { delay: 380 })
+  return (
+    <div
+      onTouchStart={lp.onTouchStart}
+      onTouchMove={lp.onTouchMove}
+      onTouchEnd={lp.onTouchEnd}
+      onTouchCancel={lp.onTouchCancel}
+    >
+      <PropertyCard
+        property={property}
+        onClick={() => { if (!lp.didFire()) onTap() }}
+        selectable={selectMode}
+        selected={selected}
+        onSelect={onToggleSelect}
+        aiHealth={aiHealth}
+      />
+    </div>
+  )
 }
 
 export default function Library() {
@@ -115,7 +139,7 @@ export default function Library() {
     staleTime: 60000,
   })
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, refetch } = useQuery({
     queryKey: ['properties'],
     queryFn: () => getProperties().then((r) => r.data),
     refetchInterval: (query) => {
@@ -1196,38 +1220,42 @@ export default function Library() {
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-gray-200 rounded-lg h-64 animate-pulse" />
-          ))}
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <p className="text-lg">No properties found.</p>
-          <p className="text-sm mt-2">
-            Try adjusting your filters or{' '}
-            <Link to="/scraper" className="text-gray-700 underline">
-              scrape new listings
-            </Link>
-            .
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((property) => (
-            <PropertyCard
-              key={property.id}
-              property={property}
-              onClick={() => !selectMode && navigate(`/edit/${property.id}`)}
-              selectable={selectMode}
-              selected={selectedIds.has(property.id)}
-              onSelect={() => toggleSelect(property.id)}
-              aiHealth={scanHealthMap ? (scanHealthMap[String(property.id)] || null) : null}
-            />
-          ))}
-        </div>
-      )}
+      <PullToRefresh onRefresh={() => refetch()}>
+        {isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {[...Array(6)].map((_, i) => <SkeletonCard key={i} />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <p className="text-lg">No properties found.</p>
+            <p className="text-sm mt-2">
+              Try adjusting your filters or{' '}
+              <Link to="/scraper" className="text-gray-700 underline">
+                scrape new listings
+              </Link>
+              .
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filtered.map((property) => (
+              <LongPressPropertyCard
+                key={property.id}
+                property={property}
+                selectMode={selectMode}
+                selected={selectedIds.has(property.id)}
+                onTap={() => navigate(`/edit/${property.id}`)}
+                onToggleSelect={() => toggleSelect(property.id)}
+                onLongPressEnter={() => {
+                  if (!selectMode) setSelectMode(true)
+                  toggleSelect(property.id)
+                }}
+                aiHealth={scanHealthMap ? (scanHealthMap[String(property.id)] || null) : null}
+              />
+            ))}
+          </div>
+        )}
+      </PullToRefresh>
 
       {confirmModal && (
         <ConfirmModal

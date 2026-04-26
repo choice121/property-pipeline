@@ -2,17 +2,17 @@ import { useState } from 'react'
 import StatusBadge from './StatusBadge'
 import { downloadProperty } from '../api/client'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
-import { resolveImageUrl } from '../utils/imageUrl'
+import { resolveImageUrl, responsiveImage } from '../utils/imageUrl'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
   return '$' + Number(price).toLocaleString() + '/mo'
 }
 
-function getImageUrl(property) {
+function getRawImageUrl(property) {
   try {
     const originals = JSON.parse(property.original_image_urls || '[]')
-    if (originals.length > 0) return resolveImageUrl(originals[0])
+    if (originals.length > 0) return originals[0]
     const paths = JSON.parse(property.local_image_paths || '[]')
     if (paths.length === 0) return null
     const path = paths[0]
@@ -27,7 +27,7 @@ function getImageUrl(property) {
 
 function PlaceholderImage() {
   return (
-    <div className="w-full h-48 bg-gray-100 flex items-center justify-center">
+    <div className="w-full h-44 sm:h-48 bg-gray-100 flex items-center justify-center">
       <svg className="w-16 h-16 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
         <polyline strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} points="9 22 9 12 15 12 15 22" />
@@ -46,10 +46,9 @@ function AiHealthBadge({ health }) {
     : hasWarnings
       ? `${health.warnings} warning${health.warnings !== 1 ? 's' : ''}`
       : 'Looks good'
-  const tooltip = health.top_issue || label
   return (
     <div
-      title={tooltip}
+      title={health.top_issue || label}
       className={`absolute bottom-2 right-2 z-10 flex items-center gap-1 text-white text-xs font-semibold px-2 py-0.5 rounded-full shadow-sm ${color}`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-white/60 inline-block" />
@@ -58,8 +57,36 @@ function AiHealthBadge({ health }) {
   )
 }
 
+function ResponsiveImage({ rawUrl, alt }) {
+  const [loaded, setLoaded] = useState(false)
+  const [errored, setErrored] = useState(false)
+  const url = rawUrl ? resolveImageUrl(rawUrl) : null
+  const { src, srcSet } = responsiveImage(rawUrl, { width: 480, sizes: [320, 480, 640, 960] })
+
+  if (!rawUrl || errored) return <PlaceholderImage />
+
+  return (
+    <div className="relative w-full h-44 sm:h-48 bg-gray-100">
+      {!loaded && <div className="absolute inset-0 bg-gray-200 animate-pulse" />}
+      <img
+        src={src || url}
+        srcSet={srcSet || undefined}
+        sizes="(max-width: 640px) 100vw, 480px"
+        alt={alt || 'Property'}
+        loading="lazy"
+        decoding="async"
+        width="640"
+        height="384"
+        className={`w-full h-full object-cover fade-in ${loaded ? 'loaded' : ''}`}
+        onLoad={() => setLoaded(true)}
+        onError={() => setErrored(true)}
+      />
+    </div>
+  )
+}
+
 export default function PropertyCard({ property, onClick, selectable, selected, onSelect, aiHealth }) {
-  const imageUrl = getImageUrl(property)
+  const rawImageUrl = getRawImageUrl(property)
   const [downloading, setDownloading] = useState(false)
   const [showMissing, setShowMissing] = useState(false)
   const { score, missing } = computeCompleteness(property)
@@ -99,22 +126,22 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
   return (
     <div
       onClick={handleCardClick}
-      className={`bg-white rounded-lg shadow border cursor-pointer transition-all overflow-hidden relative
+      className={`bg-white rounded-lg shadow-sm border cursor-pointer transition-all overflow-hidden relative no-select active:scale-[0.99]
         ${selectable
           ? selected
             ? 'border-gray-900 ring-2 ring-gray-900 shadow-md'
-            : 'border-gray-200 hover:border-gray-400'
+            : 'border-gray-200'
           : 'border-gray-100 hover:shadow-md'
         }`}
     >
       {/* Selection checkbox */}
       {selectable && (
         <div className="absolute top-2 left-2 z-20">
-          <div className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors
-            ${selected ? 'bg-gray-900 border-gray-900' : 'bg-white border-gray-400'}`}
+          <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors shadow
+            ${selected ? 'bg-gray-900 border-gray-900' : 'bg-white/95 border-gray-300'}`}
           >
             {selected && (
-              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 text-white" fill="none" stroke="currentColor" strokeWidth="3" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             )}
@@ -123,7 +150,7 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
       )}
 
       {/* Status badge */}
-      <div className={`absolute z-10 ${selectable ? 'top-2 left-9' : 'top-2 left-2'}`}>
+      <div className={`absolute z-10 ${selectable ? 'top-2 left-10' : 'top-2 left-2'}`}>
         <StatusBadge status={property.status} />
       </div>
 
@@ -133,7 +160,7 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
           onClick={handleDownload}
           disabled={downloading}
           title="Download ZIP"
-          className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-1.5 shadow transition-colors disabled:opacity-50"
+          className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-2 shadow transition-colors disabled:opacity-50"
         >
           {downloading ? (
             <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -148,31 +175,21 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
         </button>
       )}
 
-      {imageUrl ? (
-        <img
-          src={imageUrl}
-          alt={property.address || 'Property'}
-          className="w-full h-48 object-cover"
-          onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling.style.display = 'flex' }}
-        />
-      ) : null}
-      <div style={{ display: imageUrl ? 'none' : 'flex' }} className="w-full h-48 bg-gray-100 items-center justify-center">
-        <PlaceholderImage />
-      </div>
+      <ResponsiveImage rawUrl={rawImageUrl} alt={property.address} />
 
-      <div className="p-4">
-        <p className="text-lg font-semibold text-gray-900">{formatPrice(property.monthly_rent)}</p>
+      <div className="p-3 sm:p-4">
+        <p className="text-base sm:text-lg font-semibold text-gray-900">{formatPrice(property.monthly_rent)}</p>
         <p className="text-sm text-gray-700 truncate mt-1">{property.address || 'No address'}</p>
-        <p className="text-xs text-gray-500">{[property.city, property.state, property.zip].filter(Boolean).join(', ')}</p>
-        <div className="flex gap-4 mt-2 text-xs text-gray-600">
-          <span>{property.bedrooms != null ? `${property.bedrooms} bd` : 'N/A'}</span>
-          <span>{property.bathrooms != null ? `${property.bathrooms} ba` : 'N/A'}</span>
-          <span>{property.square_footage != null ? `${Number(property.square_footage).toLocaleString()} sqft` : 'N/A'}</span>
+        <p className="text-xs text-gray-500 truncate">{[property.city, property.state, property.zip].filter(Boolean).join(', ')}</p>
+        <div className="flex gap-3 mt-2 text-xs text-gray-600">
+          <span>{property.bedrooms != null ? `${property.bedrooms} bd` : '— bd'}</span>
+          <span>{property.bathrooms != null ? `${property.bathrooms} ba` : '— ba'}</span>
+          <span>{property.square_footage != null ? `${Number(property.square_footage).toLocaleString()} sqft` : '— sqft'}</span>
         </div>
 
         <AiHealthBadge health={aiHealth} />
 
-      {/* Completeness bar */}
+        {/* Completeness bar */}
         <div className="mt-3 relative">
           <div
             className="flex items-center justify-between mb-1 cursor-pointer select-none"
@@ -182,7 +199,7 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
               {score}% complete
             </span>
             {missing.length > 0 && (
-              <span className="text-xs text-gray-400 hover:text-gray-600">
+              <span className="text-xs text-gray-400">
                 {missing.length} missing ▾
               </span>
             )}
@@ -194,7 +211,6 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
             />
           </div>
 
-          {/* Tooltip dropdown */}
           {showMissing && missing.length > 0 && (
             <div
               className="absolute bottom-full mb-2 left-0 right-0 bg-gray-900 text-white text-xs rounded-lg p-2.5 shadow-lg z-30"

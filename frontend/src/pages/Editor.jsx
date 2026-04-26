@@ -10,6 +10,7 @@ import AiAssistant from '../components/AiAssistant'
 import TagInput from '../components/TagInput'
 import ListingPreview from '../components/ListingPreview'
 import ConfirmModal from '../components/ConfirmModal'
+import BottomSheet from '../components/BottomSheet'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
 
 const FIELD_LABELS = {
@@ -101,6 +102,7 @@ export default function Editor() {
 
   const [showOriginal, setShowOriginal] = useState(false)
   const [showPreview, setShowPreview] = useState(false)
+  const [showAiSheet, setShowAiSheet] = useState(false)
   const [form, setForm] = useState(null)
   const [saved, setSaved] = useState(false)
   const [downloading, setDownloading] = useState(false)
@@ -580,15 +582,18 @@ export default function Editor() {
           </div>
         </section>
 
-        <AiAssistant
-          form={form}
-          propertyId={id}
-          onApplyDescription={(desc) => set('description', desc)}
-          onApplyFields={(fields) => {
-            isDirty.current = true
-            setForm((prev) => ({ ...prev, ...fields }))
-          }}
-        />
+        {/* Desktop: inline AI Assistant */}
+        <div className="hidden sm:block">
+          <AiAssistant
+            form={form}
+            propertyId={id}
+            onApplyDescription={(desc) => set('description', desc)}
+            onApplyFields={(fields) => {
+              isDirty.current = true
+              setForm((prev) => ({ ...prev, ...fields }))
+            }}
+          />
+        </div>
 
         <section className="bg-white rounded-lg border border-gray-200 p-5">
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Features</h2>
@@ -777,6 +782,35 @@ export default function Editor() {
       {showPreview && (
         <ListingPreview property={form} onClose={() => setShowPreview(false)} />
       )}
+
+      {/* Mobile AI floating action button */}
+      <button
+        type="button"
+        onClick={() => setShowAiSheet(true)}
+        className="sm:hidden fixed right-4 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-500/40 flex items-center justify-center active:scale-95 transition-transform"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)' }}
+        aria-label="Open AI Assistant"
+      >
+        <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+        </svg>
+      </button>
+
+      {/* Mobile AI Assistant bottom sheet */}
+      <BottomSheet open={showAiSheet} onClose={() => setShowAiSheet(false)} title="AI Assistant" maxHeightVh={88}>
+        <div className="p-2">
+          <AiAssistant
+            form={form}
+            propertyId={id}
+            onApplyDescription={(desc) => { set('description', desc); setShowAiSheet(false) }}
+            onApplyFields={(fields) => {
+              isDirty.current = true
+              setForm((prev) => ({ ...prev, ...fields }))
+              setShowAiSheet(false)
+            }}
+          />
+        </div>
+      </BottomSheet>
 
       {confirmModal && (
         <ConfirmModal
