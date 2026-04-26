@@ -9,7 +9,12 @@ from typing import List, Optional
 from database.db import get_db
 from database.repository import PropertyRecord, Repository, get_repo, PROPERTY_FIELDS
 from services import scraper_service, image_service
-from services.scraper_service import generate_property_id, scrape_all_sources, ALL_SOURCES
+from services.scraper_service import (
+    generate_property_id,
+    scrape_all_sources,
+    ALL_SOURCES,
+    ScrapeMetrics,
+)
 from services.watermark_filter import filter_watermarked, watermark_reasons
 
 logger = logging.getLogger(__name__)
@@ -150,11 +155,20 @@ def search_properties(req: SearchRequest):
             )
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
-        results = scraper_service._inject_source(results, source)
+        results = scraper_service._ensure_source(results, source)
         source_counts = {source: len(results)}
 
     filtered_results, blocked_results = filter_watermarked(results)
     enriched = _enrich_results(filtered_results, req.listing_type or "for_rent", source)
+
+    # Phase 1: build the same ScrapeMetrics shape /scrape returns so the front-
+    # end has one consistent telemetry contract across both endpoints. /search
+    # does not save (it's a preview), so `saved` stays 0 here.
+    metrics = ScrapeMetrics(
+        total_scraped=len(results),
+        watermarked_dropped=len(blocked_results),
+        per_source_counts=dict(source_counts),
+    )
 
     return {
         "count":                   len(enriched),
@@ -162,6 +176,7 @@ def search_properties(req: SearchRequest):
         "blocked_watermark_count": len(blocked_results),
         "blocked_watermarks":      blocked_results,
         "source_counts":           source_counts,
+        "meta":                    metrics.to_dict(),
     }
 
 

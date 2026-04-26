@@ -201,6 +201,21 @@ The frontend is built phone-first. Property managers are expected to use this on
 - The uploaded pipeline fix pass has been merged selectively while keeping the Replit import setup and current dependency ranges. Publishing now normalizes property types, checks Supabase for existing address/city/state duplicates before insert, preserves unknown pet status, strips known platform boilerplate from descriptions, caps ImageKit uploads at 25 photos, and supports refreshing photos or syncing edited fields for already-published properties.
 - The scraper UI now includes a source selector and the backend stores the selected source on scraped/search results. The included backfill SQL files (`BACKFILL_PIPE1_property_types.sql`, `BACKFILL_PIPE2_remove_duplicates.sql`, `BACKFILL_PIPE4_landlord_id.sql`) are for manual Supabase cleanup of already-live records.
 
+## Scraping Hardening (April 2026)
+
+A multi-phase plan lives in `docs/SCRAPING_PHASED_PLAN.md` with the deep audit in `docs/SCRAPING_AUDIT.md`. Read both before changing anything in the scraping subsystem.
+
+### Phase 1 — Observability & Source-Attribution Fix ✅ done (2026-04-26)
+- `services/scraper_service.py` now defines `ScrapeMetrics` (dataclass with `total_scraped`, `saved`, `duplicate_skipped`, `watermarked_dropped`, `validation_rejected`, `image_download_queued`, `per_source_counts`, `errors`, `partial`).
+- `_scrape_homeharvest` injects `_source` onto each raw row before `normalize_row` so per-source attribution is correct at the producer (was silently defaulting to `realtor` for every row).
+- `_inject_source` was renamed `_ensure_source` (setdefault semantics) so the multi-source dispatcher's per-source attribution is preserved instead of being overwritten with `"all"`. The old name remains as a backward-compat alias.
+- Both `POST /scrape` and `POST /search` now return a `meta: {...}` block with the full `ScrapeMetrics` shape.
+- `pipeline_scrape_runs.error_message` now stores the metrics JSON for each run (no schema migration; Phase 4 will promote to dedicated columns).
+- `frontend/src/pages/Scraper.jsx` renders a "Run summary" telemetry strip above the results showing scraped / shown / watermark blocked / duplicates / invalid.
+
+### Phases 2–5 — not started
+See `docs/SCRAPING_PHASED_PLAN.md` for the full task list. Phase 2 (reliability — retries, timeouts, UA rotation) is the next unblocked phase.
+
 ## Development Status
 
 Stages 1-7 are implemented, with ongoing property data completeness and publishing reliability upgrades. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.

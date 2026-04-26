@@ -167,6 +167,7 @@ export default function Scraper() {
   const [searchResults, setSearchResults] = useState(null)
   const [blockedWatermarkCount, setBlockedWatermarkCount] = useState(0)
   const [sourceCounts, setSourceCounts] = useState(null)
+  const [runMeta, setRunMeta] = useState(null)
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const [selectedResult, setSelectedResult] = useState(null)
@@ -321,6 +322,7 @@ export default function Scraper() {
     setSearchResults(null)
     setBlockedWatermarkCount(0)
     setSourceCounts(null)
+    setRunMeta(null)
     setSavedIds(new Set())
     setSavingIds(new Set())
     setSaveAllProgress(null)
@@ -333,6 +335,7 @@ export default function Scraper() {
       setSearchResults(res.data.results)
       setBlockedWatermarkCount(res.data.blocked_watermark_count || 0)
       setSourceCounts(res.data.source_counts || null)
+      setRunMeta(res.data.meta || null)
       setShowForm(false)
     } catch (err) {
       setSearchError(err.response?.data?.detail || err.message || 'Search failed.')
@@ -686,7 +689,54 @@ export default function Scraper() {
       {/* Results section */}
       {searchResults !== null && (
         <div>
-          {blockedWatermarkCount > 0 && (
+          {/* Phase 1: per-run telemetry strip — shows everything that was
+              dropped or skipped so users understand why the visible count
+              differs from what was scraped upstream. */}
+          {runMeta && runMeta.total_scraped > 0 && (
+            <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-gray-700">
+                <span>
+                  <span className="font-semibold text-gray-900">{runMeta.total_scraped}</span> scraped
+                </span>
+                <span className="text-gray-400">·</span>
+                <span>
+                  <span className="font-semibold text-emerald-700">{searchResults.length}</span> shown
+                </span>
+                {runMeta.watermarked_dropped > 0 && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span className="text-amber-700">
+                      <span className="font-semibold">{runMeta.watermarked_dropped}</span> watermark blocked
+                    </span>
+                  </>
+                )}
+                {runMeta.duplicate_skipped > 0 && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span className="text-gray-600">
+                      <span className="font-semibold">{runMeta.duplicate_skipped}</span> duplicate
+                    </span>
+                  </>
+                )}
+                {runMeta.validation_rejected > 0 && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span className="text-rose-700">
+                      <span className="font-semibold">{runMeta.validation_rejected}</span> invalid
+                    </span>
+                  </>
+                )}
+                {runMeta.partial && (
+                  <>
+                    <span className="text-gray-400">·</span>
+                    <span className="text-orange-700 font-semibold">partial run</span>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {blockedWatermarkCount > 0 && !runMeta && (
             <div className="mb-4 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg px-4 py-3">
               {blockedWatermarkCount} watermarked {blockedWatermarkCount === 1 ? 'property was' : 'properties were'} blocked and hidden from these results.
             </div>

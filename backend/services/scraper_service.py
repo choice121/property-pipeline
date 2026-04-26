@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import uuid
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import List, Optional
 
@@ -12,6 +13,34 @@ logger = logging.getLogger(__name__)
 HOMEHARVEST_SOURCES = {"realtor", "zillow", "redfin"}
 CUSTOM_SOURCES = {"opendoor", "apartments", "craigslist", "hotpads", "invitation_homes", "progress_residential"}
 ALL_SOURCES = HOMEHARVEST_SOURCES | CUSTOM_SOURCES
+
+
+@dataclass
+class ScrapeMetrics:
+    """Per-run telemetry. Built up by the router as it processes raw results.
+
+    Phase 1 (SCRAPING_PHASED_PLAN.md): every scrape returns this object inside
+    `response.meta` and persists it as JSON on `pipeline_scrape_runs.error_message`.
+    Phase 4 will promote these counters to dedicated columns + a richer schema.
+    """
+    total_scraped: int = 0
+    saved: int = 0
+    duplicate_skipped: int = 0
+    watermarked_dropped: int = 0
+    validation_rejected: int = 0
+    image_download_queued: int = 0
+    per_source_counts: dict = field(default_factory=dict)
+    errors: list = field(default_factory=list)
+    partial: bool = False
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        try:
+            return json.dumps(self.to_dict(), default=str)
+        except Exception:
+            return "{}"
 
 HOMEHARVEST_SITE_MAP = {
     "realtor": "realtor.com",
@@ -658,6 +687,11 @@ def _scrape_homeharvest(
     results = []
     for _, row in df.iterrows():
         row_dict = row.to_dict()
+        # Phase 1 (C1/H4): stamp the real source onto the raw row so normalize_row
+        # picks it up via row.get("_source", "realtor"). Without this, every
+        # HomeHarvest result silently defaulted to "realtor" regardless of which
+        # platform it actually came from.
+        row_dict["_source"] = source
         normalized = normalize_row(row_dict)
         results.append(normalized)
 
@@ -832,8 +866,20 @@ def _scrape_custom(
         raise
 
 
-def _inject_source(results: list, source: str) -> list:
-    """PIPE-3 FIX: stamp the real source onto each normalized row."""
+def _ensure_source(results: list, source: str) -> list:
+    """Phase 1 (C1, H4): only stamp `source` if the producer didn't already
+    set it. The previous behavior unconditionally overwrote per-source
+    attribution from `scrape_all_sources`, causing every multi-source result
+    to be saved with `source = "all"`. Producers (`_scrape_homeharvest` via
+    `_source` injection, `_scrape_custom` via `setdefault`) are now responsible
+    for setting `source` correctly; this is a safety net.
+    """
     for r in results:
-        r["source"] = source
+        if not r.get("source"):
+            r["source"] = source
     return results
+
+
+# Backward-compat alias — kept so any external import keeps working during the
+# Phase 1 transition. New callers must use `_ensure_source`.
+_inject_source = _ensure_source

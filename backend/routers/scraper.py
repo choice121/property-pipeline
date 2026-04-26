@@ -10,7 +10,12 @@ from database.repository import PropertyRecord, Repository, ScrapeRunRecord, get
 from services import scraper_service, image_service
 from services.enrichment_queue import enqueue_enrichment
 from services.enrichment_service import run_rule_based_enrichment
-from services.scraper_service import _calculate_weighted_quality, generate_property_id, ALL_SOURCES
+from services.scraper_service import (
+    _calculate_weighted_quality,
+    generate_property_id,
+    ALL_SOURCES,
+    ScrapeMetrics,
+)
 from services.validator import validate_and_warn
 from services.watermark_filter import watermark_reasons
 
@@ -118,13 +123,20 @@ def scrape_properties(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Scraping failed: {str(e)}")
 
-    results = scraper_service._inject_source(results, req.source or "realtor")
-    total_scraped = len(results)
+    # Phase 1 (C1, H4): use _ensure_source so per-source attribution from the
+    # multi-source dispatcher is preserved instead of being overwritten.
+    results = scraper_service._ensure_source(results, req.source or "realtor")
+
+    metrics = ScrapeMetrics(total_scraped=len(results))
+    for r in results:
+        src = r.get("source") or source
+        metrics.per_source_counts[src] = metrics.per_source_counts.get(src, 0) + 1
 
     saved = []
     for data in results:
         reasons = watermark_reasons(data)
         if reasons:
+            metrics.watermarked_dropped += 1
             logger.info(
                 "Skipping watermarked property %s: %s",
                 data.get("source_listing_id") or data.get("address"),
@@ -139,6 +151,7 @@ def scrape_properties(
             existing = repo.get_by_source_listing_id(source_listing_id)
 
         if existing:
+            metrics.duplicate_skipped += 1
             saved.append(existing)
             continue
 
@@ -163,11 +176,14 @@ def scrape_properties(
         try:
             repo.save(prop)
         except Exception as e:
+            metrics.errors.append(f"save_failed:{prop_id}:{e}")
             logger.error("Failed to save property %s: %s", prop_id, e)
             continue
         saved.append(prop)
+        metrics.saved += 1
 
         if image_urls:
+            metrics.image_download_queued += len(image_urls)
             background_tasks.add_task(download_images_task, prop_id, image_urls)
         background_tasks.add_task(enqueue_enrichment, prop_id)
 
@@ -177,13 +193,21 @@ def scrape_properties(
     ]
     avg_score = round(sum(new_scores) / len(new_scores), 1) if new_scores else None
 
+    # Phase 1.5: persist metrics as JSON in the existing error_message column.
+    # Phase 4 will give these proper columns; for now we piggy-back so we can
+    # ship observability without a schema migration.
     run = ScrapeRunRecord(
         source=source,
         location=req.location,
-        count_total=total_scraped,
-        count_new=len(saved),
+        count_total=metrics.total_scraped,
+        count_new=metrics.saved,
         avg_score=avg_score,
+        error_message=metrics.to_json(),
     )
     repo.add_scrape_run(run)
 
-    return {"count": len(saved), "properties": [p.to_dict() for p in saved]}
+    return {
+        "count": len(saved),
+        "properties": [p.to_dict() for p in saved],
+        "meta": metrics.to_dict(),
+    }

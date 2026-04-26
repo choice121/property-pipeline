@@ -1,0 +1,70 @@
+Perform a full-system, production-level audit of the entire property scraping architecture. This is not a surface scan—go deep into every layer of the system including scraping logic, data extraction, transformation, storage, and frontend rendering.
+Core Objective
+Ensure that every scraped property is:
+100% complete
+Accurate to the original source listing
+Consistently structured
+Optimized for performance and mobile delivery
+Deep Analysis Requirements
+1. Scraping Logic & Extraction
+Analyze how data is being scraped from source sites (DOM parsing, APIs, selectors, etc.)
+Detect fragile selectors, hardcoded values, or patterns that may break
+Identify missing fields or partially scraped data
+Check how images, descriptions, amenities, and metadata are captured
+Evaluate how dynamic content (lazy loading, JS-rendered content) is handled
+2. Data Integrity & Quality
+Verify that scraped data matches the original listing exactly
+Detect:
+Missing fields
+Incorrect mappings
+Truncated descriptions
+Broken or incomplete image sets
+Check for duplicate listings or inconsistent formatting
+Validate schema consistency across all entries
+3. Error Handling & Edge Cases
+Analyze how the system behaves when:
+A page fails to load
+Data is partially available
+The source structure changes
+Identify silent failures vs logged errors
+Recommend stronger fallback and retry strategies
+4. Performance & Scalability
+Identify bottlenecks in scraping speed and processing
+Evaluate concurrency, rate limits, and batching strategies
+Detect anything that could cause slowdowns or crashes under scale
+Suggest optimizations for faster and more efficient scraping
+5. Anti-Blocking & Reliability
+Assess risk of being blocked by source websites
+Check request patterns, headers, and scraping behavior
+Recommend improvements for stealth, rotation, or resilience
+6. Backend Integration
+Review how scraped data is stored (database structure, Supabase setup, etc.)
+Identify inefficiencies in writes, updates, or queries
+Ensure data flows cleanly into the system without corruption
+7. Frontend & Mobile Optimization
+Analyze how scraped data is rendered in the UI
+Detect performance issues on mobile (slow loads, layout shifts, heavy images)
+Ensure listings display cleanly, fully, and consistently on all screen sizes
+Suggest improvements for speed, UX, and responsiveness
+Security & System Safety
+Ensure no sensitive tokens or credentials are exposed during scraping or logging
+Verify secure handling of APIs and integrations
+Identify any vulnerabilities in the workflow
+Output Requirements
+Do NOT give a generic summary.
+Provide:
+A detailed breakdown of all issues, categorized by severity (critical, high, medium, low)
+Clear explanation of why each issue matters
+Exact fixes or improvements for each problem
+A step-by-step upgrade plan to reach production-level quality
+Execution Rules
+Do NOT make assumptions—verify everything from the code and system behavior
+Do NOT execute changes yet
+Present findings first, then propose improvements
+Ask for clarification where needed before proceeding
+Goal
+This scraping system must reach production-grade quality, where:
+Data is complete and identical to source listings
+The system is stable, fast, and scalable
+The platform runs smoothly, especially on mobile devices
+Failures are handled intelligently and never silently
