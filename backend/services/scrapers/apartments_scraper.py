@@ -12,7 +12,7 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from services.http_utils import random_headers
+from services.http_utils import random_headers, get_proxy_map
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +292,7 @@ def scrape(
             url += f"{page}/"
 
         try:
-            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True) as client:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True, proxies=get_proxy_map()) as client:
                 resp = client.get(url)
                 if resp.status_code == 404:
                     url = f"{BASE_URL}/apartments/{slug}/"

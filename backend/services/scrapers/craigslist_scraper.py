@@ -13,7 +13,7 @@ from urllib.parse import urlencode, quote
 
 import httpx
 
-from services.http_utils import random_headers
+from services.http_utils import random_headers, get_proxy_map
 
 logger = logging.getLogger(__name__)
 
@@ -271,7 +271,7 @@ def scrape(
         rss_url += "&" + urlencode(params)
 
     try:
-        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
             resp = client.get(rss_url)
             if resp.status_code != 200:
                 logger.warning(
