@@ -21,6 +21,16 @@ PROPERTY_FIELDS = [
     "edited_fields", "data_quality_score", "missing_fields",
     "inferred_features", "published_at", "choice_property_id",
     "scraped_at", "updated_at",
+    # Phase 3 (3.2) — added 2026-04-26. Each requires a Supabase ALTER TABLE
+    # to actually persist; until the migration runs, `Repository.save` will
+    # silently drop them via the live-schema cache (see _allowed_columns).
+    #   ALTER TABLE pipeline_properties
+    #     ADD COLUMN neighborhood text,
+    #     ADD COLUMN broker_name  text,
+    #     ADD COLUMN agent_name   text,
+    #     ADD COLUMN tax_value    integer,
+    #     ADD COLUMN hoa_fee      integer;
+    "neighborhood", "broker_name", "agent_name", "tax_value", "hoa_fee",
 ]
 
 _PROPERTY_DEFAULTS = {
@@ -121,8 +131,33 @@ class Repository:
         "monthly_rent", "year_built", "floors", "total_units", "garage_spaces",
         "pet_weight_limit", "minimum_lease_months", "security_deposit",
         "last_months_rent", "application_fee", "pet_deposit", "admin_fee",
-        "parking_fee",
+        "parking_fee", "tax_value", "hoa_fee",
     }
+
+    # Phase 3 (3.2): live-schema cache. PROPERTY_FIELDS may declare columns
+    # that the upstream Supabase table does not yet have (because the migration
+    # hasn't been run). We discover the real shape on first save by selecting
+    # one row, then filter out any unknown keys before the upsert. Once the
+    # ALTER TABLE is applied, restart the process and the new columns light up
+    # automatically. Process-local — small, simple, sufficient.
+    _allowed_columns_cache: set[str] | None = None
+
+    def _allowed_columns(self) -> set[str]:
+        if Repository._allowed_columns_cache is not None:
+            return Repository._allowed_columns_cache
+        try:
+            probe = self._client.table("pipeline_properties").select("*").limit(1).execute()
+            if probe.data:
+                cols = set(probe.data[0].keys())
+            else:
+                # Empty table — fall back to optimistic "trust PROPERTY_FIELDS"
+                # (a write will fail loudly if a column is missing; we'll learn
+                # the real shape on the next call when the row exists).
+                cols = set(PROPERTY_FIELDS)
+        except Exception:
+            cols = set(PROPERTY_FIELDS)
+        Repository._allowed_columns_cache = cols
+        return cols
 
     def save(self, prop: PropertyRecord) -> None:
         prop.updated_at = datetime.now(timezone.utc).isoformat()
@@ -133,6 +168,13 @@ class Repository:
                     data[field] = int(float(data[field]))
                 except (ValueError, TypeError):
                     pass
+
+        allowed = self._allowed_columns()
+        unknown = [k for k in data.keys() if k not in allowed]
+        if unknown:
+            for k in unknown:
+                data.pop(k, None)
+
         self._client.table("pipeline_properties").upsert(data, on_conflict="id").execute()
 
     def delete(self, prop_id: str) -> None:

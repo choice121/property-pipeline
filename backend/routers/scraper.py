@@ -16,7 +16,7 @@ from services.scraper_service import (
     ALL_SOURCES,
     ScrapeMetrics,
 )
-from services.validator import validate_and_warn
+from services.validator import validate_and_filter
 from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
@@ -155,7 +155,18 @@ def scrape_properties(
             saved.append(existing)
             continue
 
-        data = validate_and_warn(data)
+        # Phase 3 (3.1): hard-reject unsalvageable rows instead of saving
+        # garbage. validate_and_filter returns (None, reason) for anything
+        # missing rent / address or with rent below the floor.
+        data, reject_reason = validate_and_filter(data)
+        if reject_reason:
+            metrics.validation_rejected += 1
+            metrics.errors.append(f"validation_rejected:{reject_reason}")
+            logger.info(
+                "Rejected property %s: %s",
+                source_listing_id or "?", reject_reason,
+            )
+            continue
         data = run_rule_based_enrichment(data)
 
         image_urls = []

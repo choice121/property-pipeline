@@ -144,6 +144,68 @@ def _calculate_weighted_quality(prop: dict, image_urls: list) -> tuple[int, list
     return score, missing
 
 
+# Phase 3 (3.4): keep `original_data` lean. The full HomeHarvest row can be
+# multi-KB (raw photos, full description repeated, agent details, etc) and we
+# only ever read a tiny slice from it (pricing flags + a few raw upstream IDs).
+# This allow-list keeps audit trails useful while protecting Supabase row size.
+_ORIGINAL_DATA_KEEP_KEYS = frozenset({
+    "mls_id", "listing_id", "property_url", "property_id",
+    "list_price", "list_price_min", "list_price_max",
+    "status", "list_date", "last_sold_date", "last_sold_price",
+    "tax", "hoa_fee", "neighborhoods", "neighborhood",
+    "agent_name", "broker_name", "office_name",
+})
+_ORIGINAL_DATA_MAX_BYTES = 4096
+
+
+def _compact_original_data(row_serializable: dict) -> str:
+    """Reduce a raw upstream row to a small, allow-listed JSON blob.
+
+    Keeps:
+      • known small identifiers / prices (allow-list above)
+      • any key starting with `_` (these are app-internal flags written by
+        downstream services like pricing_service that need to round-trip)
+    Drops everything else. If the result still exceeds 4 KB, we truncate any
+    remaining string values rather than blow past the cap.
+    """
+    compact: dict = {}
+    for key, value in row_serializable.items():
+        if key.startswith("_") or key in _ORIGINAL_DATA_KEEP_KEYS:
+            compact[key] = value
+
+    blob = json.dumps(compact, default=str)
+    if len(blob.encode("utf-8")) <= _ORIGINAL_DATA_MAX_BYTES:
+        return blob
+
+    for key, value in list(compact.items()):
+        if isinstance(value, str) and len(value) > 200:
+            compact[key] = value[:200] + "…"
+    blob = json.dumps(compact, default=str)
+    if len(blob.encode("utf-8")) <= _ORIGINAL_DATA_MAX_BYTES:
+        return blob
+
+    while len(blob.encode("utf-8")) > _ORIGINAL_DATA_MAX_BYTES and compact:
+        longest = max(compact.items(), key=lambda kv: len(json.dumps(kv[1], default=str)))
+        compact.pop(longest[0], None)
+        blob = json.dumps(compact, default=str)
+    return blob
+
+
+def _dedup_preserve_order(items: list) -> list:
+    """Deduplicate a list while preserving first-seen order.
+    Used to collapse amenity/appliance/utility lists where the same term may
+    arrive from multiple upstream fields (L3 in the audit)."""
+    seen = set()
+    out = []
+    for item in items or []:
+        key = item.lower().strip() if isinstance(item, str) else item
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
 def normalize_row(row: dict) -> dict:
     def get(key):
         v = row.get(key)
@@ -448,6 +510,34 @@ def normalize_row(row: dict) -> dict:
         elif "no laundry" in searchable:
             laundry_type = "None"
 
+    # Phase 3 (3.5): de-double-count amenities. Same term can arrive from
+    # `features`, `amenities`, `community_features`, etc. — collapse before
+    # persistence so the UI doesn't show "Pool, Pool, Pool".
+    amenities = _dedup_preserve_order(amenities)
+    appliances = _dedup_preserve_order(appliances)
+    utilities_included = _dedup_preserve_order(utilities_included)
+    flooring = _dedup_preserve_order(flooring)
+
+    # Phase 3 (3.2): pull broker / agent / neighborhood / tax / hoa.
+    neighborhoods_raw = first_value("neighborhoods", "neighborhood")
+    if isinstance(neighborhoods_raw, list):
+        neighborhood = neighborhoods_raw[0] if neighborhoods_raw else None
+    elif isinstance(neighborhoods_raw, str):
+        neighborhood = neighborhoods_raw.split(",")[0].strip() or None
+    else:
+        neighborhood = None
+    broker_name = first_value("broker_name", "broker", "office_name")
+    agent_name = first_value("agent_name", "agent", "listing_agent")
+    tax_value = to_int(first_value("tax", "tax_value", "annual_tax"))
+    hoa_fee = to_int(first_value("hoa_fee", "hoa", "hoa_monthly"))
+
+    # Phase 3 (3.3): supply a sensible default for showing_instructions when
+    # the upstream gave us nothing. Better than NULL → empty UI field. The
+    # AI enricher can still overwrite this later with something specific.
+    showing_instructions = first_value("showing_instructions", "showing_info", "showing_notes")
+    if not showing_instructions:
+        showing_instructions = "Contact listing agent to schedule a showing."
+
     inferred_features = []
     for label, value in [
         ("Basement", has_basement),
@@ -533,9 +623,15 @@ def normalize_row(row: dict) -> dict:
         "laundry_type": laundry_type,
         "has_basement": has_basement,
         "has_central_air": has_central_air,
+        "showing_instructions": showing_instructions,
+        "neighborhood": neighborhood,
+        "broker_name": broker_name,
+        "agent_name": agent_name,
+        "tax_value": tax_value,
+        "hoa_fee": hoa_fee,
         "original_image_urls": json.dumps(image_urls),
         "local_image_paths": "[]",
-        "original_data": json.dumps(row_serializable),
+        "original_data": _compact_original_data(row_serializable),
         "edited_fields": "[]",
         "data_quality_score": data_quality_score,
         "missing_fields": json.dumps(missing_fields),

@@ -98,6 +98,10 @@ def validate_and_warn(prop: dict) -> dict:
     """
     Run validation, log warnings for any errors, and return the cleaned prop.
     Never raises — validation is always non-blocking.
+
+    NOTE: kept for backward compatibility. New code should prefer
+    `validate_and_filter` which actually rejects unsalvageable rows instead
+    of just logging.
     """
     try:
         cleaned, errors = validate(prop)
@@ -107,3 +111,44 @@ def validate_and_warn(prop: dict) -> dict:
     except Exception as e:
         logger.warning("Validator crashed unexpectedly: %s", e)
         return prop
+
+
+# Phase 3 (3.1): hard-reject thresholds. A row that fails any of these is
+# unusable as a rental listing and should never be persisted — better to drop
+# it cleanly with a counted reason than save garbage and let it pollute the
+# library + the dashboard counts. Values chosen from the audit (C4):
+#   • monthly_rent < $200  → demonstrably a misparsed/decimal/list-price field
+#   • monthly_rent missing → no point persisting a "rental" with no rent
+#   • address  missing     → cannot dedupe, cannot geocode, cannot publish
+HARD_MIN_RENT = 200
+
+
+def validate_and_filter(prop: dict) -> tuple[dict | None, str | None]:
+    """
+    Validate, coerce, and hard-reject unsalvageable rows.
+
+    Returns:
+      (cleaned_prop, None) on success — caller should persist `cleaned_prop`.
+      (None, reason)        on rejection — caller should increment
+                            metrics.validation_rejected with `reason`.
+
+    Rejection reasons (stable strings — used in metrics + logs):
+      "missing_rent" | "rent_below_min" | "missing_address" | "validator_crash"
+    """
+    try:
+        cleaned, _errors = validate(prop)
+    except Exception as e:
+        logger.warning("Validator crashed unexpectedly: %s", e)
+        return None, "validator_crash"
+
+    address = cleaned.get("address")
+    if not address or not str(address).strip():
+        return None, "missing_address"
+
+    rent = cleaned.get("monthly_rent")
+    if rent is None:
+        return None, "missing_rent"
+    if rent < HARD_MIN_RENT:
+        return None, "rent_below_min"
+
+    return cleaned, None
