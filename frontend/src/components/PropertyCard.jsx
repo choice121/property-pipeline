@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import StatusBadge from './StatusBadge'
 import { downloadProperty } from '../api/client'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
 import { resolveImageUrl, responsiveImage } from '../utils/imageUrl'
+import { isFavorite, toggleFavorite, FAVORITES_EVENT } from '../utils/favorites'
+import { tapHaptic } from '../utils/haptics'
 
 function formatPrice(price) {
   if (price == null) return 'N/A'
@@ -89,8 +91,22 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
   const rawImageUrl = getRawImageUrl(property)
   const [downloading, setDownloading] = useState(false)
   const [showMissing, setShowMissing] = useState(false)
+  const [fav, setFav] = useState(() => isFavorite(property.id))
   const { score, missing } = computeCompleteness(property)
   const { bar, text } = completenessColor(score)
+
+  useEffect(() => {
+    function sync() { setFav(isFavorite(property.id)) }
+    window.addEventListener(FAVORITES_EVENT, sync)
+    return () => window.removeEventListener(FAVORITES_EVENT, sync)
+  }, [property.id])
+
+  function handleToggleFavorite(e) {
+    e.stopPropagation()
+    const next = toggleFavorite(property.id)
+    setFav(next)
+    if (next) tapHaptic()
+  }
 
   async function handleDownload(e) {
     e.stopPropagation()
@@ -154,25 +170,42 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
         <StatusBadge status={property.status} />
       </div>
 
-      {/* Download button */}
+      {/* Favorite + Download buttons */}
       {!selectable && (
-        <button
-          onClick={handleDownload}
-          disabled={downloading}
-          title="Download ZIP"
-          className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-2 shadow transition-colors disabled:opacity-50"
-        >
-          {downloading ? (
-            <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        <>
+          <button
+            onClick={handleToggleFavorite}
+            title={fav ? 'Remove favorite' : 'Add favorite'}
+            aria-pressed={fav}
+            aria-label={fav ? 'Remove from favorites' : 'Add to favorites'}
+            className={`absolute top-2 right-12 z-10 rounded-full p-2 shadow transition-colors touch-target ${
+              fav
+                ? 'bg-amber-400/95 hover:bg-amber-400 text-white'
+                : 'bg-white/90 hover:bg-white text-gray-500 hover:text-amber-500'
+            }`}
+          >
+            <svg className="w-4 h-4" viewBox="0 0 20 20" fill={fav ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.6">
+              <path strokeLinejoin="round" d="M10 1.5l2.625 5.32 5.875.855-4.25 4.14 1.005 5.85L10 14.91l-5.255 2.755L5.75 11.815 1.5 7.675l5.875-.855L10 1.5z" />
             </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
-            </svg>
-          )}
-        </button>
+          </button>
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            title="Download ZIP"
+            className="absolute top-2 right-2 z-10 bg-white/90 hover:bg-white text-gray-600 hover:text-blue-600 rounded-full p-2 shadow transition-colors disabled:opacity-50"
+          >
+            {downloading ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+              </svg>
+            )}
+          </button>
+        </>
       )}
 
       <ResponsiveImage rawUrl={rawImageUrl} alt={property.address} />

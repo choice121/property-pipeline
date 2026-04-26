@@ -8,6 +8,7 @@ import ConfirmModal from '../components/ConfirmModal'
 import PullToRefresh from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeleton'
 import RecentlyViewedStrip from '../components/RecentlyViewedStrip'
+import FavoritesStrip from '../components/FavoritesStrip'
 import { useLongPress } from '../utils/longPress'
 import { computeCompleteness } from '../utils/completeness'
 
@@ -1222,7 +1223,10 @@ export default function Library() {
       </div>
 
       {!selectMode && data && data.length > 0 && (
-        <RecentlyViewedStrip properties={data} />
+        <>
+          <FavoritesStrip properties={data} />
+          <RecentlyViewedStrip properties={data} />
+        </>
       )}
 
       <PullToRefresh onRefresh={() => refetch()}>
