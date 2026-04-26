@@ -8,7 +8,18 @@ from typing import List, Optional
 
 from homeharvest import scrape_property
 
+from services.http_utils import retry_with_backoff
+
 logger = logging.getLogger(__name__)
+
+# Phase 2 (2.2): per-source wall-clock deadline (seconds). One slow source
+# cannot now hold the whole multi-source scrape hostage.
+PER_SOURCE_DEADLINE_SECONDS = 35
+
+# Phase 2 (2.7): cap the multi-source thread pool. Above 4 workers we get no
+# real speedup (most upstreams are I/O-bound on a small number of hosts) and
+# we burn sockets + Replit container memory.
+MAX_MULTISOURCE_WORKERS = 4
 
 HOMEHARVEST_SOURCES = {"realtor", "zillow", "redfin"}
 CUSTOM_SOURCES = {"opendoor", "apartments", "craigslist", "hotpads", "invitation_homes", "progress_residential"}
@@ -679,7 +690,32 @@ def _scrape_homeharvest(
     if limit:
         kwargs["limit"] = limit
 
-    df = scrape_property(**kwargs)
+    # Phase 2 (2.1, 2.2): wrap HomeHarvest in retry + per-source deadline.
+    # `scrape_property` is synchronous and not externally cancellable, so we
+    # run it in a worker thread and bound the wait. If the deadline fires the
+    # worker keeps running (best-effort) but its result is discarded.
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+
+    def _do_call():
+        return scrape_property(**kwargs)
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        future = ex.submit(
+            retry_with_backoff,
+            _do_call,
+            attempts=3,
+            base_delay=1.0,
+            max_delay=4.0,
+            label=f"homeharvest:{source}",
+        )
+        try:
+            df = future.result(timeout=PER_SOURCE_DEADLINE_SECONDS)
+        except FuturesTimeout:
+            logger.warning(
+                "HomeHarvest source '%s' exceeded %ds deadline — returning empty",
+                source, PER_SOURCE_DEADLINE_SECONDS,
+            )
+            return []
 
     if df is None or len(df) == 0:
         return []
@@ -731,6 +767,8 @@ def scrape_all_sources(
 
     sources = list(ALL_SOURCES)
     per_source_limit = max(30, limit // len(sources))
+    # Phase 2 (2.7): cap workers — over 4 there's no real win and we exhaust sockets.
+    workers = min(len(sources), MAX_MULTISOURCE_WORKERS)
 
     common_kwargs = dict(
         location=location,
@@ -777,9 +815,9 @@ def scrape_all_sources(
     all_results = []
     source_counts = {}
 
-    with ThreadPoolExecutor(max_workers=len(sources)) as executor:
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         futures = {executor.submit(_run_source, src): src for src in sources}
-        for future in as_completed(futures, timeout=60):
+        for future in as_completed(futures, timeout=PER_SOURCE_DEADLINE_SECONDS * 2):
             src = futures[future]
             try:
                 src_name, src_results = future.result(timeout=5)

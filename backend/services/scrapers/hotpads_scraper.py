@@ -11,14 +11,12 @@ from datetime import datetime
 
 import httpx
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+# Phase 2 (2.8): UA rotation — UA supplied per-request by random_headers().
+HEADER_EXTRAS = {
     "Accept": "application/json, */*",
     "Referer": "https://hotpads.com/",
 }
@@ -193,7 +191,7 @@ def scrape(
 
     for endpoint in api_endpoints:
         try:
-            with httpx.Client(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     try:

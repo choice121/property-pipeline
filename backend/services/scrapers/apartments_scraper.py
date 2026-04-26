@@ -12,17 +12,13 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+# Phase 2 (2.8): UA rotation — UA is supplied per-request by random_headers().
+HEADER_EXTRAS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
 }
 
 BASE_URL = "https://www.apartments.com"
@@ -296,7 +292,7 @@ def scrape(
             url += f"{page}/"
 
         try:
-            with httpx.Client(headers=HEADERS, timeout=25, follow_redirects=True) as client:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True) as client:
                 resp = client.get(url)
                 if resp.status_code == 404:
                     url = f"{BASE_URL}/apartments/{slug}/"

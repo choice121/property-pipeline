@@ -12,18 +12,15 @@ from datetime import datetime
 
 import httpx
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.invitationhomes.com"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
+# Phase 2 (2.8): UA rotation — UA supplied per-request by random_headers().
+HEADER_EXTRAS = {
     "Accept": "application/json, */*",
-    "Accept-Language": "en-US,en;q=0.9",
     "Referer": BASE_URL,
 }
 
@@ -257,7 +254,7 @@ def _fetch_markets() -> list:
     """Fetch the full list of IH markets with their slugs from the root __data.json."""
     try:
         url = f"{BASE_URL}/find-a-home/__data.json"
-        with httpx.Client(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("IH markets endpoint returned %d", resp.status_code)
@@ -300,7 +297,7 @@ def _fetch_market_properties(market_slug: str) -> tuple[list, list]:
     Returns (properties_list, raw_arr) for decoding.
     """
     url = f"{BASE_URL}/markets/houses-for-rent/{market_slug}/__data.json"
-    headers = {**HEADERS, "Referer": f"{BASE_URL}/markets/houses-for-rent/{market_slug}"}
+    headers = random_headers({**HEADER_EXTRAS, "Referer": f"{BASE_URL}/markets/houses-for-rent/{market_slug}"})
 
     try:
         with httpx.Client(headers=headers, timeout=30, follow_redirects=True) as client:

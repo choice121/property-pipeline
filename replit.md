@@ -213,8 +213,22 @@ A multi-phase plan lives in `docs/SCRAPING_PHASED_PLAN.md` with the deep audit i
 - `pipeline_scrape_runs.error_message` now stores the metrics JSON for each run (no schema migration; Phase 4 will promote to dedicated columns).
 - `frontend/src/pages/Scraper.jsx` renders a "Run summary" telemetry strip above the results showing scraped / shown / watermark blocked / duplicates / invalid.
 
-### Phases 2–5 — not started
-See `docs/SCRAPING_PHASED_PLAN.md` for the full task list. Phase 2 (reliability — retries, timeouts, UA rotation) is the next unblocked phase.
+### Phase 2 — Reliability of upstream calls ✅ done (2026-04-26)
+- New shared module `services/http_utils.py` centralizes:
+  - `random_headers()` / `USER_AGENTS` (5-UA pool: Chrome Win/Mac/Linux, Firefox Mac, Safari Mac) — picked per request.
+  - `retry_with_backoff(fn, attempts=3)` — retries `httpx` transport errors + `5xx` only; **never** retries `4xx`.
+  - `nominatim_limiter` (process-global threading-locked rate limiter, 1.05s min interval) — concurrent enrichment workers can no longer collectively violate OSM Nominatim's 1 req/s policy.
+- `services/scraper_service.py`:
+  - `_scrape_homeharvest` runs `scrape_property` through `retry_with_backoff` inside a `ThreadPoolExecutor` with a `PER_SOURCE_DEADLINE_SECONDS = 35` wall-clock cap.
+  - `scrape_all_sources` is now capped at `MAX_MULTISOURCE_WORKERS = 4` (above this we get no real speedup but exhaust sockets).
+- `services/image_service.py` — `_download_one` now returns a `(success, reason)` tuple and retries once on transport errors only (`ConnectError`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`, `RemoteProtocolError`). Reason codes: `ok | http_<code> | not_image | too_small | low_quality | watermarked | transient | error`. `download_images` aggregates per-reason counts and emits one INFO log line per property.
+- `services/enrichment_service.py` — `geocode_property` now calls `nominatim_limiter.acquire()` before each request and the trailing `time.sleep(1)` is removed. UA upgraded to include a contact email per OSM TOS.
+- All 6 custom scrapers (`apartments`, `opendoor`, `hotpads`, `craigslist`, `invitation_homes`, `progress_residential`) now use `random_headers(HEADER_EXTRAS)` per request instead of a frozen module-level `HEADERS` dict.
+- **Deferred**: 2.3 (request-level `asyncio.wait_for`) — covered transitively by 2.2 + the existing `as_completed(timeout=PER_SOURCE_DEADLINE_SECONDS * 2)`. Promoting routes to `async def` is a larger refactor; revisit if traces show requests still hanging.
+- **Partial**: 2.5 (per-property image-download stats) — currently logged only; DB persistence into `inferred_features` deferred to Phase 4 to avoid a write-shape change here.
+
+### Phases 3–5 — not started
+See `docs/SCRAPING_PHASED_PLAN.md` for the full task list. Phase 3 (data correctness — normalization, dedup keys, watermark fixes) is the next unblocked phase.
 
 ## Development Status
 

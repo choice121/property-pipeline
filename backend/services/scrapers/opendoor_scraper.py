@@ -11,16 +11,13 @@ from datetime import datetime
 
 import httpx
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/122.0.0.0 Safari/537.36"
-    ),
+# Phase 2 (2.8): UA rotation — UA supplied per-request by random_headers().
+HEADER_EXTRAS = {
     "Accept": "application/json, text/html,*/*",
-    "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://www.opendoor.com/",
 }
 
@@ -193,7 +190,7 @@ def scrape(
 
     for endpoint in endpoints:
         try:
-            with httpx.Client(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -230,7 +227,7 @@ def _scrape_html(location: str, loc: dict, params: dict, limit: int) -> list:
         slug = f"{city}-{state}" if state else city
 
         url = f"{BASE_URL}/homes/{slug}"
-        with httpx.Client(headers=HEADERS, timeout=20, follow_redirects=True) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("Opendoor HTML page returned %d for %s", resp.status_code, url)

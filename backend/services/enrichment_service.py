@@ -89,12 +89,18 @@ def geocode_property(prop_id: str, repo) -> None:
     if not address.strip():
         return
 
+    # Phase 2 (2.6): process-global token bucket — concurrent enrichment workers
+    # cannot now collectively exceed Nominatim's 1 req/s policy. The previous
+    # `time.sleep(1)` at function exit only protected serial callers.
+    from services.http_utils import nominatim_limiter
+    nominatim_limiter.acquire()
+
     try:
         with httpx.Client(timeout=8) as client:
             r = client.get(
                 "https://nominatim.openstreetmap.org/search",
                 params={"q": address, "format": "json", "limit": 1},
-                headers={"User-Agent": "ChoiceProperties/1.0"},
+                headers={"User-Agent": "ChoiceProperties/1.0 (internal-tool@choiceproperties.ca)"},
             )
             data = r.json()
             if data:
@@ -113,5 +119,3 @@ def geocode_property(prop_id: str, repo) -> None:
                 )
     except Exception as e:
         logger.debug("Geocoding failed for %s (%s): %s", prop_id, address, e)
-
-    time.sleep(1)

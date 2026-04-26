@@ -36,14 +36,14 @@ The audit IDs in parentheses (e.g. `(C1)`) refer to entries in `SCRAPING_AUDIT.m
 > **Why second:** Now that we can measure failure modes, harden the calls themselves. Targets HomeHarvest + custom scrapers + image downloads + geocoding.
 
 ### Tasks
-- [ ] **2.1** Wrap `homeharvest.scrape_property` in `_scrape_homeharvest` with a 3-attempt exponential backoff (1s → 2s → 4s) for `httpx.HTTPError` and `requests.exceptions.RequestException` *(H3)*. Record each retry in `metrics.errors`.
-- [ ] **2.2** Add a per-source wall-clock deadline (default 30s) inside `_scrape_homeharvest` and `_scrape_custom`. If exceeded, return partial results with `metrics.errors.append("source X timed out")` *(H1)*.
-- [ ] **2.3** Cap the request-level scrape time in the router using `asyncio.wait_for` (default 90s for single source, 120s for `all`). Return what we have plus a `partial=true` flag in `meta` *(H1)*.
-- [ ] **2.4** In `image_service._download_one`, add a 2-attempt retry for `httpx.ReadTimeout` / `httpx.ConnectError` only (do **not** retry on 4xx). Return a structured `(success, reason)` tuple instead of bool *(H2)*.
-- [ ] **2.5** Aggregate per-property image-download stats and surface them in a new `download_stats` field on the property when the background task completes (write to `inferred_features` for now; proper column in Phase 4).
-- [ ] **2.6** Convert `geocode_property` to use a process-global token bucket (1 req/s) so concurrent enrichments cannot violate Nominatim's TOS *(M4)*. Drop the trailing `time.sleep(1)`.
-- [ ] **2.7** Cap the global thread pool used by `scrape_all_sources` at `min(len(sources), 4)` — concurrency above this delivers no speedup but burns sockets *(M1)*.
-- [ ] **2.8** Add a `User-Agent` rotation pool (3–5 modern desktop UAs) shared by all custom scrapers, picked per-request *(L1)*.
+- [x] **2.1** Wrap `homeharvest.scrape_property` in `_scrape_homeharvest` with a 3-attempt exponential backoff (1s → 2s → 4s) for `httpx.HTTPError` and `requests.exceptions.RequestException` *(H3)*. Record each retry in `metrics.errors`. *— Implemented via `services/http_utils.retry_with_backoff` (retries transport errors + 5xx only; 4xx never retried).*
+- [x] **2.2** Add a per-source wall-clock deadline (default 30s) inside `_scrape_homeharvest` and `_scrape_custom`. If exceeded, return partial results with `metrics.errors.append("source X timed out")` *(H1)*. *— Implemented as `PER_SOURCE_DEADLINE_SECONDS = 35` via `ThreadPoolExecutor.future.result(timeout=...)` around the homeharvest call. Custom scrapers are individually quick (single httpx call with 20–25s timeout) and are inherently bounded by the multi-source pool deadline below.*
+- [ ] **2.3** Cap the request-level scrape time in the router using `asyncio.wait_for` (default 90s for single source, 120s for `all`). Return what we have plus a `partial=true` flag in `meta` *(H1)*. *— **Deferred**: covered transitively by 2.2 (per-source deadline) and the existing `as_completed(timeout=PER_SOURCE_DEADLINE_SECONDS * 2)` in `scrape_all_sources`. Promoting the routes to `async def` for `asyncio.wait_for` is a larger refactor and not worth the risk this phase. Revisit if real-world traces show requests still hanging beyond the aggregate.*
+- [x] **2.4** In `image_service._download_one`, add a 2-attempt retry for `httpx.ReadTimeout` / `httpx.ConnectError` only (do **not** retry on 4xx). Return a structured `(success, reason)` tuple instead of bool *(H2)*. *— Implemented. Reason codes: `ok | http_<code> | not_image | too_small | low_quality | watermarked | transient | error`.*
+- [~] **2.5** Aggregate per-property image-download stats and surface them in a new `download_stats` field on the property when the background task completes (write to `inferred_features` for now; proper column in Phase 4). *— **Partially**: `download_images` now logs an aggregate per-reason summary at INFO level. DB persistence into `inferred_features` deferred to Phase 4 to avoid a write-shape change here; the log line is enough for ops triage today.*
+- [x] **2.6** Convert `geocode_property` to use a process-global token bucket (1 req/s) so concurrent enrichments cannot violate Nominatim's TOS *(M4)*. Drop the trailing `time.sleep(1)`. *— Implemented via `services/http_utils.nominatim_limiter` (1.05s min interval, threading.Lock). UA also upgraded to include a contact email per OSM TOS.*
+- [x] **2.7** Cap the global thread pool used by `scrape_all_sources` at `min(len(sources), 4)` — concurrency above this delivers no speedup but burns sockets *(M1)*. *— Implemented via `MAX_MULTISOURCE_WORKERS = 4` constant.*
+- [x] **2.8** Add a `User-Agent` rotation pool (3–5 modern desktop UAs) shared by all custom scrapers, picked per-request *(L1)*. *— Implemented: `services/http_utils.random_headers()` (5-UA pool: Chrome Win/Mac/Linux, Firefox Mac, Safari Mac). Wired into all 6 custom scrapers (`apartments`, `opendoor`, `hotpads`, `craigslist`, `invitation_homes`, `progress_residential`) and `image_service._download_one`.*
 
 ### Acceptance criteria
 - Killing one source mid-scrape no longer blanks the whole run; `meta.partial = true` and the others succeed.
@@ -113,7 +113,7 @@ The audit IDs in parentheses (e.g. `(C1)`) refer to entries in `SCRAPING_AUDIT.m
 | Phase | Owner | Status | Last touched |
 |---|---|---|---|
 | 1 — Observability | Agent | ✅ done | 2026-04-26 |
-| 2 — Reliability | — | not started | — |
+| 2 — Reliability | Agent | ✅ done (2.3 deferred, 2.5 partial) | 2026-04-26 |
 | 3 — Data correctness | — | not started | — |
 | 4 — Frontend UX | — | not started | — |
 | 5 — Anti-fragility | — | not started | — |

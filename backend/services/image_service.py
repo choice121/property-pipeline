@@ -6,14 +6,12 @@ from typing import List
 
 import httpx
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STORAGE_DIR = os.path.join(BASE_DIR, "storage", "images")
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-}
 
 
 def get_property_dir(property_id: str) -> str:
@@ -90,29 +88,54 @@ def _is_quality_image(content: bytes) -> tuple[bool, str]:
         return False, "cannot_decode"
 
 
-def _download_one(url: str, filepath: str) -> bool:
-    try:
-        with httpx.Client(timeout=20, follow_redirects=True) as client:
-            resp = client.get(url, headers=HEADERS)
-        if resp.status_code != 200:
-            return False
-        content_type = resp.headers.get("content-type", "")
-        if not content_type.startswith("image/"):
-            return False
-        if len(resp.content) < 5 * 1024:
-            return False
-        valid, reason = _is_quality_image(resp.content)
-        if not valid:
-            logger.debug("Skipping image %s: %s", url, reason)
-            return False
-        if _has_branded_overlay(resp.content):
-            logger.info("Skipping watermarked image: %s", url)
-            return False
-        with open(filepath, "wb") as f:
-            f.write(resp.content)
-        return True
-    except Exception:
-        return False
+_TRANSIENT_DOWNLOAD_EXC = (
+    httpx.ConnectError,
+    httpx.ReadTimeout,
+    httpx.WriteTimeout,
+    httpx.PoolTimeout,
+    httpx.RemoteProtocolError,
+)
+
+
+def _download_one(url: str, filepath: str) -> tuple[bool, str]:
+    """Download a single image. Returns (success, reason).
+
+    Phase 2 (2.4): retry once on transport-level errors only. Quality/content-
+    type/watermark rejections are deterministic — retrying them is wasted I/O.
+    Reason codes: ok | http_<code> | not_image | too_small | low_quality |
+                  watermarked | transient | error
+    """
+    last_reason = "error"
+    for attempt in (1, 2):
+        try:
+            with httpx.Client(timeout=20, follow_redirects=True) as client:
+                resp = client.get(url, headers=random_headers())
+            if resp.status_code != 200:
+                return False, f"http_{resp.status_code}"
+            content_type = resp.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                return False, "not_image"
+            if len(resp.content) < 5 * 1024:
+                return False, "too_small"
+            valid, reason = _is_quality_image(resp.content)
+            if not valid:
+                logger.debug("Skipping image %s: %s", url, reason)
+                return False, "low_quality"
+            if _has_branded_overlay(resp.content):
+                logger.info("Skipping watermarked image: %s", url)
+                return False, "watermarked"
+            with open(filepath, "wb") as f:
+                f.write(resp.content)
+            return True, "ok"
+        except _TRANSIENT_DOWNLOAD_EXC as exc:
+            last_reason = "transient"
+            if attempt == 1:
+                logger.debug("Transient download error for %s (%s) — retrying", url, type(exc).__name__)
+                continue
+        except Exception as exc:
+            logger.debug("Download error for %s: %s", url, exc)
+            return False, "error"
+    return False, last_reason
 
 
 def download_images(property_id: str, image_urls: list) -> List[str]:
@@ -124,15 +147,24 @@ def download_images(property_id: str, image_urls: list) -> List[str]:
     def fetch(args):
         index, url = args
         filepath = os.path.join(prop_dir, f"{index}.jpg")
-        success = _download_one(url, filepath)
-        return index, success
+        success, reason = _download_one(url, filepath)
+        return index, success, reason
 
     results = {}
+    reason_counts: dict[str, int] = {}
     with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(fetch, item): item[0] for item in indexed}
         for future in as_completed(futures):
-            index, success = future.result()
+            index, success, reason = future.result()
             results[index] = success
+            reason_counts[reason] = reason_counts.get(reason, 0) + 1
+
+    if reason_counts:
+        logger.info(
+            "download_images[%s]: requested=%d %s",
+            property_id, len(image_urls),
+            " ".join(f"{k}={v}" for k, v in sorted(reason_counts.items())),
+        )
 
     saved_indices = sorted(i for i, ok in results.items() if ok)
 

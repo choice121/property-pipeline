@@ -13,27 +13,22 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
+from services.http_utils import random_headers
+
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.progressresidential.com"
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
+# Phase 2 (2.8): UA rotation — UA supplied per-request by random_headers().
+HEADER_EXTRAS = {
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
     "Cache-Control": "max-age=0",
 }
 
-API_HEADERS = {
-    **HEADERS,
+API_HEADER_EXTRAS = {
+    **HEADER_EXTRAS,
     "Accept": "application/json, text/javascript, */*; q=0.01",
     "X-Requested-With": "XMLHttpRequest",
 }
@@ -350,7 +345,7 @@ def _try_api(location_slug: str, beds_min, beds_max, min_price, max_price, limit
 
     for endpoint in endpoints:
         try:
-            with httpx.Client(headers=API_HEADERS, timeout=20, follow_redirects=True) as client:
+            with httpx.Client(headers=random_headers(API_HEADER_EXTRAS), timeout=20, follow_redirects=True) as client:
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -381,7 +376,7 @@ def _try_html(location_slug: str, beds_min, beds_max, limit) -> list:
     url = f"{BASE_URL}/homes-for-rent/{location_slug}{beds_suffix}/"
 
     try:
-        with httpx.Client(headers=HEADERS, timeout=25, follow_redirects=True) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("Progress Residential HTML returned %d for %s", resp.status_code, url)
