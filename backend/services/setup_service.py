@@ -47,7 +47,6 @@ def _check_supabase() -> dict:
             "checks": [],
         }
 
-    # Check if credentials look like placeholders
     url = os.environ.get("SUPABASE_URL", "").strip()
     key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
 
@@ -61,16 +60,19 @@ def _check_supabase() -> dict:
 
     checks = []
     try:
-        client = create_client(
-            url.rstrip("/"),
-            key,
-        )
+        client = create_client(url.rstrip("/"), key)
 
-        client.table("pipeline_properties").select("id").limit(1).execute()
-        checks.append({"name": "pipeline_properties", "ok": True})
+        # pipeline schema — tables owned by this pipeline project
+        # Requires the `pipeline` schema to be exposed in Supabase's PostgREST settings.
+        # If this check fails with PGRST106 "Invalid schema", follow the one-step
+        # setup in SETUP_SUPABASE.md: expose the `pipeline` schema in the dashboard.
+        pipeline_client = client.schema("pipeline")
+        pipeline_client.table("pipeline_properties").select("id").limit(1).execute()
+        checks.append({"name": "pipeline.pipeline_properties", "ok": True})
 
+        # public schema — live-site table owned by the Choice website
         client.table("properties").select("id").limit(1).execute()
-        checks.append({"name": "properties", "ok": True})
+        checks.append({"name": "public.properties", "ok": True})
 
         return {
             "ok": True,
@@ -81,9 +83,21 @@ def _check_supabase() -> dict:
     except Exception as exc:
         raw_message = str(exc)
         if "Invalid API key" in raw_message or "401" in raw_message:
-            message = "Supabase rejected the configured API key. Replace SUPABASE_SERVICE_ROLE_KEY with a valid service-role key for the Choice Properties Supabase project."
-        elif "pipeline_properties" in raw_message or "properties" in raw_message:
-            message = "Supabase connected, but one or more required tables were not available. Confirm the pipeline and live-site tables have been created."
+            message = (
+                "Supabase rejected the configured API key. "
+                "Replace SUPABASE_SERVICE_ROLE_KEY with a valid service-role key."
+            )
+        elif "PGRST106" in raw_message or "Invalid schema" in raw_message:
+            message = (
+                "Supabase connected, but the pipeline schema is not exposed. "
+                "Follow the one-step setup in SETUP_SUPABASE.md to expose the "
+                "`pipeline` schema in your Supabase dashboard."
+            )
+        elif "pipeline_properties" in raw_message or "pipeline" in raw_message:
+            message = (
+                "Supabase connected but pipeline tables not found. "
+                "Expose the `pipeline` schema in Supabase dashboard settings."
+            )
         else:
             message = "Supabase verification failed. Check SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
         return {
@@ -110,6 +124,8 @@ def get_setup_status() -> dict:
         summary = "Core app is ready; publishing setup is incomplete."
     elif core_missing:
         summary = "Required Supabase setup is missing."
+    elif "pipeline schema" in supabase.get("message", ""):
+        summary = "Supabase connected — expose the pipeline schema to complete setup."
     else:
         summary = "Supabase setup is present but failed verification."
 
@@ -120,20 +136,24 @@ def get_setup_status() -> dict:
         "publishing_ready": publishing_ready,
         "fully_configured": fully_configured,
         "groups": {
-            "core": _key_status(CORE_KEYS),
+            "core":       _key_status(CORE_KEYS),
             "publishing": _key_status(PUBLISHING_KEYS),
-            "optional": _key_status(OPTIONAL_KEYS),
+            "optional":   _key_status(OPTIONAL_KEYS),
         },
         "missing": {
-            "core": core_missing,
+            "core":       core_missing,
             "publishing": publishing_missing,
-            "optional": optional_missing,
+            "optional":   optional_missing,
         },
         "services": {
             "supabase": supabase,
             "imagekit": {
-                "ok": not any(key.startswith("IMAGEKIT_") for key in publishing_missing),
-                "message": "ImageKit credentials are present." if not any(key.startswith("IMAGEKIT_") for key in publishing_missing) else "ImageKit credentials are incomplete.",
+                "ok": not any(k.startswith("IMAGEKIT_") for k in publishing_missing),
+                "message": (
+                    "ImageKit credentials are present."
+                    if not any(k.startswith("IMAGEKIT_") for k in publishing_missing)
+                    else "ImageKit credentials are incomplete."
+                ),
             },
         },
     }
