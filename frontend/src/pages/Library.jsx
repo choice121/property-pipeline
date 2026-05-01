@@ -33,7 +33,7 @@ function buildContext(p) {
   }
 }
 
-function LongPressPropertyCard({ property, selectMode, selected, onTap, onToggleSelect, onLongPressEnter, aiHealth }) {
+function LongPressPropertyCard({ property, selectMode, selected, onTap, onToggleSelect, onLongPressEnter, aiHealth, onRedownload }) {
   const lp = useLongPress(onLongPressEnter, { delay: 380 })
   return (
     <div
@@ -49,6 +49,7 @@ function LongPressPropertyCard({ property, selectMode, selected, onTap, onToggle
         selected={selected}
         onSelect={onToggleSelect}
         aiHealth={aiHealth}
+        onRedownload={onRedownload}
       />
     </div>
   )
@@ -1299,6 +1300,7 @@ export default function Library() {
                   toggleSelect(property.id)
                 }}
                 aiHealth={scanHealthMap ? (scanHealthMap[String(property.id)] || null) : null}
+                onRedownload={() => setTimeout(() => queryClient.invalidateQueries({ queryKey: ['properties'] }), 4000)}
               />
             ))}
           </div>
