@@ -115,6 +115,14 @@ function IconAudit({ active }) {
     </svg>
   )
 }
+function IconPosters({ active }) {
+  return (
+    <svg className={`w-5 h-5 mb-0.5 ${active ? 'text-gray-900' : 'text-gray-400'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <circle cx="12" cy="8" r="4" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 20c0-4 3.582-7 8-7s8 3 8 7" />
+    </svg>
+  )
+}
 
 export default function Layout() {
   const setup = useQuery({
@@ -152,6 +160,7 @@ export default function Layout() {
           <NavLink to="/" end className={desktopLink}>Library</NavLink>
           <NavLink to="/scraper" className={desktopLink}>Scrape</NavLink>
           <NavLink to="/audit" className={desktopLink}>Audit</NavLink>
+          <NavLink to="/posters" className={desktopLink}>Posters</NavLink>
           <NavLink to="/create" className={desktopLink}>+ Create</NavLink>
         </div>
       </nav>
@@ -203,6 +212,15 @@ export default function Layout() {
           }
         >
           {({ isActive }) => (<><IconAudit active={isActive} />Audit</>)}
+        </NavLink>
+
+        <NavLink
+          to="/posters"
+          className={({ isActive }) =>
+            `flex-1 flex flex-col items-center justify-center py-2 text-xs font-medium transition-colors ${isActive ? 'text-gray-900' : 'text-gray-400'}`
+          }
+        >
+          {({ isActive }) => (<><IconPosters active={isActive} />Posters</>)}
         </NavLink>
       </nav>
     </div>
