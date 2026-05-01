@@ -17,7 +17,7 @@ from datetime import datetime
 
 import httpx
 
-from services.http_utils import random_headers, get_proxy_map
+from services.http_utils import random_headers, get_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -256,7 +256,7 @@ def _fetch_markets() -> list:
     """Fetch the full list of IH markets with their slugs from the root __data.json."""
     try:
         url = f"{BASE_URL}/find-a-home/__data.json"
-        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("IH markets endpoint returned %d", resp.status_code)
@@ -302,7 +302,7 @@ def _fetch_market_properties(market_slug: str) -> tuple[list, list]:
     headers = random_headers({**HEADER_EXTRAS, "Referer": f"{BASE_URL}/markets/houses-for-rent/{market_slug}"})
 
     try:
-        with httpx.Client(headers=headers, timeout=30, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=headers, timeout=30, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("IH market %s returned %d", market_slug, resp.status_code)
@@ -361,7 +361,7 @@ def _fetch_market_html_fallback(market_slug: str) -> list:
     page_url = f"{BASE_URL}/markets/houses-for-rent/{market_slug}/"
     headers = random_headers({**HTML_HEADER_EXTRAS, "Referer": f"{BASE_URL}/markets/"})
     try:
-        with httpx.Client(headers=headers, timeout=25, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=headers, timeout=25, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(page_url)
             if resp.status_code != 200:
                 logger.debug("IH HTML fallback returned %d for %s", resp.status_code, page_url)
