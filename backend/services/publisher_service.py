@@ -191,7 +191,10 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
             return [item.strip() for item in val.split(",") if item.strip()]
         return []
 
-    landlord_id = _get_landlord_id()
+    poster_id = getattr(prop, "poster_landlord_id", None)
+    landlord_id = poster_id if poster_id else _get_landlord_id()
+    if poster_id:
+        logger.info("Using poster_landlord_id %s for property %s", poster_id, getattr(prop, "id", "?"))
 
     def _generate_title(prop) -> str:
         if prop.title:
