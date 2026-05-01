@@ -207,11 +207,25 @@ All 6 custom scrapers (apartments, craigslist, hotpads, opendoor, invitation_hom
 - Schema fix: added all 7 missing columns to `pipeline_scrape_runs` (`count_duplicate`, `count_watermarked`, `count_validation_rejected`, `count_image_failed`, `meta_json`, `idempotency_key`, `partial`) — scrape run logging now works fully
 - Migrations pushed to `choice121/Choice`: `20260502000001_add_count_duplicate_to_scrape_runs.sql`, `20260502000002_complete_scrape_runs_columns.sql`
 
+### Phase 9 — Replit Migration + Phase 8 Code Rebuild ✅
+- Full Replit environment migration: Python deps installed, frontend npm deps installed, all secrets configured
+- Phase 8 code was missing from the repo (only DB schema existed); fully rebuilt from scratch:
+  - `backend/services/poster_service.py` — _normalise(), _safe_avatar(), resolve_poster_landlord(), recalculate_all(), clear_cache()
+  - `backend/routers/posters.py` — all 4 endpoints (list, get, recalculate, cache clear)
+  - `frontend/src/pages/Posters.jsx` — full profile grid + property detail drawer
+  - `frontend/src/App.jsx` — /posters route added
+  - `frontend/src/components/Layout.jsx` — Posters tab in desktop nav + mobile bottom bar
+  - `backend/database/repository.py` — agent_image_url + poster_landlord_id added to PROPERTY_FIELDS
+  - `backend/main.py` — posters router mounted
+  - `backend/routers/scraper.py` — _resolve_poster_task() background task wired after each new property save
+  - `backend/services/publisher_service.py` — prefers poster_landlord_id over global fallback
+- Live test passed: 300 landlord profiles returned, all 4 endpoints 200 OK, Posters page renders with real data
+
 ---
 
 ## Next Action for Incoming AI
 
-All phases 1–8 are complete. The system is fully operational.
+All phases 1–9 are complete. The system is fully operational.
 
 **Start by checking for any open issues:**
 1. Check logs for errors on startup
