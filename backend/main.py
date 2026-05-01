@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 load_dotenv(dotenv_path=Path(__file__).parent / ".env", override=True)
 
-from routers import health, scraper, properties, images, publisher, download, search, ai, sync, live_images, stats
+from routers import health, scraper, properties, images, publisher, download, search, ai, sync, live_images, stats, posters
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ app.include_router(ai.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
 app.include_router(live_images.router, prefix="/api")
 app.include_router(stats.router, prefix="/api")
+app.include_router(posters.router)
 
 if __name__ == "__main__":
     import uvicorn
