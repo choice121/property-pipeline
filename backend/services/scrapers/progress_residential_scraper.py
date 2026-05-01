@@ -13,7 +13,7 @@ from datetime import datetime
 import httpx
 from bs4 import BeautifulSoup
 
-from services.http_utils import random_headers, get_proxy_map
+from services.http_utils import random_headers, get_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -351,7 +351,7 @@ def _try_api(location_slug: str, beds_min, beds_max, min_price, max_price, limit
 
     for endpoint in endpoints:
         try:
-            with httpx.Client(headers=random_headers(API_HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+            with httpx.Client(headers=random_headers(API_HEADER_EXTRAS), timeout=20, follow_redirects=True, proxy=get_proxy_url()) as client:
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     data = resp.json()
@@ -382,7 +382,7 @@ def _try_html(location_slug: str, beds_min, beds_max, limit) -> list:
     url = f"{BASE_URL}/homes-for-rent/{location_slug}{beds_suffix}/"
 
     try:
-        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(url)
             if resp.status_code != 200:
                 logger.warning("Progress Residential HTML returned %d for %s", resp.status_code, url)
