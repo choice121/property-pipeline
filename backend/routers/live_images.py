@@ -22,26 +22,37 @@ def _require_live(prop):
 
 
 def _fetch_photos(supabase_id: str) -> tuple[list, list]:
+    """Fetch ordered photo URLs and file IDs from the property_photos table."""
     sb = get_supabase()
     res = (
-        sb.table('properties')
-        .select('photo_urls,photo_file_ids')
-        .eq('id', supabase_id)
-        .limit(1)
+        sb.table('property_photos')
+        .select('url,file_id,display_order')
+        .eq('property_id', supabase_id)
+        .order('display_order', desc=False)
         .execute()
     )
-    if not res.data:
-        raise HTTPException(status_code=404, detail='Property not found on live site')
-    row = res.data[0]
-    return (row.get('photo_urls') or []), (row.get('photo_file_ids') or [])
+    rows = res.data or []
+    urls = [r['url'] for r in rows if r.get('url')]
+    file_ids = [r.get('file_id', '') for r in rows if r.get('url')]
+    return urls, file_ids
 
 
 def _save_photos(supabase_id: str, urls: list, file_ids: list) -> list:
+    """Replace the property_photos rows for this property with the given ordered list."""
     sb = get_supabase()
-    sb.table('properties').update({
-        'photo_urls': urls,
-        'photo_file_ids': file_ids,
-    }).eq('id', supabase_id).execute()
+    # Delete all existing photos for this property then re-insert in new order
+    sb.table('property_photos').delete().eq('property_id', supabase_id).execute()
+    if urls:
+        rows = [
+            {
+                'property_id':  supabase_id,
+                'url':          u,
+                'file_id':      f,
+                'display_order': i,
+            }
+            for i, (u, f) in enumerate(zip(urls, file_ids))
+        ]
+        sb.table('property_photos').insert(rows).execute()
     return [{'url': u, 'file_id': f} for u, f in zip(urls, file_ids)]
 
 
@@ -117,6 +128,7 @@ async def upload_live_image(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f'Upload failed: {e}')
 
+    # Append the new photo to property_photos at the next display_order
     urls, file_ids = _fetch_photos(prop.choice_property_id)
     new_urls = urls + [result['url']]
     new_ids = file_ids + [result['file_id']]
