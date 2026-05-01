@@ -13,15 +13,20 @@ function formatPrice(price) {
 
 function getRawImageUrl(property) {
   try {
+    // Prefer local downloaded images — they are reliably served and preserve original order.
+    // Original scraper URLs (Zillow, Realtor, etc.) expire and get blocked over time.
+    const paths = JSON.parse(property.local_image_paths || '[]')
+    if (paths.length > 0) {
+      const path = paths[0]
+      const parts = path.split('/')
+      const filename = parts[parts.length - 1]
+      const propId = parts[parts.length - 2]
+      return `/api/images/${propId}/${filename}`
+    }
+    // Fall back to original URL only when no local image exists yet
     const originals = JSON.parse(property.original_image_urls || '[]')
     if (originals.length > 0) return originals[0]
-    const paths = JSON.parse(property.local_image_paths || '[]')
-    if (paths.length === 0) return null
-    const path = paths[0]
-    const parts = path.split('/')
-    const filename = parts[parts.length - 1]
-    const propId = parts[parts.length - 2]
-    return `/api/images/${propId}/${filename}`
+    return null
   } catch {
     return null
   }
