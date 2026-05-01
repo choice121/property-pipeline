@@ -319,3 +319,48 @@ def scrape_properties(
         "properties": [p.to_dict() for p in saved],
         "meta": metrics.to_dict(),
     }
+
+
+@router.post("/properties/{id}/redownload-images")
+def redownload_images_endpoint(
+    id: str,
+    background_tasks: BackgroundTasks,
+    repo: Repository = Depends(get_db),
+):
+    """Re-download images for a single property from its original source URLs.
+
+    Wipes the current local image cache for the property and re-fetches all
+    images from the scraped source URLs.  The download runs as a background
+    task so the response is immediate.
+    """
+    prop = repo.get(id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    urls = json.loads(prop.original_image_urls or "[]")
+    if not urls:
+        raise HTTPException(
+            status_code=400,
+            detail="No source image URLs found for this property. Re-scrape it to get fresh URLs.",
+        )
+
+    prop_dir = image_service.get_property_dir(id)
+    import shutil, os
+    if os.path.isdir(prop_dir):
+        shutil.rmtree(prop_dir)
+    os.makedirs(prop_dir, exist_ok=True)
+
+    prop.local_image_paths = "[]"
+    try:
+        repo.save(prop)
+    except Exception as e:
+        logger.warning("Could not clear local_image_paths before redownload for %s: %s", id, e)
+
+    background_tasks.add_task(download_images_task, id, urls)
+
+    logger.info("Redownload queued for %s — %d source URLs", id, len(urls))
+    return {
+        "ok": True,
+        "queued": len(urls),
+        "message": f"Re-downloading up to {len(urls)} images in the background.",
+    }
