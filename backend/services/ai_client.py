@@ -82,7 +82,7 @@ A poor listing has:
 PROMPT_VERSION = "v3"
 
 _GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/"
-_GEMINI_MODEL       = "gemini-1.5-pro"
+_GEMINI_MODEL       = "gemini-2.0-flash"
 _DEEPSEEK_BASE_URL  = "https://api.deepseek.com"
 _DEEPSEEK_MODEL     = "deepseek-chat"
 _OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
