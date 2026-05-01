@@ -194,18 +194,29 @@ All 6 custom scrapers (apartments, craigslist, hotpads, opendoor, invitation_hom
 - New endpoint: `POST /api/properties/{id}/redownload-images`
 - `PropertyCard.jsx`: photo count chip with one-click re-fetch
 
+### Phase 8 — Poster Attribution + Scrape Run Schema Fix ✅
+- Supabase migration: added 7 columns to `pipeline.pipeline_properties` — `agent_name`, `broker_name`, `neighborhood`, `tax_value`, `hoa_fee`, `agent_image_url`, `poster_landlord_id`
+- `backend/services/poster_service.py`: resolves/creates landlord profiles by normalised name dedup, uploads avatar to ImageKit, in-process cache
+- `backend/services/scraper_service.py`: extracts `agent_image_url` in `normalize_row()`
+- `backend/routers/scraper.py`: calls `poster_service.resolve_poster_landlord()` after enrichment
+- `backend/services/publisher_service.py`: prefers `prop.poster_landlord_id` over global fallback landlord
+- `backend/routers/posters.py`: GET /posters, GET /posters/{id}, POST /posters/recalculate, DELETE /posters/cache
+- `frontend/src/pages/Posters.jsx`: Poster Attribution page with profile list + property detail drawer
+- Nav/routing: Posters tab added to desktop nav and mobile bottom bar
+- Bug fix: `avatar_url` stored as JSON string cleaned up in DB; `_safe_avatar()` helper in posters router makes it resilient going forward
+- Schema fix: added all 7 missing columns to `pipeline_scrape_runs` (`count_duplicate`, `count_watermarked`, `count_validation_rejected`, `count_image_failed`, `meta_json`, `idempotency_key`, `partial`) — scrape run logging now works fully
+- Migrations pushed to `choice121/Choice`: `20260502000001_add_count_duplicate_to_scrape_runs.sql`, `20260502000002_complete_scrape_runs_columns.sql`
+
 ---
 
 ## Next Action for Incoming AI
 
-All phases 1–7 are complete. The system is fully operational.
+All phases 1–8 are complete. The system is fully operational.
 
 **Start by checking for any open issues:**
 1. Check logs for errors on startup
 2. Run a test scrape to confirm scrapers are healthy
 3. Test AI enrichment on a property
-
-**Known minor issue**: `pipeline_scrape_runs` table is missing the `count_duplicate` column. Scrape run logging fails silently (try/except wraps it) — scraping still works. Fix: add a migration to the Choice repo adding `count_duplicate int default 0` to `pipeline.pipeline_scrape_runs`.
 
 ---
 
