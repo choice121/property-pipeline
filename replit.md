@@ -28,6 +28,7 @@ Scrapes property listings from Zillow, Realtor.com, Redfin, HotPads, Craigslist,
 - ✅ Supabase pipeline schema exposed (configured via Management API)
 - ✅ 1,000+ properties in staging
 - ✅ Publisher writing to `public.properties` + `public.property_photos`
+- ✅ Poster attribution: auto-creates landlord profiles from scraped agent/broker names; deduplicates by normalised name; uploads profile photo to ImageKit; assigns `poster_landlord_id` on each pipeline property; publisher prefers this over the global fallback
 - ✅ AI enrichment working (gemini-2.0-flash)
 - ✅ All scrapers working (httpx proxy fix applied)
 - ✅ Live sync running
