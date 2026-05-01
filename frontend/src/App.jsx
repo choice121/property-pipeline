@@ -8,6 +8,7 @@ const Scraper      = lazy(() => import('./pages/Scraper'))
 const Editor       = lazy(() => import('./pages/Editor'))
 const CreateListing = lazy(() => import('./pages/CreateListing'))
 const Audit        = lazy(() => import('./pages/Audit'))
+const Posters      = lazy(() => import('./pages/Posters'))
 
 function PageLoader() {
   return (
@@ -29,6 +30,7 @@ const router = createBrowserRouter([
       { path: '/create',  element: <Suspense fallback={<PageLoader />}><CreateListing /></Suspense> },
       { path: '/edit/:id', element: <Suspense fallback={<PageLoader />}><Editor /></Suspense> },
       { path: '/audit',   element: <Suspense fallback={<PageLoader />}><Audit /></Suspense> },
+      { path: '/posters', element: <Suspense fallback={<PageLoader />}><Posters /></Suspense> },
     ],
   },
 ])
