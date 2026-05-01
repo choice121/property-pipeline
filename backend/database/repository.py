@@ -32,6 +32,8 @@ PROPERTY_FIELDS = [
     "scraped_at", "updated_at",
     # Phase 3 (3.2) columns — added via supabase_migration_phase3_4.sql
     "neighborhood", "broker_name", "agent_name", "tax_value", "hoa_fee",
+    # Phase 8 columns — poster attribution
+    "agent_image_url", "poster_landlord_id",
 ]
 
 _PROPERTY_DEFAULTS = {
