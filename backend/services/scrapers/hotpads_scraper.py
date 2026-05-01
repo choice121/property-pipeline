@@ -16,7 +16,7 @@ from datetime import datetime
 
 import httpx
 
-from services.http_utils import random_headers, get_proxy_map
+from services.http_utils import random_headers, get_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -181,7 +181,7 @@ def _try_api_endpoints(location_encoded: str, params: dict, limit: int) -> list:
 
     for endpoint in api_endpoints:
         try:
-            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+            with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxy=get_proxy_url()) as client:
                 resp = client.get(endpoint, params=params)
                 if resp.status_code == 200:
                     try:
@@ -217,7 +217,7 @@ def _try_html_embedded(location_encoded: str, params: dict, limit: int) -> list:
     """
     page_url = f"{BASE_URL}/rental-listings/{location_encoded}"
     try:
-        with httpx.Client(headers=random_headers(HTML_HEADER_EXTRAS), timeout=25, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=random_headers(HTML_HEADER_EXTRAS), timeout=25, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(page_url)
             if resp.status_code != 200:
                 logger.debug("HotPads HTML page returned %d for %s", resp.status_code, page_url)
