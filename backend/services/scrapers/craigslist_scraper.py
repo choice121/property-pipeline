@@ -17,7 +17,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from services.http_utils import random_headers, get_proxy_map
+from services.http_utils import random_headers, get_proxy_url
 
 logger = logging.getLogger(__name__)
 
@@ -382,7 +382,7 @@ def scrape(
         rss_url += "&" + urlencode(params)
 
     try:
-        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=20, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = _http_get(client, rss_url)
             if resp is not None and resp.status_code == 200:
                 xml_text = resp.text
@@ -420,7 +420,7 @@ def scrape(
 
     try:
         json_headers = random_headers({**HEADER_EXTRAS, "Accept": "application/json, */*"})
-        with httpx.Client(headers=json_headers, timeout=20, follow_redirects=True, proxies=get_proxy_map()) as client:
+        with httpx.Client(headers=json_headers, timeout=20, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = _http_get(client, json_url)
             if resp is not None and resp.status_code == 200:
                 data = resp.json()
