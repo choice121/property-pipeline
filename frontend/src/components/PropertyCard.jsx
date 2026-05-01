@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import StatusBadge from './StatusBadge'
-import { downloadProperty } from '../api/client'
+import { downloadProperty, redownloadImages } from '../api/client'
 import { computeCompleteness, completenessColor } from '../utils/completeness'
 import { resolveImageUrl, responsiveImage } from '../utils/imageUrl'
 import { isFavorite, toggleFavorite, FAVORITES_EVENT } from '../utils/favorites'
@@ -87,13 +87,17 @@ function ResponsiveImage({ rawUrl, alt }) {
   )
 }
 
-export default function PropertyCard({ property, onClick, selectable, selected, onSelect, aiHealth }) {
+export default function PropertyCard({ property, onClick, selectable, selected, onSelect, aiHealth, onRedownload }) {
   const rawImageUrl = getRawImageUrl(property)
   const [downloading, setDownloading] = useState(false)
+  const [fetchState, setFetchState] = useState(null)
   const [showMissing, setShowMissing] = useState(false)
   const [fav, setFav] = useState(() => isFavorite(property.id))
   const { score, missing } = computeCompleteness(property)
   const { bar, text } = completenessColor(score)
+
+  const sourceCount = (() => { try { return JSON.parse(property.original_image_urls || '[]').length } catch { return 0 } })()
+  const localCount  = (() => { try { return JSON.parse(property.local_image_paths  || '[]').length } catch { return 0 } })()
 
   useEffect(() => {
     function sync() { setFav(isFavorite(property.id)) }
@@ -128,6 +132,22 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
       alert('Download failed. Please try again.')
     } finally {
       setDownloading(false)
+    }
+  }
+
+  async function handleRefetchImages(e) {
+    e.stopPropagation()
+    if (fetchState === 'fetching') return
+    setFetchState('fetching')
+    try {
+      await redownloadImages(property.id)
+      setFetchState('queued')
+      if (onRedownload) onRedownload(property.id)
+      setTimeout(() => setFetchState(null), 3000)
+    } catch (err) {
+      const msg = err?.response?.data?.detail || 'Could not queue re-download.'
+      alert(msg)
+      setFetchState(null)
     }
   }
 
@@ -214,10 +234,48 @@ export default function PropertyCard({ property, onClick, selectable, selected, 
         <p className="text-base sm:text-lg font-semibold text-gray-900">{formatPrice(property.monthly_rent)}</p>
         <p className="text-sm text-gray-700 truncate mt-1">{property.address || 'No address'}</p>
         <p className="text-xs text-gray-500 truncate">{[property.city, property.state, property.zip].filter(Boolean).join(', ')}</p>
-        <div className="flex gap-3 mt-2 text-xs text-gray-600">
+        <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
           <span>{property.bedrooms != null ? `${property.bedrooms} bd` : '— bd'}</span>
           <span>{property.bathrooms != null ? `${property.bathrooms} ba` : '— ba'}</span>
           <span>{property.square_footage != null ? `${Number(property.square_footage).toLocaleString()} sqft` : '— sqft'}</span>
+
+          {sourceCount > 0 && (
+            <button
+              onClick={handleRefetchImages}
+              disabled={fetchState === 'fetching'}
+              title={fetchState === 'queued' ? 'Queued!' : `Re-fetch ${sourceCount} source images`}
+              className={`ml-auto flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors disabled:opacity-60
+                ${fetchState === 'queued'
+                  ? 'bg-green-100 text-green-700'
+                  : fetchState === 'fetching'
+                    ? 'bg-blue-50 text-blue-500'
+                    : localCount === 0
+                      ? 'bg-amber-50 text-amber-700 hover:bg-amber-100'
+                      : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                }`}
+            >
+              {fetchState === 'fetching' ? (
+                <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                </svg>
+              ) : fetchState === 'queued' ? (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              ) : (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                </svg>
+              )}
+              <span>
+                {fetchState === 'fetching' ? 'Fetching…'
+                  : fetchState === 'queued' ? 'Queued!'
+                  : localCount > 0 ? `${localCount}/${sourceCount}`
+                  : `${sourceCount} photos`}
+              </span>
+            </button>
+          )}
         </div>
 
         <AiHealthBadge health={aiHealth} />
