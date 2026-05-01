@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from database.db import get_db
 from database.repository import PropertyRecord, Repository, ScrapeRunRecord, get_repo
 from services import scraper_service, image_service
+from services import poster_service
 from services.enrichment_queue import enqueue_enrichment
 from services.enrichment_service import run_rule_based_enrichment
 from services.scraper_service import (
@@ -24,6 +25,24 @@ from services.watermark_filter import watermark_reasons
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _resolve_poster_task(prop_id: str, agent_name, broker_name, agent_image_url, repo: Repository):
+    """Background task: resolve poster landlord and write back to pipeline DB."""
+    try:
+        landlord_id = poster_service.resolve_poster_landlord(
+            agent_name=agent_name,
+            broker_name=broker_name,
+            agent_image_url=agent_image_url,
+        )
+        if landlord_id:
+            prop = repo.get(prop_id)
+            if prop:
+                prop.poster_landlord_id = landlord_id
+                repo.save(prop)
+                logger.info("Poster assigned: %s → %s", prop_id, landlord_id)
+    except Exception as e:
+        logger.warning("Poster resolution failed for %s: %s", prop_id, e)
 
 # Phase 2 (2.3): wall-clock cap on the scrape() call.
 # Single-source scrapes get 90 s; multi-source ("all") gets 120 s.
@@ -287,6 +306,15 @@ def scrape_properties(
             metrics.image_download_queued += len(image_urls)
             background_tasks.add_task(download_images_task, prop_id, image_urls)
         background_tasks.add_task(enqueue_enrichment, prop_id)
+
+        agent_name = data.get("agent_name")
+        broker_name = data.get("broker_name")
+        agent_image_url = data.get("agent_image_url")
+        if agent_name or broker_name:
+            background_tasks.add_task(
+                _resolve_poster_task,
+                prop_id, agent_name, broker_name, agent_image_url, repo,
+            )
 
     new_scores = [
         p.data_quality_score for p in saved
