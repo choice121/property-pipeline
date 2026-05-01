@@ -112,7 +112,7 @@ def _get_landlord_id() -> str | None:
 
 
 def _upload_images_to_imagekit(property_id: str, local_image_paths: list) -> list:
-    MAX_PHOTOS = 25
+    MAX_PHOTOS = 40
     paths_to_upload = local_image_paths[:MAX_PHOTOS]
     if len(local_image_paths) > MAX_PHOTOS:
         logger.info(
