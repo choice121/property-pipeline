@@ -139,7 +139,8 @@ def retry_with_backoff(
         )
         time.sleep(delay)
 
-    assert last_exc is not None
+    if last_exc is None:
+        raise RuntimeError(f"retry_with_backoff[{label}]: all {attempts} attempts exhausted with no captured exception")
     raise last_exc
 
 
@@ -175,8 +176,8 @@ nominatim_limiter = _RateLimiter(min_interval=1.05)
 # a proxy. Format: http://user:pass@host:port or socks5://host:port.
 # HomeHarvest uses the same env var via get_homeharvest_proxy_kwarg().
 #
-# Usage in custom scrapers:
-#   with httpx.Client(proxies=get_proxy_map(), ...) as client:
+# Usage in custom scrapers (httpx 0.28+):
+#   with httpx.Client(proxy=get_proxy_url(), ...) as client:
 #       ...
 # Usage in HomeHarvest calls:
 #   scrape_property(..., **get_homeharvest_proxy_kwarg())
@@ -188,12 +189,12 @@ def get_proxy_url() -> Optional[str]:
 
 
 def get_proxy_map() -> Optional[dict]:
-    """Return an httpx `proxies` dict or None.
+    """Return an httpx proxy dict or None.
 
-    Pass the result directly to ``httpx.Client(proxies=...)`` or
-    ``httpx.AsyncClient(proxies=...)``.  Returns None when no proxy is
-    configured so callers can use ``proxies=get_proxy_map()`` and httpx will
-    just use direct connections.
+    NOTE: httpx 0.28+ removed the ``proxies=`` parameter. Use ``proxy=`` with
+    a single URL string (``get_proxy_url()``) in all new code instead.
+    This function is kept for any legacy callers but should not be used
+    with httpx >= 0.28 — use ``proxy=get_proxy_url()`` directly.
     """
     url = get_proxy_url()
     if not url:

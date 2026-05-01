@@ -38,7 +38,9 @@ export default function PullToRefresh({ onRefresh, children, threshold = 70 }) {
       if (shouldFire) {
         setRefreshing(true)
         setPull(threshold)
-        try { await onRefresh?.() } catch {}
+        try { await onRefresh?.() } catch (e) {
+          console.warn('[PullToRefresh] refresh failed:', e?.message || e)
+        }
         setRefreshing(false)
       }
       setPull(0)

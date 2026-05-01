@@ -346,9 +346,9 @@ def _wm_scan_worker():
             _wm_state["finished_at"] = time.time()
             finished_flagged = list(_wm_state["flagged"])
 
-        # Persist: replace all flags with the new scan's results (full rescan overwrites)
-        # First clear all existing flags, then write the new ones
-        _save_wm_flags({})
+        # Persist: build new_flags first, then write once atomically.
+        # Never do a clear-then-write pattern — readers could see an empty
+        # file between the two writes, causing transient inconsistency.
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         new_flags = {}
         for r in finished_flagged:

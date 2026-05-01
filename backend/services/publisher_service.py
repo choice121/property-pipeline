@@ -400,7 +400,7 @@ def sync_fields(prop, repo) -> dict:
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
-        "amenities":            parse_json(prop.amenities),
+        "amenities":            _build_amenities_list(prop, parse_json),
         "appliances":           parse_json(prop.appliances),
         "flooring":             parse_json(prop.flooring),
         "heating_type":         prop.heating_type,

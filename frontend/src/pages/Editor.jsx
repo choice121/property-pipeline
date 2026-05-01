@@ -181,7 +181,9 @@ export default function Editor() {
         const qs = body.quality_score ?? null
         setPostSaveIssues(issueList)
         setPostSaveQualityScore(qs)
-      }).catch(() => {})
+      }).catch((e) => {
+        console.warn('[Editor] AI issue detection failed after save:', e?.message || e)
+      })
     },
   })
 

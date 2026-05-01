@@ -198,7 +198,8 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      while (true) {
+      let streamDone = false
+      while (!streamDone) {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
@@ -206,17 +207,17 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
         buffer = lines.pop()
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
-          if (data === '[DONE]') break
+          const payload = line.slice(6)
+          if (payload === '[DONE]') { streamDone = true; break }
           try {
-            const parsed = JSON.parse(data)
+            const parsed = JSON.parse(payload)
             if (parsed.error) throw new Error(parsed.error)
             if (parsed.content) {
               fullText += parsed.content
               setRewriteResult(fullText)
             }
           } catch (parseErr) {
-            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr
+            if (!(parseErr instanceof SyntaxError)) throw parseErr
           }
         }
       }
@@ -314,7 +315,8 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
       let buffer = ''
-      while (true) {
+      let streamDone = false
+      while (!streamDone) {
         const { done, value } = await reader.read()
         if (done) break
         buffer += decoder.decode(value, { stream: true })
@@ -322,10 +324,10 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
         buffer = lines.pop()
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
-          const data = line.slice(6)
-          if (data === '[DONE]') break
+          const payload = line.slice(6)
+          if (payload === '[DONE]') { streamDone = true; break }
           try {
-            const parsed = JSON.parse(data)
+            const parsed = JSON.parse(payload)
             if (parsed.error) throw new Error(parsed.error)
             if (parsed.content) {
               assistantText += parsed.content
@@ -336,7 +338,7 @@ export default function AiAssistant({ form, propertyId, onApplyDescription, onAp
               })
             }
           } catch (parseErr) {
-            if (parseErr.message && !parseErr.message.includes('JSON')) throw parseErr
+            if (!(parseErr instanceof SyntaxError)) throw parseErr
           }
         }
       }

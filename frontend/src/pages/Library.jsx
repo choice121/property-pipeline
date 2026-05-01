@@ -179,51 +179,73 @@ export default function Library() {
     },
   })
 
+  const imgPollFailures = useRef(0)
   useEffect(() => {
     if (!imgDownloading) return
+    imgPollFailures.current = 0
     imgPollRef.current = setInterval(async () => {
       try {
         const res = await getBulkImageDownloadStatus()
         const s = res.data
+        imgPollFailures.current = 0
         setImgProgress(s)
         if (!s.running) {
           setImgDownloading(false)
           clearInterval(imgPollRef.current)
           queryClient.invalidateQueries({ queryKey: ['properties'] })
         }
-      } catch { /* ignore */ }
+      } catch (e) {
+        imgPollFailures.current++
+        if (imgPollFailures.current >= 5) {
+          setImgDownloading(false)
+          clearInterval(imgPollRef.current)
+          setImgProgress(null)
+        }
+      }
     }, 2500)
     return () => clearInterval(imgPollRef.current)
   }, [imgDownloading])
 
+  const bulkPublishFailures = useRef(0)
   useEffect(() => {
     if (!bulkPublishing) return
+    bulkPublishFailures.current = 0
     bulkPublishPollRef.current = setInterval(async () => {
       try {
         const res = await getBulkPublishStatus()
         const s = res.data
+        bulkPublishFailures.current = 0
         setBulkPublishProgress(s)
         if (!s.running) {
           setBulkPublishing(false)
           clearInterval(bulkPublishPollRef.current)
           queryClient.invalidateQueries({ queryKey: ['properties'] })
         }
-      } catch { /* ignore */ }
+      } catch (e) {
+        bulkPublishFailures.current++
+        if (bulkPublishFailures.current >= 5) {
+          setBulkPublishing(false)
+          clearInterval(bulkPublishPollRef.current)
+          setBulkPublishProgress(null)
+        }
+      }
     }, 3000)
     return () => clearInterval(bulkPublishPollRef.current)
   }, [bulkPublishing])
 
+  const wmPollFailures = useRef(0)
   useEffect(() => {
     if (!wmScanning) return
+    wmPollFailures.current = 0
     wmPollRef.current = setInterval(async () => {
       try {
         const res = await watermarkScanStatus()
         const s = res.data
+        wmPollFailures.current = 0
         setWmProgress(s)
         if (!s.running) {
           clearInterval(wmPollRef.current)
           setWmScanning(false)
-          // Join flagged IDs with full property objects
           const flaggedList = s.flagged || []
           const metaById = Object.fromEntries(flaggedList.map(f => [f.id, f]))
           const flaggedIds = new Set(flaggedList.map(f => f.id))
@@ -239,7 +261,14 @@ export default function Library() {
           setWmScannedAt(new Date().toISOString())
           queryClient.invalidateQueries({ queryKey: ['wm-flagged'] })
         }
-      } catch { /* ignore poll errors */ }
+      } catch (e) {
+        wmPollFailures.current++
+        if (wmPollFailures.current >= 5) {
+          clearInterval(wmPollRef.current)
+          setWmScanning(false)
+          setWmError('Watermark scan status check failed. The scan may still be running in the background.')
+        }
+      }
     }, 2000)
     return () => clearInterval(wmPollRef.current)
   }, [wmScanning])
@@ -271,7 +300,9 @@ export default function Library() {
           if (res.data.ok === false) { return }
           setBulkPublishProgress(res.data.state)
           setBulkPublishing(true)
-        } catch { }
+        } catch (e) {
+          setBulkPublishing(false)
+        }
       },
     })
   }
@@ -292,7 +323,9 @@ export default function Library() {
           if (res.data.ok === false) return
           setImgProgress(res.data.state)
           setImgDownloading(true)
-        } catch { }
+        } catch (e) {
+          setImgDownloading(false)
+        }
       },
     })
   }

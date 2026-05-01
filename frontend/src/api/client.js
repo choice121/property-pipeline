@@ -1,6 +1,59 @@
 import axios from 'axios'
+import { showToast } from '../components/Toast'
 
 const api = axios.create({ baseURL: import.meta.env.VITE_API_URL || '/api' })
+
+// ── Centralized error interceptor ────────────────────────────────────────────
+// Extracts FastAPI's `detail` field and surfaces it as a toast notification.
+// Individual call sites can pass { skipGlobalErrorHandler: true } in config
+// to handle errors themselves (used by polling loops and AI streaming calls).
+const SILENT_URLS = new Set([
+  '/img-batch/status',
+  '/bulk-publish/status',
+  '/wm-scan/status',
+  '/sync/status',
+  '/setup/status',
+])
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const config = error.config || {}
+    if (config.skipGlobalErrorHandler) return Promise.reject(error)
+
+    const url = config.url || ''
+    const isSilent = [...SILENT_URLS].some(u => url.includes(u))
+    if (isSilent) return Promise.reject(error)
+
+    if (!error.response) {
+      showToast('Network error — check your connection', 'error')
+      return Promise.reject(error)
+    }
+
+    const status = error.response.status
+    const data = error.response.data || {}
+    const detail =
+      (typeof data.detail === 'string' ? data.detail : null) ||
+      (Array.isArray(data.detail) ? data.detail.map(d => d.msg || d).join('; ') : null) ||
+      data.message ||
+      error.message ||
+      'Something went wrong'
+
+    const method = (config.method || '').toUpperCase()
+
+    if (status >= 500) {
+      showToast(`Server error: ${detail}`, 'error')
+    } else if (status === 404 && method !== 'GET') {
+      showToast(`Not found: ${detail}`, 'warning')
+    } else if (status === 422) {
+      showToast(`Validation error: ${detail}`, 'warning')
+    } else if (status >= 400 && method !== 'GET') {
+      showToast(detail, 'error')
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 export const createProperty = (data) => api.post('/properties', data)
 export const scrapeProperties = (data) => api.post('/scrape', data)
@@ -44,19 +97,19 @@ export const reorderLiveImages = (id, order) => api.put('/live-images/' + id + '
 export const uploadLiveImage = (id, formData) => api.post('/live-images/' + id + '/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 
 export const syncFromLive = () => api.post('/sync/from-live')
-export const getSyncStatus = () => api.get('/sync/status')
-export const getSetupStatus = () => api.get('/setup/status')
+export const getSyncStatus = () => api.get('/sync/status', { skipGlobalErrorHandler: true })
+export const getSetupStatus = () => api.get('/setup/status', { skipGlobalErrorHandler: true })
 
 export const getQualityStats = () => api.get('/stats/quality')
 export const getScrapeRuns = (limit) => api.get('/stats/scrape-runs', { params: limit ? { limit } : {} })
 export const aiBulkEnrich = (data) => api.post('/ai/bulk-enrich', data || {})
 export const startBulkImageDownload = (data = {}) => api.post('/img-batch/start', data)
-export const getBulkImageDownloadStatus = () => api.get('/img-batch/status')
+export const getBulkImageDownloadStatus = () => api.get('/img-batch/status', { skipGlobalErrorHandler: true })
 export const restoreLibrary = () => api.post('/library/restore')
 export const startBulkPublish = (data = {}) => api.post('/bulk-publish/start', data)
-export const getBulkPublishStatus = () => api.get('/bulk-publish/status')
+export const getBulkPublishStatus = () => api.get('/bulk-publish/status', { skipGlobalErrorHandler: true })
 export const watermarkScanStart = () => api.post('/wm-scan/start')
-export const watermarkScanStatus = () => api.get('/wm-scan/status')
+export const watermarkScanStatus = () => api.get('/wm-scan/status', { skipGlobalErrorHandler: true })
 export const watermarkScan = () => api.post('/images/watermark-scan')
 export const watermarkGetFlagged = () => api.get('/wm-scan/flagged')
 export const watermarkUnflag = (propId) => api.post('/wm-scan/unflag/' + propId)

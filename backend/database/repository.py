@@ -141,18 +141,29 @@ class Repository:
     _allowed_columns_cache: set[str] | None = None
 
     def _allowed_columns(self) -> set[str]:
+        """Return the set of column names that exist in pipeline_properties.
+
+        Probes the DB schema by reading one row (Supabase always returns all
+        column names even when values are NULL, so this is authoritative).
+        The result is unioned with PROPERTY_FIELDS so that known-good columns
+        are never silently excluded when the table is empty.
+        Falls back to PROPERTY_FIELDS alone if the probe fails.
+        """
         if Repository._allowed_columns_cache is not None:
             return Repository._allowed_columns_cache
+        base = set(PROPERTY_FIELDS)
         try:
             probe = self._pipeline.table("pipeline_properties").select("*").limit(1).execute()
             if probe.data:
-                cols = set(probe.data[0].keys())
-            else:
-                cols = set(PROPERTY_FIELDS)
+                # Union DB columns with our known list; DB is the authority for
+                # extra columns added by migrations, base covers the empty-table case.
+                cols = base | set(probe.data[0].keys())
+                Repository._allowed_columns_cache = cols
+                return cols
         except Exception:
-            cols = set(PROPERTY_FIELDS)
-        Repository._allowed_columns_cache = cols
-        return cols
+            pass
+        Repository._allowed_columns_cache = base
+        return base
 
     def save(self, prop: PropertyRecord) -> None:
         prop.updated_at = datetime.now(timezone.utc).isoformat()

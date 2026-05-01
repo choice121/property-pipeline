@@ -49,8 +49,26 @@ def get_sync_stats() -> dict:
 
 
 def _jl(val) -> str:
+    """Coerce a value to a JSON array string.
+
+    Supabase may return array-like columns as a Python list, a JSON string,
+    or None.  All three cases are handled:
+      - list  → json.dumps(list)
+      - str   → validate it parses as a list, return as-is (or '[]' on error)
+      - None  → '[]'
+    This prevents silent data loss when Supabase returns a non-empty
+    JSON string instead of a Python list.
+    """
     if isinstance(val, list):
         return json.dumps(val)
+    if isinstance(val, str) and val.strip():
+        try:
+            parsed = json.loads(val)
+            if isinstance(parsed, list):
+                return val.strip()
+            return json.dumps([parsed])
+        except (json.JSONDecodeError, ValueError):
+            pass
     return '[]'
 
 

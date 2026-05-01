@@ -194,9 +194,16 @@ def delete_image(property_id: str, index: int) -> List[str]:
     if os.path.exists(target):
         os.remove(target)
 
+    def _parse_img_index(fname: str) -> int | None:
+        """Return the integer index from '3.jpg', or None for non-integer names."""
+        try:
+            return int(fname.rsplit(".", 1)[0])
+        except (ValueError, IndexError):
+            return None
+
     existing = sorted(
-        [f for f in os.listdir(prop_dir) if f.endswith(".jpg")],
-        key=lambda x: int(x.split(".")[0])
+        [f for f in os.listdir(prop_dir) if f.endswith(".jpg") and _parse_img_index(f) is not None],
+        key=lambda x: _parse_img_index(x)
     )
 
     for i, fname in enumerate(existing, start=1):
