@@ -1,252 +1,188 @@
-# Property Pipeline
+# Property Pipeline — Replit Workspace
 
-A private, standalone property management tool for Choice Properties.
+## ECOSYSTEM OVERVIEW — Read This First
 
-## Overview
+This project is one half of a two-project ecosystem. Both share the same Supabase database.
 
-This app scrapes property listings from major platforms (Zillow, Realtor.com, Redfin), allows viewing and editing those listings in a private dashboard, and publishes them to the live Choice Properties website.
+| Project | Repo | What it is |
+|---|---|---|
+| **This project** | [choice121/property-pipeline](https://github.com/choice121/property-pipeline) | Private internal tool: scrape → manage → publish listings |
+| **Choice Website** | [choice121/Choice](https://github.com/choice121/Choice) | Public rental website tenants use to browse and apply |
+
+See `ECOSYSTEM.md` (in this repo) for the full cross-project architecture, schema ownership, and rules.
+
+---
+
+## What This App Does
+
+Scrapes property listings from Zillow, Realtor.com, and Redfin → stores them in a private staging database → lets the owner view, edit, and AI-enrich them → publishes approved listings to the live Choice Properties website.
 
 **Live Website:** https://choice-properties-site.pages.dev/
 **Property page format:** https://choice-properties-site.pages.dev/property.html?id={PROP-ID}
 
+---
+
 ## Architecture
 
-- **Backend**: Python FastAPI running on port 8000
-- **Frontend**: React 18 + Vite running on port 5000 (proxies /api to backend)
-- **Pipeline Database**: Supabase (`pipeline_properties` and `pipeline_enrichment_log` tables) — data persists across any Replit account
-- **Live Publishing**: Supabase (`properties` table) + ImageKit CDN for the Choice Properties website
-- **Image storage**: Local at `backend/storage/images/` (temporary; images are re-downloadable from source URLs stored in Supabase)
+- **Backend**: Python FastAPI on port 8000
+- **Frontend**: React 18 + Vite on port 5000 (proxies `/api` → backend)
+- **Pipeline Database**: Supabase `pipeline` schema — `pipeline.pipeline_properties`, `pipeline.pipeline_enrichment_log`, `pipeline.pipeline_scrape_runs`, `pipeline.pipeline_chat_conversations`
+- **Live Publishing**: Supabase `public` schema — `public.properties`, `public.property_photos`
+- **Image CDN**: ImageKit (same account as Choice website)
+- **AI**: DeepSeek V3 via OpenAI-compatible SDK
+
+### Supabase Schema Split (CRITICAL)
+
+Both this project and the Choice website use the **same** Supabase project (`tlfmwetmhthpyrytrcfo`).
+
+```
+pipeline schema (this project owns)     public schema (Choice website owns)
+────────────────────────────────        ──────────────────────────────────
+pipeline.pipeline_properties     ──→    public.properties  (published listings)
+pipeline.pipeline_enrichment_log        public.property_photos
+pipeline.pipeline_scrape_runs           public.landlords
+pipeline.pipeline_chat_conversations    public.applications, public.leases …
+```
+
+The pipeline tables were moved to the private `pipeline` schema by Choice website migration `20260426000002_pipeline_private_schema.sql`. The backend accesses them via `client.schema("pipeline")`.
+
+**Code rule**: All pipeline table access uses `get_pipeline_schema()` from `backend/database/supabase_client.py`. All public table access (publisher, live_sync) uses `get_supabase()`.
+
+---
+
+## One-Time Supabase Setup Required
+
+Before the app is fully operational, expose the `pipeline` schema in Supabase:
+
+1. Go to: **https://supabase.com/dashboard/project/tlfmwetmhthpyrytrcfo/settings/api**
+2. Add `pipeline` to **"Extra schemas to expose in your API"**
+3. Save → Recheck in the app
+
+Full details in `SETUP_SUPABASE.md`.
+
+---
 
 ## AI System (DeepSeek V3)
 
-All AI features use the DeepSeek V3 model (`deepseek-chat`) via the OpenAI-compatible SDK (`base_url="https://api.deepseek.com"`).
+All AI features use `deepseek-chat` via `base_url="https://api.deepseek.com"`.
 
 ### AI Endpoints (`backend/routers/ai.py`)
 - `POST /ai/autofill` — suggests values for empty fields
-- `POST /ai/rewrite-description` — generates polished listing descriptions
+- `POST /ai/rewrite-description` — generates polished listing descriptions (streaming)
 - `POST /ai/detect-issues` — scans for errors/warnings/suggestions; returns `{"issues":[...], "quality_score":N}`
 - `POST /ai/suggest-field` — suggests a value for a single field
-- `POST /ai/chat` — freeform assistant chat about the property
-- `POST /ai/bulk-scan` — batch scans up to N listings, returns per-property issue counts
-- `POST /ai/score` — detailed quality score (0–100) + grade (A–F) + written evaluation
-- `POST /ai/pricing-intel` — market pricing analysis (very_low/low/fair/high/very_high)
-- `POST /ai/seo-optimize` — SEO keyword analysis + title suggestion + optimized opening
-- `POST /ai/clean` — Deep Clean Engine: strips contact info, tour language, screening requirements; rewrites in brand voice; saves to DB
-- `POST /ai/bulk-clean` — Library-wide bulk clean: processes all properties sequentially, persists to DB
-- `POST /ai/generate-title` — Generates a specific, compelling listing title; saves to DB
-- `POST /ai/extract-features` — LLM amenity/appliance extraction from free text; merges with existing, saves to DB
+- `POST /ai/chat` — freeform assistant chat about the property (streaming)
+- `POST /ai/bulk-scan` — batch scans up to N listings
+- `POST /ai/score` — quality score (0–100) + grade (A–F) + evaluation
+- `POST /ai/pricing-intel` — market pricing analysis
+- `POST /ai/seo-optimize` — SEO keyword analysis + title + opening
+- `POST /ai/clean` — Deep Clean Engine: strips boilerplate, rewrites in brand voice
+- `POST /ai/bulk-clean` — library-wide bulk clean
+- `POST /ai/generate-title` — specific, compelling listing title
+- `POST /ai/extract-features` — LLM amenity/appliance extraction
+- `POST /ai/neighborhood-context` — 2–3 sentence neighborhood paragraph
+- `POST /ai/check-duplicates` — fuzzy address duplicate detection
 
 ### AI Auto-Enrichment (`backend/services/ai_enricher.py`)
-Runs automatically on scrape and re-runs after significant property edits. Tasks: generate_description, extract_features, infer_pet_policy, classify_property_type, generate_title. Re-enrichment triggered on PUT /properties/:id when any SIGNIFICANT_FIELDS change (bedrooms, bathrooms, property_type, monthly_rent, amenities, appliances, description, city, state) for unpublished properties.
+Runs automatically on scrape. Tasks: generate_description, extract_features, infer_pet_policy, classify_property_type, generate_title.
 
-### Frontend AI Features
-- **AiAssistant** (`frontend/src/components/AiAssistant.jsx`): 9 tabs — Auto-Fill, Rewrite (draft history), **Clean**, **Title**, Issues, Score, Pricing, SEO, Chat. Receives `propertyId` prop for server-side save-back.
-- **Library bulk scan** (`frontend/src/pages/Library.jsx`): "AI Scan (N)" button scans all visible listings, shows summary banner + per-card color badges
-- **Library bulk clean** (`frontend/src/pages/Library.jsx`): "Clean All" button runs bulk-clean on all properties with descriptions
-- **PropertyCard badges** (`frontend/src/components/PropertyCard.jsx`): AI health badge (red=errors, amber=warnings, green=clean) shown after a bulk scan
-- **Publish gate** (`frontend/src/components/PublishButton.jsx`): Auto-checks for issues before publishing; blocks on errors, warns on warnings with override
-- **Editor auto-detect** (`frontend/src/pages/Editor.jsx`): After every save, runs detect-issues in background and shows inline quality badge with error/warning count + quality score
-- **Audit Dashboard** (`frontend/src/pages/Audit.jsx`): Library-wide table at `/audit` — completeness bars, issue counts post-scan, last-updated, staleness, sortable/filterable, Clean All + Scan All buttons
+---
 
 ## Project Structure
 
 ```
 property-pipeline/
+├── ECOSYSTEM.md             ← Cross-project architecture (read before any cross-repo work)
+├── SETUP_SUPABASE.md        ← One-time Supabase setup guide
+├── AI_HANDOFF.md            ← AI implementation status + rules for incoming AI sessions
 ├── backend/
-│   ├── database/           # Supabase client, repository pattern, model aliases
-│   │   ├── supabase_client.py  # Lazy Supabase connection singleton
-│   │   ├── repository.py       # PropertyRecord, AiEnrichmentLog, Repository class
-│   │   ├── db.py               # get_db() dependency for FastAPI routers
-│   │   └── models.py           # Re-exports PropertyRecord as Property for compatibility
-│   ├── routers/            # API endpoints (health, scraper, properties, images, publisher)
-│   ├── services/           # Business logic (scraping, image handling, watermark filtering, publishing)
-│   ├── storage/images/     # Local property photo storage (temporary, re-downloadable)
-│   └── main.py             # FastAPI entry point
-├── supabase_migration.sql  # Run once in Supabase SQL Editor to create pipeline tables
+│   ├── database/
+│   │   ├── supabase_client.py  ← get_supabase() [public] + get_pipeline_schema() [pipeline]
+│   │   ├── repository.py       ← All CRUD — uses _pipeline for pipeline_ tables
+│   │   ├── db.py               ← get_db() FastAPI dependency
+│   │   └── models.py           ← Re-exports PropertyRecord as Property
+│   ├── routers/            ← API endpoints
+│   ├── services/           ← Business logic
+│   │   ├── publisher_service.py  ← Writes to public.properties + property_photos
+│   │   ├── live_sync_service.py  ← Reads from public.properties
+│   │   └── setup_service.py      ← Validates credentials + schema accessibility
+│   └── main.py             ← FastAPI entry point
 ├── frontend/
-│   ├── src/
-│   │   ├── api/            # Axios client and API definitions
-│   │   ├── components/     # Reusable UI (PropertyCard, ImageGallery)
-│   │   ├── pages/          # Views (Library, Scraper, Editor)
-│   │   └── App.jsx         # Routing and main layout
-│   ├── package.json        # Frontend dependencies (React 18, Vite 5, Tailwind v4)
-│   └── vite.config.js      # Vite config with proxy to backend
-├── start.sh                # Unified startup script
-└── vite.config.js          # Root-level vite config (unused, frontend has its own)
+│   └── src/
+│       ├── components/     ← PropertyCard, AiAssistant, PublishButton, etc.
+│       └── pages/          ← Library, Scraper, Editor, Audit
+├── start.sh                ← Unified startup script
+└── supabase_migration.sql  ← LEGACY — tables already exist in pipeline schema, do not re-run
 ```
+
+---
 
 ## Running the App
 
-### Any environment — single command
-
 | Environment | Command |
 |---|---|
-| Replit | Click the Run button (triggers `bash start.sh`) |
-| Terminal / any AI builder | `make` or `bash start.sh` |
-| Docker / any machine | `docker-compose up --build` |
+| Replit | Click Run |
+| Terminal | `bash start.sh` or `make` |
+| Docker | `docker-compose up --build` |
 
-### What `start.sh` does (in order)
-1. Sources `backend/.env` at the OS shell level — all vars are exported before any process starts
-2. Runs a startup validator that prints a clear status table for every required and optional credential
-3. Verifies Python dependencies are available in the Replit environment
-4. Verifies root Node dependencies are installed
-5. Starts FastAPI (Uvicorn) on `127.0.0.1:8000` in the background
-6. Starts Vite on `0.0.0.0:5000` from the root dependency install (proxies `/api` → backend)
-
-### Useful make commands
-```
-make          # start everything
-make setup    # install deps only, don't start
-make check    # validate all credentials without starting
-make stop     # kill running services
-make docker-up   # run via Docker Compose
-```
+---
 
 ## Environment & Credentials
 
-Credentials should be provided through Replit environment variables/secrets. `backend/.env` is only a local-development fallback and is ignored by git.
+| Variable | Required | Purpose |
+|---|---|---|
+| `SUPABASE_URL` | ✅ Yes | `https://tlfmwetmhthpyrytrcfo.supabase.co` |
+| `SUPABASE_SERVICE_ROLE_KEY` | ✅ Yes | Full DB access (pipeline + public schemas) |
+| `IMAGEKIT_PUBLIC_KEY` | ✅ For publishing | ImageKit upload auth |
+| `IMAGEKIT_PRIVATE_KEY` | ✅ For publishing | ImageKit server-side upload |
+| `IMAGEKIT_URL_ENDPOINT` | ✅ For publishing | ImageKit CDN base URL |
+| `DEEPSEEK_API_KEY` | ⚡ Recommended | All AI features |
+| `SUPABASE_ANON_KEY` | Optional | Used by public website tooling |
+| `CHOICE_LANDLORD_ID` | Optional | Auto-resolved from landlords table if unset |
 
-**Required (app will not start without these):**
-- `SUPABASE_URL` — Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` — Supabase service-role JWT
+---
 
-**Required for publishing (ImageKit):**
-- `IMAGEKIT_PUBLIC_KEY`
-- `IMAGEKIT_PRIVATE_KEY`
-- `IMAGEKIT_URL_ENDPOINT`
+## Cross-Project Rules (for AI working on this repo)
 
-**Optional (features degrade gracefully if absent):**
-- `SUPABASE_ANON_KEY` — used by public website tooling
-- `DEEPSEEK_API_KEY` — enables all AI features
-- `CHOICE_LANDLORD_ID` — auto-resolved from Supabase if not set
+- ✅ Read/write `pipeline` schema tables freely
+- ✅ Write to `public.properties` and `public.property_photos` via the publisher only
+- ❌ Never write to any other `public` schema table
+- ❌ Never run ad-hoc SQL — add migrations to `choice121/Choice/supabase/migrations/`
+- ❌ Never alter `public.properties` column structure without checking `publisher_service.py`
+- ❌ Never drop the `pipeline` schema or revoke service_role access from it
 
-See `backend/.env.example` for a clean template.
+## If You Need to Understand the Choice Website
 
-## GitHub Actions CI
+- Architecture: `choice121/Choice/README.md`
+- AI instructions for Choice: `choice121/Choice/.github/copilot-instructions.md`
+- Edge Functions: `choice121/Choice/supabase/functions/`
+- The Choice website deploys to Cloudflare Pages — it is NOT hosted on Replit
+- Supabase migrations for the entire ecosystem: `choice121/Choice/supabase/migrations/`
 
-Every push to `main`/`master` automatically:
-1. Installs all Python and Node dependencies
-2. Validates all required credentials from the runtime environment
-3. Builds the frontend
-4. Runs a backend smoke test against the live Supabase connection
+---
 
-If credentials are broken or missing, the CI fails immediately and shows exactly which variable is the problem.
+## Mobile-First Architecture
 
-## Replit-Specific Notes
+The frontend is built phone-first. Property managers use this on a phone in the field.
 
-- The frontend is configured for Replit preview compatibility with `host: '0.0.0.0'`, port `5000`, `strictPort: true`, and `allowedHosts: true`.
-- Startup uses Replit-managed Python and Node dependencies directly instead of creating a virtual environment.
-- Frontend API calls stay same-origin (`/api`) and are proxied by Vite to the internal FastAPI backend at `127.0.0.1:8000`.
-- Vite ignores Replit internal state folders (`.local`, `.cache`) so workflow log updates do not trigger browser reload loops.
-- The backend uses `BACKEND_PORT` instead of `PORT` so Replit's frontend port does not accidentally move the API server.
-- Background live-site sync is skipped when setup is missing or invalid, preventing repeated startup errors.
+- **PWA**: Installable, service worker, offline-first via TanStack Query
+- **Touch**: BottomSheet, PullToRefresh, SwipeableCard, long-press multi-select
+- **Imagery**: ImageKit transformations via `frontend/src/utils/imageUrl.js`
 
-## Mobile-First Architecture (added April 2026)
-
-The frontend is built phone-first. Property managers are expected to use this on a phone in the field.
-
-**Installable PWA**
-- `vite-plugin-pwa` generates a service worker that caches the app shell, ImageKit images (CacheFirst, 30-day expiry), and recently-fetched listings (NetworkFirst with 4s timeout).
-- Manifest at `frontend/public/manifest.webmanifest`; "Add to Home Screen" works on iOS and Android.
-- Auto-updates via `registerType: 'autoUpdate'`.
-
-**Touch-first interactions**
-- `frontend/src/components/BottomSheet.jsx` — swipe-down-to-dismiss bottom sheet (hosts the AI Assistant on mobile via a floating action button in the Editor).
-- `frontend/src/components/PullToRefresh.jsx` — wraps the Library list; refetches the properties query on pull.
-- `frontend/src/components/SwipeableCard.jsx` — reusable swipe-to-action drawer for cards.
-- `frontend/src/utils/longPress.js` — long-press hook used by the Library to enter multi-select mode.
-- `frontend/src/utils/haptics.js` — small haptic feedback wrappers (Vibration API).
-
-**Responsive imagery (ImageKit)**
-- `frontend/src/utils/imageUrl.js` exports `transformImage()` and `responsiveImage()` which add `tr=w-…,q-…,f-auto,pr-true` parameters when the source is an ImageKit URL.
-- `PropertyCard`, `LiveImageGallery`, and `ImageGallery` request appropriate sizes via `srcSet`/`sizes` plus `loading="lazy"` and `decoding="async"`.
-- The Vite config exposes `VITE_IMAGEKIT_URL_ENDPOINT` from the `IMAGEKIT_URL_ENDPOINT` secret so the frontend can detect ImageKit assets.
-
-**Per-page mobile layouts**
-- `Layout.jsx` — top header on every screen, plus a fixed bottom tab bar on mobile (`Library / Scrape / Create / Audit`) with safe-area padding.
-- `Editor.jsx` — sticky bottom save bar on mobile + AI floating action button that opens the AI Assistant in a bottom sheet. Records every visit to `recentlyViewed` localStorage on load.
-- `Audit.jsx` — uses the table on `md+` screens and a card list on smaller screens, color-coded by issue severity.
-- `Library.jsx` — `SkeletonCard` placeholders during load, pull-to-refresh, long-press to enter bulk-select mode, plus two horizontal-scroll strips above the grid:
-  - **Favorites** (`components/FavoritesStrip.jsx`, persisted via `utils/favorites.js`) — toggled by the star button on each `PropertyCard`.
-  - **Recently viewed** (`components/RecentlyViewedStrip.jsx`, persisted via `utils/recentlyViewed.js`) — last 24 hours of opened properties.
-  - Both strips are stored in `localStorage` (no backend changes) and refresh live via `pp:favorites-changed` / `pp:recently-viewed-changed` custom events.
-
-**TanStack Query defaults**
-- `staleTime: 30s`, `gcTime: 5m`, `networkMode: 'offlineFirst'`, `refetchOnWindowFocus: false`, set in `main.jsx` so navigating between tabs feels instant and the app stays usable on flaky mobile networks.
+---
 
 ## Key Dependencies
 
-### Backend (Python)
-- FastAPI + Uvicorn
-- supabase-py (pipeline database — replaces SQLite/SQLAlchemy)
-- HomeHarvest (property scraping)
-- Pillow + httpx (image processing)
-- python-dotenv
+### Backend (Python 3.11)
+- FastAPI + Uvicorn, supabase-py ≥2.4, HomeHarvest, Pillow, httpx, openai-compatible SDK
 
 ### Frontend (Node)
-- React 18 + React Router v6
-- Vite 5
-- Tailwind CSS v4 + @tailwindcss/postcss
-- TanStack Query (React Query)
-- Axios
+- React 18, React Router v6, Vite 5, Tailwind CSS v4, TanStack Query, Axios
 
-## Publishing and Filtering
+---
 
-- Stage 7 publishing sends approved listings to Supabase and ImageKit when the required environment variables are configured.
-- Watermarked listings are blocked before display/save by `backend/services/watermark_filter.py`.
-- Current blocked watermark brand terms are stored in `WATERMARKED_BRAND_TERMS`; add new brand text there to expand the denylist.
-- The pipeline now preserves a richer property profile for publishing, including move-in costs, garage spaces, pet restrictions, lease terms, appliances, utilities, flooring, heating/cooling/laundry, basement/central-air flags, inferred features, and a completeness score.
-- `backend/database/db.py` performs additive SQLite column migrations during startup so older local pipeline databases keep working as the property model expands.
-- A local `choice-website/` copy of the Choice Properties static site has been added for the display-side update. It now includes website schema/display support for `total_bathrooms`, `has_basement`, and `has_central_air`, richer listing-card feature tags, richer property-detail structured data, and expanded search indexing for appliances/utilities/flooring/HVAC terms.
-- The uploaded pipeline fix pass has been merged selectively while keeping the Replit import setup and current dependency ranges. Publishing now normalizes property types, checks Supabase for existing address/city/state duplicates before insert, preserves unknown pet status, strips known platform boilerplate from descriptions, caps ImageKit uploads at 25 photos, and supports refreshing photos or syncing edited fields for already-published properties.
-- The scraper UI now includes a source selector and the backend stores the selected source on scraped/search results. The included backfill SQL files (`BACKFILL_PIPE1_property_types.sql`, `BACKFILL_PIPE2_remove_duplicates.sql`, `BACKFILL_PIPE4_landlord_id.sql`) are for manual Supabase cleanup of already-live records.
+## GitHub
 
-## Scraping Hardening (April 2026)
-
-A multi-phase plan lives in `docs/SCRAPING_PHASED_PLAN.md` with the deep audit in `docs/SCRAPING_AUDIT.md`. Read both before changing anything in the scraping subsystem.
-
-### Phase 1 — Observability & Source-Attribution Fix ✅ done (2026-04-26)
-- `services/scraper_service.py` now defines `ScrapeMetrics` (dataclass with `total_scraped`, `saved`, `duplicate_skipped`, `watermarked_dropped`, `validation_rejected`, `image_download_queued`, `per_source_counts`, `errors`, `partial`).
-- `_scrape_homeharvest` injects `_source` onto each raw row before `normalize_row` so per-source attribution is correct at the producer (was silently defaulting to `realtor` for every row).
-- `_inject_source` was renamed `_ensure_source` (setdefault semantics) so the multi-source dispatcher's per-source attribution is preserved instead of being overwritten with `"all"`. The old name remains as a backward-compat alias.
-- Both `POST /scrape` and `POST /search` now return a `meta: {...}` block with the full `ScrapeMetrics` shape.
-- `pipeline_scrape_runs.error_message` now stores the metrics JSON for each run (no schema migration; Phase 4 will promote to dedicated columns).
-- `frontend/src/pages/Scraper.jsx` renders a "Run summary" telemetry strip above the results showing scraped / shown / watermark blocked / duplicates / invalid.
-
-### Phase 2 — Reliability of upstream calls ✅ done (2026-04-26)
-- New shared module `services/http_utils.py` centralizes:
-  - `random_headers()` / `USER_AGENTS` (5-UA pool: Chrome Win/Mac/Linux, Firefox Mac, Safari Mac) — picked per request.
-  - `retry_with_backoff(fn, attempts=3)` — retries `httpx` transport errors + `5xx` only; **never** retries `4xx`.
-  - `nominatim_limiter` (process-global threading-locked rate limiter, 1.05s min interval) — concurrent enrichment workers can no longer collectively violate OSM Nominatim's 1 req/s policy.
-- `services/scraper_service.py`:
-  - `_scrape_homeharvest` runs `scrape_property` through `retry_with_backoff` inside a `ThreadPoolExecutor` with a `PER_SOURCE_DEADLINE_SECONDS = 35` wall-clock cap.
-  - `scrape_all_sources` is now capped at `MAX_MULTISOURCE_WORKERS = 4` (above this we get no real speedup but exhaust sockets).
-- `services/image_service.py` — `_download_one` now returns a `(success, reason)` tuple and retries once on transport errors only (`ConnectError`, `ReadTimeout`, `WriteTimeout`, `PoolTimeout`, `RemoteProtocolError`). Reason codes: `ok | http_<code> | not_image | too_small | low_quality | watermarked | transient | error`. `download_images` aggregates per-reason counts and emits one INFO log line per property.
-- `services/enrichment_service.py` — `geocode_property` now calls `nominatim_limiter.acquire()` before each request and the trailing `time.sleep(1)` is removed. UA upgraded to include a contact email per OSM TOS.
-- All 6 custom scrapers (`apartments`, `opendoor`, `hotpads`, `craigslist`, `invitation_homes`, `progress_residential`) now use `random_headers(HEADER_EXTRAS)` per request instead of a frozen module-level `HEADERS` dict.
-- **Deferred**: 2.3 (request-level `asyncio.wait_for`) — covered transitively by 2.2 + the existing `as_completed(timeout=PER_SOURCE_DEADLINE_SECONDS * 2)`. Promoting routes to `async def` is a larger refactor; revisit if traces show requests still hanging.
-- **Partial**: 2.5 (per-property image-download stats) — currently logged only; DB persistence into `inferred_features` deferred to Phase 4 to avoid a write-shape change here.
-
-### Phase 3 — Data correctness ✅ done (2026-04-26)
-- `services/validator.py` now hard-rejects rows with `monthly_rent is None`, `monthly_rent < 200`, or `address is None`. Counter goes into `metrics.validation_rejected`.
-- `PROPERTY_FIELDS` in `repository.py` expanded: `neighborhood`, `broker_name`, `agent_name`, `tax_value`, `hoa_fee`. Run `supabase_migration_phase3_4.sql` in the Supabase SQL Editor to add the columns; until then the live-schema cache silently skips them.
-- Rule-based enrichment sets `showing_instructions = "Contact listing agent to schedule a showing."` when the upstream is blank.
-- `normalize_row` runs an ordered-set dedup over amenity, appliance, and utility arrays (eliminates the duplicate-value bug from multiple data sources).
-- **Deferred**: 3.4 (original_data allow-list), 3.6 (unit tests) — low urgency.
-
-### Phase 4 — Frontend UX ✅ done (2026-04-26)
-- `ScrapeRunRecord` expanded with typed metric columns: `count_watermarked`, `count_duplicate`, `count_validation_rejected`, `count_image_failed`, `meta_json`, `idempotency_key`. `add_scrape_run` writes all columns; backwards-compat via silent-skip before migration.
-- `GET /stats/scrape-runs` (already existed) returns full run history including new columns.
-- `Scraper.jsx` telemetry strip now shows per-source pills (`realtor: 12 ✓ · zillow: 0 ✗`) from `meta.per_source_counts` for multi-source runs.
-- "Retry N failed" button appears in the strip when any source returned 0 results; re-runs each failed source individually and appends results.
-- `Audit.jsx` now shows a "Last 10 Scrape Runs" table at page bottom, parsing both new typed columns and the legacy JSON blob for older rows.
-- `INTER_ENRICHMENT_DELAY` is now env-driven: `PIPELINE_ENRICHMENT_DELAY_MS` (default 1000ms).
-
-### Phase 5 — Anti-fragility ✅ 5.2+5.3 done; 5.1, 5.4–5.6 deferred (2026-04-26)
-- **5.2 Proxy support**: `services/http_utils.py` adds `get_proxy_map()` (for httpx clients) and `get_homeharvest_proxy_kwarg()` (for HomeHarvest). Set `PIPELINE_SCRAPER_PROXY=http://user:pass@host:port` to route all outbound scraper traffic through a proxy. Zero overhead when unset.
-- **5.3 Idempotency key**: `POST /scrape` computes a SHA-256 hash of the normalized request (location + source + listing_type + price/bed filters); stores it on `pipeline_scrape_runs.idempotency_key`. A second identical request within 30s gets a `409` with the cached run record.
-- **Deferred**: 5.1 (scraper fallback chains), 5.4 (background worker process), 5.5 (scraper hardening), 5.6 (integration tests).
-
-## Development Status
-
-Stages 1-7 are implemented, with ongoing property data completeness and publishing reliability upgrades. Publishing requires Supabase, ImageKit, and landlord ID environment variables to be configured.
+- Pipeline repo: `https://github.com/choice121/property-pipeline`
+- Choice website repo: `https://github.com/choice121/Choice`
+- Push instructions: use `GITHUB_TOKEN` env var (see `AI_HANDOFF.md`)
