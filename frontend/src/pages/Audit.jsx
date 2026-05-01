@@ -60,62 +60,226 @@ function parseMeta(run) {
   try { return JSON.parse(raw) } catch { return {} }
 }
 
-function RunHistorySection({ runs }) {
-  if (!runs || runs.length === 0) return null
+function yieldPct(run) {
+  if (!run.count_total || run.count_total === 0) return null
+  return Math.round((run.count_new / run.count_total) * 100)
+}
+
+function yieldColor(pct) {
+  if (pct === null) return { bg: 'bg-gray-300', text: 'text-gray-500', ring: 'ring-gray-200' }
+  if (pct >= 60) return { bg: 'bg-emerald-500', text: 'text-emerald-700', ring: 'ring-emerald-200' }
+  if (pct >= 30) return { bg: 'bg-amber-400', text: 'text-amber-700', ring: 'ring-amber-200' }
+  return { bg: 'bg-rose-500', text: 'text-rose-700', ring: 'ring-rose-200' }
+}
+
+function ScoreChip({ score }) {
+  if (score == null) return <span className="text-gray-300 text-xs">—</span>
+  const cls = score >= 70 ? 'text-emerald-700 bg-emerald-50' : score >= 50 ? 'text-amber-700 bg-amber-50' : 'text-rose-700 bg-rose-50'
+  return <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${cls}`}>{score}</span>
+}
+
+function MiniSparkline({ runs }) {
+  const MAX_BARS = 12
+  const items = [...runs].reverse().slice(-MAX_BARS)
+  const pcts = items.map(yieldPct)
+  const maxVal = Math.max(...pcts.filter(p => p !== null), 1)
   return (
-    <div className="mt-8 bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100">
-        <h2 className="text-sm font-semibold text-gray-900">Last {runs.length} Scrape Runs</h2>
-        <p className="text-xs text-gray-500 mt-0.5">Most recent first. Drop counts come from the metrics blob stored at run time.</p>
+    <div className="flex items-end gap-0.5 h-8">
+      {pcts.map((pct, i) => {
+        const col = yieldColor(pct)
+        const h = pct === null ? 4 : Math.max(4, Math.round((pct / maxVal) * 28))
+        return (
+          <div
+            key={i}
+            title={pct === null ? 'No data' : `${pct}% yield`}
+            className={`w-2 rounded-sm flex-shrink-0 ${col.bg}`}
+            style={{ height: h }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+function SourceCard({ source, runs }) {
+  const [expanded, setExpanded] = useState(false)
+  const totalRuns = runs.length
+  const totalScraped = runs.reduce((s, r) => s + (r.count_total || 0), 0)
+  const totalNew = runs.reduce((s, r) => s + (r.count_new || 0), 0)
+  const totalWm = runs.reduce((s, r) => s + (r.count_watermarked || 0), 0)
+  const totalDup = runs.reduce((s, r) => s + (r.count_duplicate || 0), 0)
+  const totalInv = runs.reduce((s, r) => s + (r.count_validation_rejected || 0), 0)
+  const scores = runs.map(r => r.avg_score).filter(s => s != null)
+  const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+  const overallYield = totalScraped > 0 ? Math.round((totalNew / totalScraped) * 100) : null
+  const col = yieldColor(overallYield)
+  const lastRun = runs[0]
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="w-full text-left px-4 py-3 flex items-start gap-3 hover:bg-gray-50 transition-colors"
+      >
+        <div className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${col.bg}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="font-mono text-sm font-semibold text-gray-900">{source}</span>
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <span>{totalRuns} {totalRuns === 1 ? 'run' : 'runs'}</span>
+              {overallYield !== null && (
+                <span className={`font-semibold ${col.text}`}>{overallYield}% yield</span>
+              )}
+              {avgScore !== null && <ScoreChip score={avgScore} />}
+            </div>
+          </div>
+          <div className="flex items-center justify-between gap-3 mt-2">
+            <div className="flex gap-3 text-xs flex-wrap">
+              <span className="text-gray-700"><strong>{totalNew.toLocaleString()}</strong> saved</span>
+              <span className="text-gray-400">of {totalScraped.toLocaleString()} scraped</span>
+              {totalWm > 0 && <span className="text-amber-600">🔍 {totalWm} wm</span>}
+              {totalDup > 0 && <span className="text-gray-400">⟳ {totalDup} dup</span>}
+              {totalInv > 0 && <span className="text-rose-600">✕ {totalInv} invalid</span>}
+            </div>
+            <div className="flex-shrink-0">
+              <MiniSparkline runs={runs} />
+            </div>
+          </div>
+          {lastRun?.completed_at && (
+            <p className="text-[11px] text-gray-400 mt-1">
+              Last run {formatRelativeTime(lastRun.completed_at)}
+              {lastRun.location ? ` · ${lastRun.location}` : ''}
+            </p>
+          )}
+        </div>
+        <svg
+          className={`w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5 transition-transform ${expanded ? 'rotate-180' : ''}`}
+          fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Timeline strip — always visible */}
+      <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
+        {[...runs].reverse().map((run, i) => {
+          const pct = yieldPct(run)
+          const c = yieldColor(pct)
+          const meta = parseMeta(run)
+          const wm = run.count_watermarked ?? meta.watermarked_dropped ?? 0
+          const dup = run.count_duplicate ?? meta.duplicate_skipped ?? 0
+          const inv = run.count_validation_rejected ?? meta.validation_rejected ?? 0
+          const tip = [
+            run.completed_at ? new Date(run.completed_at).toLocaleDateString() : null,
+            `${run.count_new ?? 0}/${run.count_total ?? 0} saved`,
+            pct !== null ? `${pct}% yield` : null,
+            wm > 0 ? `${wm} watermarked` : null,
+            dup > 0 ? `${dup} duplicates` : null,
+            inv > 0 ? `${inv} invalid` : null,
+          ].filter(Boolean).join(' · ')
+          return (
+            <div
+              key={run.id || i}
+              title={tip}
+              className={`w-3 h-3 rounded-full flex-shrink-0 ring-2 ${c.bg} ${c.ring} cursor-default`}
+            />
+          )
+        })}
+        <span className="text-[10px] text-gray-400 ml-1">older → newer</span>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="text-left border-b border-gray-100 text-gray-500">
-              <th className="px-4 py-2 font-medium">When</th>
-              <th className="px-4 py-2 font-medium">Source</th>
-              <th className="px-4 py-2 font-medium">Location</th>
-              <th className="px-4 py-2 font-medium text-right">Scraped</th>
-              <th className="px-4 py-2 font-medium text-right">Saved</th>
-              <th className="px-4 py-2 font-medium text-right">Wm</th>
-              <th className="px-4 py-2 font-medium text-right">Dup</th>
-              <th className="px-4 py-2 font-medium text-right">Invalid</th>
-              <th className="px-4 py-2 font-medium text-right">Avg Score</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map((run, i) => {
-              const meta = parseMeta(run)
-              const wm = run.count_watermarked ?? meta.watermarked_dropped ?? 0
-              const dup = run.count_duplicate ?? meta.duplicate_skipped ?? 0
-              const inv = run.count_validation_rejected ?? meta.validation_rejected ?? 0
-              return (
-                <tr key={run.id || i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
-                    {run.completed_at ? formatRelativeTime(run.completed_at) : '—'}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    <span className="inline-block bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-xs font-mono">
-                      {run.source || '—'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2.5 text-gray-700 max-w-[160px] truncate">{run.location || '—'}</td>
-                  <td className="px-4 py-2.5 text-right font-semibold text-gray-900">{run.count_total ?? 0}</td>
-                  <td className="px-4 py-2.5 text-right text-emerald-700 font-semibold">{run.count_new ?? 0}</td>
-                  <td className="px-4 py-2.5 text-right">{wm > 0 ? <span className="text-amber-600">{wm}</span> : <span className="text-gray-300">—</span>}</td>
-                  <td className="px-4 py-2.5 text-right">{dup > 0 ? <span className="text-gray-500">{dup}</span> : <span className="text-gray-300">—</span>}</td>
-                  <td className="px-4 py-2.5 text-right">{inv > 0 ? <span className="text-rose-600">{inv}</span> : <span className="text-gray-300">—</span>}</td>
-                  <td className="px-4 py-2.5 text-right">
-                    {run.avg_score != null
-                      ? <span className={run.avg_score >= 70 ? 'text-emerald-600 font-semibold' : run.avg_score >= 50 ? 'text-amber-600 font-semibold' : 'text-rose-600 font-semibold'}>{run.avg_score}</span>
-                      : <span className="text-gray-300">—</span>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+
+      {/* Expanded: per-run detail table */}
+      {expanded && (
+        <div className="border-t border-gray-100 overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-left border-b border-gray-100 bg-gray-50 text-gray-500">
+                <th className="px-4 py-2 font-medium">When</th>
+                <th className="px-4 py-2 font-medium">Location</th>
+                <th className="px-4 py-2 font-medium text-right">Scraped</th>
+                <th className="px-4 py-2 font-medium text-right">Saved</th>
+                <th className="px-4 py-2 font-medium text-right">Yield</th>
+                <th className="px-4 py-2 font-medium text-right">Wm</th>
+                <th className="px-4 py-2 font-medium text-right">Dup</th>
+                <th className="px-4 py-2 font-medium text-right">Invalid</th>
+                <th className="px-4 py-2 font-medium text-right">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {runs.map((run, i) => {
+                const meta = parseMeta(run)
+                const wm = run.count_watermarked ?? meta.watermarked_dropped ?? 0
+                const dup = run.count_duplicate ?? meta.duplicate_skipped ?? 0
+                const inv = run.count_validation_rejected ?? meta.validation_rejected ?? 0
+                const pct = yieldPct(run)
+                const c = yieldColor(pct)
+                return (
+                  <tr key={run.id || i} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-2 text-gray-500 whitespace-nowrap">
+                      {run.completed_at ? formatRelativeTime(run.completed_at) : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600 max-w-[140px] truncate">{run.location || '—'}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-gray-900">{run.count_total ?? 0}</td>
+                    <td className="px-4 py-2 text-right text-emerald-700 font-semibold">{run.count_new ?? 0}</td>
+                    <td className="px-4 py-2 text-right">
+                      {pct !== null
+                        ? <span className={`font-semibold ${c.text}`}>{pct}%</span>
+                        : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="px-4 py-2 text-right">{wm > 0 ? <span className="text-amber-600">{wm}</span> : <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-2 text-right">{dup > 0 ? <span className="text-gray-500">{dup}</span> : <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-2 text-right">{inv > 0 ? <span className="text-rose-600">{inv}</span> : <span className="text-gray-300">—</span>}</td>
+                    <td className="px-4 py-2 text-right"><ScoreChip score={run.avg_score} /></td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ScrapeTrends({ runs }) {
+  if (!runs || runs.length === 0) return null
+
+  const bySource = {}
+  runs.forEach(run => {
+    const src = run.source || 'unknown'
+    if (!bySource[src]) bySource[src] = []
+    bySource[src].push(run)
+  })
+
+  const sources = Object.entries(bySource).sort((a, b) => b[1].length - a[1].length)
+
+  const totalRuns = runs.length
+  const totalScraped = runs.reduce((s, r) => s + (r.count_total || 0), 0)
+  const totalNew = runs.reduce((s, r) => s + (r.count_new || 0), 0)
+  const overallYield = totalScraped > 0 ? Math.round((totalNew / totalScraped) * 100) : null
+  const scores = runs.map(r => r.avg_score).filter(s => s != null)
+  const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null
+
+  return (
+    <div className="mt-8 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="text-sm font-semibold text-gray-900">Scrape Run History</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {totalRuns} runs · {totalNew.toLocaleString()} saved of {totalScraped.toLocaleString()} scraped
+            {overallYield !== null ? ` · ${overallYield}% overall yield` : ''}
+            {avgScore !== null ? ` · avg score ${avgScore}` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-gray-400">
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block" />≥60% yield</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" />30–59%</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block" />&lt;30%</span>
+        </div>
       </div>
+      {sources.map(([source, sourceRuns]) => (
+        <SourceCard key={source} source={source} runs={sourceRuns} />
+      ))}
     </div>
   )
 }
@@ -142,7 +306,7 @@ export default function Audit() {
 
   const { data: scrapeRuns } = useQuery({
     queryKey: ['scrapeRuns'],
-    queryFn: () => getScrapeRuns(10).then(r => r.data),
+    queryFn: () => getScrapeRuns(50).then(r => r.data),
     staleTime: 60_000,
   })
 
@@ -542,8 +706,7 @@ export default function Audit() {
         </>
       )}
 
-      {/* Phase 4 (4.4): last 10 scrape runs history */}
-      <RunHistorySection runs={scrapeRuns} />
+      <ScrapeTrends runs={scrapeRuns} />
     </div>
   )
 }
