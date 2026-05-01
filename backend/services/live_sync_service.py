@@ -37,8 +37,11 @@ _SELECT_COLS = (
     'pets_allowed,pet_types_allowed,pet_weight_limit,pet_details,smoking_allowed,'
     'utilities_included,parking,amenities,appliances,flooring,'
     'heating_type,cooling_type,laundry_type,has_basement,has_central_air,'
-    'photo_urls,photo_file_ids,virtual_tour_url,created_at,updated_at'
+    'virtual_tour_url,created_at,updated_at'
 )
+# Photos live in property_photos (id, property_id, url, file_id, display_order)
+# They were columns photo_urls / photo_file_ids on properties before Choice migration
+# 20260426000002.  We fetch them in a second query and join by property_id.
 
 
 def get_sync_stats() -> dict:
@@ -51,7 +54,7 @@ def _jl(val) -> str:
     return '[]'
 
 
-def _row_to_record(row: dict, pipeline_id: str) -> PropertyRecord:
+def _row_to_record(row: dict, pipeline_id: str, photo_urls: list[str] | None = None) -> PropertyRecord:
     now = datetime.utcnow().isoformat()
     av = row.get('available_date')
     return PropertyRecord(
@@ -111,7 +114,8 @@ def _row_to_record(row: dict, pipeline_id: str) -> PropertyRecord:
         has_basement=row.get('has_basement', False),
         has_central_air=row.get('has_central_air', False),
         virtual_tour_url=row.get('virtual_tour_url'),
-        original_image_urls=json.dumps(row.get('photo_urls') or []),
+        # Photos now come from property_photos table (url ordered by display_order)
+        original_image_urls=json.dumps(photo_urls or []),
         local_image_paths='[]',
         original_data='{}',
         edited_fields='[]',
@@ -188,6 +192,24 @@ def _update_existing(prop: PropertyRecord, row: dict, repo: Repository) -> bool:
     return changed
 
 
+def _fetch_photos_by_property(sb) -> dict[str, list[str]]:
+    """Fetch all property_photos rows and return a dict of property_id → [url, ...] sorted by display_order."""
+    try:
+        result = sb.table('property_photos').select(
+            'property_id,url,display_order'
+        ).order('display_order', desc=False).execute()
+        photos: dict[str, list[str]] = {}
+        for row in (result.data or []):
+            pid = row.get('property_id')
+            url = row.get('url')
+            if pid and url:
+                photos.setdefault(pid, []).append(url)
+        return photos
+    except Exception as e:
+        logger.warning('Could not fetch property_photos: %s', e)
+        return {}
+
+
 def sync_from_live(repo: Repository) -> dict:
     global _sync_stats
     _sync_stats['running'] = True
@@ -199,8 +221,11 @@ def sync_from_live(repo: Repository) -> dict:
             raise RuntimeError(readiness['summary'])
 
         sb = get_supabase()
+
+        # Fetch live properties and their photos (two queries, joined in Python)
         result = sb.table('properties').select(_SELECT_COLS).execute()
         live_props = result.data or []
+        photos_by_property = _fetch_photos_by_property(sb)
 
         all_pipeline = repo.list()
         tracked = {p.choice_property_id: p for p in all_pipeline if p.choice_property_id}
@@ -210,13 +235,14 @@ def sync_from_live(repo: Repository) -> dict:
 
         for row in live_props:
             supabase_id = row['id']
+            photo_urls = photos_by_property.get(supabase_id, [])
             if supabase_id in tracked:
                 did_update = _update_existing(tracked[supabase_id], row, repo)
                 if did_update:
                     updated += 1
             else:
                 new_id = str(uuid.uuid4())
-                prop = _row_to_record(row, new_id)
+                prop = _row_to_record(row, new_id, photo_urls=photo_urls)
                 repo.save(prop)
                 imported += 1
 
