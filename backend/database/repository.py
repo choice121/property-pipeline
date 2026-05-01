@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from database.supabase_client import get_supabase
+from database.supabase_client import get_supabase, get_pipeline_schema
+
+# ──────────────────────────────────────────────────────────────────────────────
+# SCHEMA NOTE
+# Pipeline tables live in the `pipeline` private Postgres schema.
+# They were moved there by Choice website migration 20260426000002.
+# ALL access to pipeline_ tables must go through self._pipeline (not self._client).
+# self._client → public schema  (properties, property_photos, landlords …)
+# self._pipeline → pipeline schema  (pipeline_properties, pipeline_enrichment_log …)
+# ──────────────────────────────────────────────────────────────────────────────
 
 PROPERTY_FIELDS = [
     "id", "source", "source_url", "source_listing_id", "status",
@@ -21,23 +30,15 @@ PROPERTY_FIELDS = [
     "edited_fields", "data_quality_score", "missing_fields",
     "inferred_features", "published_at", "choice_property_id",
     "scraped_at", "updated_at",
-    # Phase 3 (3.2) — added 2026-04-26. Each requires a Supabase ALTER TABLE
-    # to actually persist; until the migration runs, `Repository.save` will
-    # silently drop them via the live-schema cache (see _allowed_columns).
-    #   ALTER TABLE pipeline_properties
-    #     ADD COLUMN neighborhood text,
-    #     ADD COLUMN broker_name  text,
-    #     ADD COLUMN agent_name   text,
-    #     ADD COLUMN tax_value    integer,
-    #     ADD COLUMN hoa_fee      integer;
+    # Phase 3 (3.2) columns — added via supabase_migration_phase3_4.sql
     "neighborhood", "broker_name", "agent_name", "tax_value", "hoa_fee",
 ]
 
 _PROPERTY_DEFAULTS = {
-    "status":           "scraped",
+    "status":            "scraped",
     "local_image_paths": "[]",
-    "edited_fields":    "[]",
-    "missing_fields":   "[]",
+    "edited_fields":     "[]",
+    "missing_fields":    "[]",
     "inferred_features": "[]",
 }
 
@@ -71,12 +72,15 @@ class AiEnrichmentLog:
 
 
 class Repository:
-    def __init__(self, client=None):
-        self._client = client or get_supabase()
+    def __init__(self, client=None, pipeline=None):
+        self._client = client or get_supabase()       # public schema
+        self._pipeline = pipeline or get_pipeline_schema()  # pipeline schema
+
+    # ── Property CRUD (pipeline schema) ───────────────────────────────────────
 
     def get(self, prop_id: str) -> PropertyRecord | None:
         result = (
-            self._client.table("pipeline_properties")
+            self._pipeline.table("pipeline_properties")
             .select("*")
             .eq("id", prop_id)
             .limit(1)
@@ -88,7 +92,7 @@ class Repository:
 
     def get_by_source_listing_id(self, source_listing_id: str) -> PropertyRecord | None:
         result = (
-            self._client.table("pipeline_properties")
+            self._pipeline.table("pipeline_properties")
             .select("*")
             .eq("source_listing_id", source_listing_id)
             .limit(1)
@@ -99,7 +103,7 @@ class Repository:
         return None
 
     def list(self, status=None, search=None, sort="scraped_at") -> list[PropertyRecord]:
-        query = self._client.table("pipeline_properties").select("*")
+        query = self._pipeline.table("pipeline_properties").select("*")
 
         if status:
             query = query.eq("status", status)
@@ -134,25 +138,16 @@ class Repository:
         "parking_fee", "tax_value", "hoa_fee",
     }
 
-    # Phase 3 (3.2): live-schema cache. PROPERTY_FIELDS may declare columns
-    # that the upstream Supabase table does not yet have (because the migration
-    # hasn't been run). We discover the real shape on first save by selecting
-    # one row, then filter out any unknown keys before the upsert. Once the
-    # ALTER TABLE is applied, restart the process and the new columns light up
-    # automatically. Process-local — small, simple, sufficient.
     _allowed_columns_cache: set[str] | None = None
 
     def _allowed_columns(self) -> set[str]:
         if Repository._allowed_columns_cache is not None:
             return Repository._allowed_columns_cache
         try:
-            probe = self._client.table("pipeline_properties").select("*").limit(1).execute()
+            probe = self._pipeline.table("pipeline_properties").select("*").limit(1).execute()
             if probe.data:
                 cols = set(probe.data[0].keys())
             else:
-                # Empty table — fall back to optimistic "trust PROPERTY_FIELDS"
-                # (a write will fail loudly if a column is missing; we'll learn
-                # the real shape on the next call when the row exists).
                 cols = set(PROPERTY_FIELDS)
         except Exception:
             cols = set(PROPERTY_FIELDS)
@@ -175,14 +170,16 @@ class Repository:
             for k in unknown:
                 data.pop(k, None)
 
-        self._client.table("pipeline_properties").upsert(data, on_conflict="id").execute()
+        self._pipeline.table("pipeline_properties").upsert(data, on_conflict="id").execute()
 
     def delete(self, prop_id: str) -> None:
-        self._client.table("pipeline_properties").delete().eq("id", prop_id).execute()
+        self._pipeline.table("pipeline_properties").delete().eq("id", prop_id).execute()
+
+    # ── Enrichment log (pipeline schema) ──────────────────────────────────────
 
     def get_enrichment_log(self, prop_id: str, field: str, was_overridden: bool) -> AiEnrichmentLog | None:
         result = (
-            self._client.table("pipeline_enrichment_log")
+            self._pipeline.table("pipeline_enrichment_log")
             .select("*")
             .eq("property_id", prop_id)
             .eq("field", field)
@@ -195,7 +192,7 @@ class Repository:
         return None
 
     def update_log(self, log: AiEnrichmentLog) -> None:
-        self._client.table("pipeline_enrichment_log").update({
+        self._pipeline.table("pipeline_enrichment_log").update({
             "was_overridden": log.was_overridden,
             "human_value":    log.human_value,
         }).eq("id", log.id).execute()
@@ -209,22 +206,16 @@ class Repository:
             "human_value":    log.human_value,
             "was_overridden": log.was_overridden,
         }
-        self._client.table("pipeline_enrichment_log").insert(data).execute()
+        self._pipeline.table("pipeline_enrichment_log").insert(data).execute()
 
     def add_all_logs(self, logs: list[AiEnrichmentLog]) -> None:
         for log in logs:
             self.add_log(log)
 
     def update_inferred_features(self, prop_id: str, features: list) -> None:
-        """
-        Lightweight update of just the inferred_features field.
-        Used by bulk operations to save scan/clean timestamps without
-        triggering a full property save (which would change updated_at
-        and invalidate the 'edited since last scan' check).
-        """
         try:
             import json
-            self._client.table("pipeline_properties").update(
+            self._pipeline.table("pipeline_properties").update(
                 {"inferred_features": json.dumps(features)}
             ).eq("id", prop_id).execute()
         except Exception as e:
@@ -233,26 +224,24 @@ class Repository:
                 "Could not update inferred_features for %s: %s", prop_id, e
             )
 
+    # ── Chat conversations (pipeline schema) ──────────────────────────────────
+
     def save_chat_message(self, property_id: str, session_id: str, role: str, content: str) -> None:
-        """Save a chat message to the conversation history."""
         try:
-            self._client.table("pipeline_chat_conversations").insert({
+            self._pipeline.table("pipeline_chat_conversations").insert({
                 "property_id": property_id,
-                "session_id": session_id,
-                "role": role,
-                "content": content,
+                "session_id":  session_id,
+                "role":        role,
+                "content":     content,
             }).execute()
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(
-                "Could not save chat message: %s", e
-            )
+            logging.getLogger(__name__).warning("Could not save chat message: %s", e)
 
     def get_chat_history(self, property_id: str, session_id: str, limit: int = 50) -> list[dict]:
-        """Retrieve chat history for a property session."""
         try:
             result = (
-                self._client.table("pipeline_chat_conversations")
+                self._pipeline.table("pipeline_chat_conversations")
                 .select("*")
                 .eq("property_id", property_id)
                 .eq("session_id", session_id)
@@ -263,36 +252,32 @@ class Repository:
             if result.data:
                 return [
                     {
-                        "role": row["role"],
-                        "content": row["content"],
+                        "role":      row["role"],
+                        "content":   row["content"],
                         "timestamp": row["created_at"]
                     }
                     for row in result.data
                 ]
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(
-                "Could not fetch chat history: %s", e
-        )
+            logging.getLogger(__name__).warning("Could not fetch chat history: %s", e)
         return []
 
     def clear_old_chat_history(self, days_old: int = 30) -> None:
-        """Clean up chat history older than specified days."""
         try:
+            from datetime import timedelta
             cutoff = datetime.now(timezone.utc) - timedelta(days=days_old)
-            self._client.table("pipeline_chat_conversations").delete().lt(
+            self._pipeline.table("pipeline_chat_conversations").delete().lt(
                 "created_at", cutoff.isoformat()
             ).execute()
         except Exception as e:
             import logging
-            logging.getLogger(__name__).warning(
-                "Could not clear old chat history: %s", e
-            )
+            logging.getLogger(__name__).warning("Could not clear old chat history: %s", e)
 
     def list_logs_by_field(self, prop_id: str, field: str, limit: int = 10) -> list[AiEnrichmentLog]:
         try:
             result = (
-                self._client.table("pipeline_enrichment_log")
+                self._pipeline.table("pipeline_enrichment_log")
                 .select("*")
                 .eq("property_id", prop_id)
                 .eq("field", field)
@@ -306,14 +291,9 @@ class Repository:
             pass
         return []
 
-    def add_scrape_run(self, run: "ScrapeRunRecord") -> None:
-        """Persist one scrape run row.
+    # ── Scrape runs (pipeline schema) ─────────────────────────────────────────
 
-        Phase 4 (4.1): writes expanded metric columns when the Supabase
-        migration has been applied. The insert payload is filtered through the
-        live-schema cache so any column not yet present is silently skipped —
-        the app keeps working before and after the migration.
-        """
+    def add_scrape_run(self, run: "ScrapeRunRecord") -> None:
         payload = {
             "source":                    run.source,
             "location":                  run.location,
@@ -321,7 +301,6 @@ class Repository:
             "count_new":                 run.count_new,
             "avg_score":                 run.avg_score,
             "error_message":             run.error_message,
-            # Phase 4 (4.1) — decomposed metric columns
             "count_watermarked":         run.count_watermarked,
             "count_duplicate":           run.count_duplicate,
             "count_validation_rejected": run.count_validation_rejected,
@@ -330,10 +309,9 @@ class Repository:
             "idempotency_key":           run.idempotency_key,
             "completed_at":              datetime.now(timezone.utc).isoformat(),
         }
-        # Remove None values so Supabase uses column defaults where appropriate.
         payload = {k: v for k, v in payload.items() if v is not None}
         try:
-            self._client.table("pipeline_scrape_runs").insert(payload).execute()
+            self._pipeline.table("pipeline_scrape_runs").insert(payload).execute()
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning("Could not log scrape run: %s", e)
@@ -341,7 +319,7 @@ class Repository:
     def list_scrape_runs(self, limit: int = 50) -> list:
         try:
             result = (
-                self._client.table("pipeline_scrape_runs")
+                self._pipeline.table("pipeline_scrape_runs")
                 .select("*")
                 .order("completed_at", desc=True)
                 .limit(limit)
@@ -355,9 +333,8 @@ class Repository:
         return []
 
     def quality_stats_by_source(self) -> list[dict]:
-        """Aggregate quality stats grouped by source."""
         try:
-            result = self._client.table("pipeline_properties").select(
+            result = self._pipeline.table("pipeline_properties").select(
                 "source, data_quality_score, status"
             ).execute()
             rows = result.data or []
@@ -385,12 +362,12 @@ class Repository:
         for src, data in sorted(buckets.items()):
             scores = data["scores"]
             out.append({
-                "source":      src,
-                "count":       data["count"],
-                "avg_score":   round(sum(scores) / len(scores), 1) if scores else None,
-                "min_score":   min(scores) if scores else None,
-                "max_score":   max(scores) if scores else None,
-                "by_status":   dict(data["by_status"]),
+                "source":    src,
+                "count":     data["count"],
+                "avg_score": round(sum(scores) / len(scores), 1) if scores else None,
+                "min_score": min(scores) if scores else None,
+                "max_score": max(scores) if scores else None,
+                "by_status": dict(data["by_status"]),
             })
         return out
 
@@ -402,14 +379,6 @@ class Repository:
 
 
 class ScrapeRunRecord:
-    """Represents one row in pipeline_scrape_runs.
-
-    Phase 4 (4.1): fields added — count_watermarked, count_duplicate,
-    count_validation_rejected, count_image_failed, meta_json, idempotency_key.
-    These require the matching Supabase migration (supabase_migration_phase3_4.sql).
-    Until that migration runs the repository silently skips unknown columns.
-    """
-
     def __init__(self, source, location, count_total=0, count_new=0,
                  avg_score=None, error_message=None,
                  count_watermarked=0, count_duplicate=0,
@@ -423,7 +392,6 @@ class ScrapeRunRecord:
         self.count_new = count_new
         self.avg_score = avg_score
         self.error_message = error_message
-        # Phase 4 (4.1) expanded metrics
         self.count_watermarked = count_watermarked
         self.count_duplicate = count_duplicate
         self.count_validation_rejected = count_validation_rejected
@@ -435,21 +403,21 @@ class ScrapeRunRecord:
 
     def to_dict(self):
         return {
-            "id": self.id,
-            "source": self.source,
-            "location": self.location,
-            "count_total": self.count_total,
-            "count_new": self.count_new,
-            "avg_score": self.avg_score,
-            "error_message": self.error_message,
-            "count_watermarked": self.count_watermarked,
-            "count_duplicate": self.count_duplicate,
+            "id":                        self.id,
+            "source":                    self.source,
+            "location":                  self.location,
+            "count_total":               self.count_total,
+            "count_new":                 self.count_new,
+            "avg_score":                 self.avg_score,
+            "error_message":             self.error_message,
+            "count_watermarked":         self.count_watermarked,
+            "count_duplicate":           self.count_duplicate,
             "count_validation_rejected": self.count_validation_rejected,
-            "count_image_failed": self.count_image_failed,
-            "meta_json": self.meta_json,
-            "idempotency_key": self.idempotency_key,
-            "started_at": self.started_at,
-            "completed_at": self.completed_at,
+            "count_image_failed":        self.count_image_failed,
+            "meta_json":                 self.meta_json,
+            "idempotency_key":           self.idempotency_key,
+            "started_at":                self.started_at,
+            "completed_at":              self.completed_at,
         }
 
 
