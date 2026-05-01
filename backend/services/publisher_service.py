@@ -270,8 +270,8 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "cooling_type":         prop.cooling_type,
         "laundry_type":         prop.laundry_type,
         "virtual_tour_url":     prop.virtual_tour_url,
-        "photo_urls":           [r["url"] for r in imagekit_results],
-        "photo_file_ids":       [r["file_id"] for r in imagekit_results],
+        # photo_urls / photo_file_ids were removed from properties in Choice migration
+        # 20260426000002 — photos now live in property_photos table (inserted separately)
     }
 
     if landlord_id:
@@ -308,22 +308,21 @@ def refresh_images(prop, repo) -> dict:
         raise RuntimeError("Image upload to ImageKit failed — no images were uploaded successfully.")
 
     client = _get_supabase()
-    update_payload = {
-        "photo_urls":     [r["url"] for r in imagekit_results],
-        "photo_file_ids": [r["file_id"] for r in imagekit_results],
-    }
 
-    result = (
-        client.table("properties")
-        .update(update_payload)
-        .eq("id", prop.choice_property_id)
-        .execute()
-    )
-
-    if not result.data:
-        raise RuntimeError(
-            "Supabase update returned no data. The record may not exist or permissions may be insufficient."
-        )
+    # Photos live in property_photos (not on properties columns).
+    # Delete the old rows and replace with freshly-uploaded ones.
+    client.table("property_photos").delete().eq("id", prop.choice_property_id).execute()
+    photos_payload = [
+        {
+            "property_id":   prop.choice_property_id,
+            "url":           r["url"],
+            "file_id":       r["file_id"],
+            "display_order": i,
+        }
+        for i, r in enumerate(imagekit_results)
+    ]
+    if photos_payload:
+        client.table("property_photos").insert(photos_payload).execute()
 
     logger.info(
         "Images refreshed for property %s: %d photos now live",
@@ -567,6 +566,29 @@ def publish(prop, repo) -> dict:
 
     choice_property_id = result.data[0].get("id")
     now = datetime.now(timezone.utc).isoformat()
+
+    # Insert photos into property_photos (photos no longer live as columns on properties)
+    if imagekit_results:
+        photos_payload = [
+            {
+                "property_id":   str(choice_property_id),
+                "url":           r["url"],
+                "file_id":       r["file_id"],
+                "display_order": i,
+            }
+            for i, r in enumerate(imagekit_results)
+        ]
+        try:
+            client.table("property_photos").insert(photos_payload).execute()
+            logger.info(
+                "Inserted %d photos into property_photos for %s",
+                len(photos_payload), choice_property_id
+            )
+        except Exception as photo_exc:
+            # Log but don't fail the publish — the listing record is already committed
+            logger.error(
+                "property_photos insert failed for %s: %s", choice_property_id, photo_exc
+            )
 
     prop.status = "published"
     prop.published_at = now
