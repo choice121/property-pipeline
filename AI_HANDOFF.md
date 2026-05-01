@@ -1,81 +1,112 @@
-# AI Handoff Guide
+# AI Handoff Guide — Property Pipeline
 
 Read this file completely before touching any code. It is mandatory.
 
 ---
 
-## START HERE — Implementation Status
+## ECOSYSTEM CONTEXT — Read Before Anything Else
 
-This project has an active multi-phase AI improvement plan. Check the checklist below to find exactly where to continue. Each phase is pushed to GitHub when complete. Do not re-do completed phases.
+This project is half of a two-project ecosystem sharing one Supabase database.
 
-### Implementation Checklist
+| Project | Repo | Role |
+|---|---|---|
+| **This project** | [choice121/property-pipeline](https://github.com/choice121/property-pipeline) | Internal scraping + publishing tool |
+| **Choice Website** | [choice121/Choice](https://github.com/choice121/Choice) | Public rental listing website |
 
-#### Phase 1 — Reliability Fixes ✅ COMPLETE
-- [x] 1A. Created `backend/services/ai_client.py` — shared PLATFORM_CONTEXT, call_deepseek(), get_client(), handle_deepseek_error(), retry logic with exponential backoff (1s→2s→4s), JSON mode support, PROMPT_VERSION constant
-- [x] 1B. Updated `backend/routers/ai.py` — imports from ai_client, all structured endpoints use json_mode=True, markdown stripping removed, PROMPT_VERSION tags on all enrichment log entries
-- [x] 1C. Updated `backend/services/ai_enricher.py` — imports from ai_client, uses same PLATFORM_CONTEXT and call_deepseek() as the router, LLM feature extraction (_llm_extract_features) replaces keyword regex list, description generation uses full platform context
+**Supabase project ID** (shared by both): `tlfmwetmhthpyrytrcfo`
 
-#### Phase 2 — Bulk Operation Rate Control ✅ COMPLETE
-- [x] 2A. 750ms delay between properties in bulk-clean loop — already present in Phase 1
-- [x] 2B. Per-property 429 retry in bulk_clean — `_bulk_clean_with_retry()` helper with 3 attempts, 5s/10s wait
-- [x] 2C. Token-aware batching for bulk-scan — already done in Phase 1 (~3000 token budget)
-- [x] 2D. Skip recently-scanned properties — last_scanned timestamp stored in `inferred_features` field as `"last_scanned:<ISO>"` tag; bulk_scan skips properties scanned < 24h ago that haven't been edited since (`skip_recent=True` by default)
-- [x] 2E. Checkpoint/resume for bulk-clean — `resume=True` param skips properties with `last_cleaned:<ISO>` tag < 1h old; timestamp stored via `_set_inferred_tag()` after each successful clean; no schema changes needed — all stored in existing `inferred_features` column
+**How they relate**: This pipeline scrapes properties, stages them in the `pipeline` database schema, then publishes approved ones to the `public` schema — where the Choice website reads them.
 
-**Architecture note on 2D/2E:** No Supabase schema changes were made. Timestamps are embedded in the existing `inferred_features` JSON array as tagged strings (`"last_scanned:..."`, `"last_cleaned:..."`). The `update_inferred_features()` method in Repository does a targeted Supabase update that does NOT change `updated_at`, preserving the "edited since last scan" comparison logic.
+Full cross-project rules and architecture: `ECOSYSTEM.md` in this repo.
 
-#### Phase 3 — Smarter Auto-Enrichment ✅ COMPLETE
-- [x] 3A. LLM feature extraction — done in Phase 1C
-- [x] 3B. Rate-controlled enrichment queue — new `backend/services/enrichment_queue.py` module with `enqueue_enrichment()`. Uses a global `threading.Lock` + 1s post-release sleep so at most one property enrichment runs at a time, preventing DeepSeek being hammered with 50 concurrent calls after a large scrape. `scraper.py` updated to call `enqueue_enrichment` instead of the old `enrichment_background_task` (which is now removed).
-- [x] 3C. Smarter enrichment triggers — `enrich_property()` in `ai_enricher.py` now fingerprints `CORE_SCRAPED_FIELDS` + `PROMPT_VERSION` into a 12-char MD5 sig at the start. If the stored sig matches (tag `"enriched_sig:<sig>"` in `inferred_features`), enrichment is skipped entirely. If inputs changed or PROMPT_VERSION bumped, enrichment runs and the new sig is stored. Intentionally excludes AI-generated fields (description, title, amenities, appliances) from the sig to avoid circular triggers.
+---
 
-#### Phase 4 — New Intelligence Features ✅ COMPLETE
-- [x] 4A. Streaming for rewrite-description and chat endpoints (FastAPI StreamingResponse + frontend Fetch API) — `POST /api/ai/rewrite-description/stream` and `POST /api/ai/chat/stream` both yield SSE `data:` events; frontend uses `fetch()` with a ReadableStream reader, updating state token-by-token for a live typing effect; typing cursor shown while streaming
-- [x] 4B. Neighborhood context paragraph generation — `POST /api/ai/neighborhood-context` takes city/state/property_type, returns a 2–3 sentence paragraph; new "Neighborhood" tab in AiAssistant with copy-to-clipboard and feedback buttons
-- [x] 4C. Duplicate detection using difflib fuzzy address matching before publish — `POST /api/ai/check-duplicates` uses `difflib.SequenceMatcher` (≥85% ratio) + exact `source_listing_id` match; runs in parallel with issue detection on publish click; duplicate warning shown in confirm dialog with match type and similarity score; no LLM call needed
+## Critical: Supabase Schema Architecture
 
-#### Phase 5 — UX and Tracking Improvements ✅ COMPLETE
-- [x] 5A. Publish readiness progress bar — rule-based `computeCompleteness()` from `frontend/src/utils/completeness.js`; animated colored progress bar now shown in Editor.jsx above the Publish button; lists missing fields below the bar; color: red (<40%), amber (40–70%), blue (70–90%), green (≥90%)
-- [x] 5B. Accept/reject feedback buttons on AI suggestions — thumbs up/down below rewrite result and neighborhood context result; calls `POST /api/ai/feedback` which logs to `pipeline_enrichment_log` with `method=feedback_accept_{PROMPT_VERSION}` or `feedback_reject_{PROMPT_VERSION}`; applying a description auto-logs an accept
-- [x] 5C. Prompt versioning on all enrichment log entries (already done in Phase 1 via PROMPT_VERSION in ai_client.py)
-- [x] 5D. Description edit history — `properties.py` PUT handler captures `old_description` before applying updates; if description changed, writes old value to `pipeline_enrichment_log` with `field="description_history"` and `method="human_edit_v1"`; `GET /api/ai/description-history/{id}` fetches these logs; "Show description history" expandable section in Rewrite tab with per-version Restore button; `list_logs_by_field()` added to Repository
+```
+pipeline schema (this project)       public schema (Choice website)
+──────────────────────────────        ──────────────────────────────
+pipeline.pipeline_properties  ──→    public.properties
+pipeline.pipeline_enrichment_log     public.property_photos
+pipeline.pipeline_scrape_runs        public.landlords
+pipeline.pipeline_chat_conversations public.applications, leases …
+```
+
+**Why the pipeline schema?** Choice website migration `20260426000002_pipeline_private_schema.sql` moved pipeline tables from `public` to a private `pipeline` schema for security. The pipeline backend accesses them via `client.schema("pipeline")`.
+
+**Code rule**: Use `get_pipeline_schema()` (not `get_supabase()`) for ALL pipeline_ table access. See `backend/database/supabase_client.py`.
+
+**One-time setup needed**: The `pipeline` schema must be exposed in Supabase dashboard settings. See `SETUP_SUPABASE.md`.
+
+---
+
+## Implementation Checklist
+
+### Phase 1 — Reliability Fixes ✅ COMPLETE
+- [x] 1A. `backend/services/ai_client.py` — shared PLATFORM_CONTEXT, call_deepseek(), retry logic with exponential backoff, JSON mode support, PROMPT_VERSION constant
+- [x] 1B. `backend/routers/ai.py` — all structured endpoints use json_mode=True
+- [x] 1C. `backend/services/ai_enricher.py` — LLM feature extraction replaces keyword regex
+
+### Phase 2 — Bulk Operation Rate Control ✅ COMPLETE
+- [x] 2A–2E: 750ms delay, 429 retry, token-aware batching, skip-recently-scanned, checkpoint/resume
+
+### Phase 3 — Smarter Auto-Enrichment ✅ COMPLETE
+- [x] 3A–3C: LLM feature extraction, enrichment queue, fingerprint-based re-enrichment triggers
+
+### Phase 4 — New Intelligence Features ✅ COMPLETE
+- [x] 4A: Streaming for rewrite-description and chat (SSE)
+- [x] 4B: Neighborhood context paragraph generation
+- [x] 4C: Duplicate detection via difflib fuzzy matching before publish
+
+### Phase 5 — UX and Tracking Improvements ✅ COMPLETE
+- [x] 5A: Publish readiness progress bar (completeness.js)
+- [x] 5B: Accept/reject feedback buttons on AI suggestions
+- [x] 5C: Prompt versioning (PROMPT_VERSION)
+- [x] 5D: Description edit history with restore
+
+### Phase 6 — Cross-Project Integration & Schema Fix ✅ COMPLETE
+- [x] 6A: `supabase_client.py` — added `get_pipeline_schema()` using `client.schema("pipeline")`
+- [x] 6B: `repository.py` — all pipeline_ table calls use `self._pipeline` (pipeline schema)
+- [x] 6C: `setup_service.py` — checks pipeline schema; gives clear error with fix instructions
+- [x] 6D: `ECOSYSTEM.md` — canonical cross-project architecture document
+- [x] 6E: `SETUP_SUPABASE.md` — one-step setup guide for the pipeline schema exposure
+- [x] `replit.md` — full ecosystem context for Replit AI
+- [x] `choice121/Choice/.github/copilot-instructions.md` — updated with pipeline context
+- [x] `choice121/Choice/.github/CODEOWNERS` — pipeline schema migrations protected
+- [x] `choice121/Choice/ECOSYSTEM.md` — cross-project overview in Choice repo
 
 ---
 
 ## Next Action for Incoming AI
 
 1. Read this file completely
-2. Check the checklist above — find the first unchecked item
-3. Read the relevant source files before editing
-4. Implement the next unchecked phase items
-5. Mark items as complete [x] in this file
-6. Push to GitHub with a descriptive commit message
-7. Continue to the next phase
+2. Read `ECOSYSTEM.md` for cross-project context
+3. Check the checklist above — find the first unchecked item
+4. Read the relevant source files before editing
+5. Update this file when done (mark [x], update Next Action)
+6. Push to GitHub (see push instructions at bottom)
 
-**All phases 1–5 are complete. The pipeline is fully functional with streaming AI responses, neighborhood context generation, duplicate detection, publish readiness bar, feedback logging, and description history. No pending implementation work.**
+**All phases 1–6 are complete. The pipeline is fully operational with streaming AI, schema-correct Supabase access, and bidirectional cross-project documentation.**
+
+The one remaining step is: expose the `pipeline` schema in Supabase dashboard settings (see `SETUP_SUPABASE.md`). This cannot be done via code — it's a one-time dashboard action.
 
 ---
 
-## Key Architecture Decisions Made During Implementation
+## Key Architecture Decisions
 
-### Shared AI Client Module
-`backend/services/ai_client.py` is the single source of truth for all AI configuration:
-- `PLATFORM_CONTEXT` — the full system prompt injected into every DeepSeek call
-- `PROMPT_VERSION` — bump this string (e.g. "v2" → "v3") when prompts change significantly
-- `call_deepseek()` — unified caller with retry logic and json_mode parameter
-- `get_client()` — creates the OpenAI-compatible DeepSeek client
-- `handle_deepseek_error()` — classifies and raises appropriate HTTP exceptions
+### get_pipeline_schema() vs get_supabase()
+- `get_supabase()` → public schema → use for: publisher (properties, property_photos), live_sync, landlords
+- `get_pipeline_schema()` → pipeline schema → use for: ALL pipeline_ tables in repository.py
+- Never mix these up. Using `get_supabase().table("pipeline_properties")` fails silently or with schema-cache error.
 
-Both `backend/routers/ai.py` and `backend/services/ai_enricher.py` import from here. Never duplicate AI client setup elsewhere.
+### Shared AI Client (`backend/services/ai_client.py`)
+Single source of truth for all AI config: PLATFORM_CONTEXT, PROMPT_VERSION, call_deepseek(), get_client(), handle_deepseek_error(). Both routers/ai.py and services/ai_enricher.py import from here. Never duplicate.
 
 ### JSON Mode
-All structured endpoints (detect-issues, autofill, bulk-scan, score, pricing-intel, seo-optimize, clean, extract-features) use `json_mode=True` in their `call_deepseek()` call. This passes `response_format={"type": "json_object"}` to the API and eliminates markdown stripping. Plain text endpoints (rewrite-description, suggest-field, chat, generate-title) do not use json_mode.
+Structured endpoints use `json_mode=True`. Plain-text endpoints (rewrite-description, chat, generate-title) do not.
 
-### Prompt Versioning
-Every `repo.add_log()` call uses `method=f"some_method_{PROMPT_VERSION}"`. When prompts are updated, bump `PROMPT_VERSION` in `ai_client.py`. You can then query Supabase for properties enriched with old prompt versions and re-run them.
-
-### LLM Feature Extraction
-The auto-enricher now uses `_llm_extract_features()` instead of the old keyword list. This understands nuanced language ("stainless suite" → appliances, "EV rough-in" → EV Charging). If the LLM call fails, it returns empty lists gracefully — no crash.
+### Publisher Flow
+`publisher_service.py` → `public.properties` (upsert) + ImageKit upload → `public.property_photos` (insert). Never writes to pipeline_ tables.
 
 ---
 
@@ -83,99 +114,119 @@ The auto-enricher now uses `_llm_extract_features()` instead of the old keyword 
 
 A private property management tool for the owner of Choice Properties.
 
-It allows the owner to:
-1. Scrape property listings from Zillow, Realtor.com, and Redfin
-2. View and edit scraped properties in a private dashboard
-3. Publish approved listings to their live website
+1. Scrape listings from Zillow, Realtor.com, Redfin
+2. View and edit in a private dashboard
+3. AI-enrich (titles, descriptions, features, quality scores)
+4. Publish approved listings to the live Choice Properties website
 
-Nothing touches the live website until Stage 7, and only with explicit owner approval.
+Nothing touches the live website until the owner explicitly publishes a listing.
 
 ---
 
 ## Non-Negotiable Rules
 
-### Do not touch the live website before Stage 7
-Stage 7 is the only stage that connects to Supabase or ImageKit for publishing.
-publisher_service.py handles this — do not modify its publish logic without explicit instruction.
+### Schema boundaries
+- pipeline_ tables → always `self._pipeline` in repository.py
+- public tables → always `self._client` or `get_supabase()`
+- Never write to public schema tables OTHER than properties + property_photos
 
 ### No hardcoded credentials
-All credentials are in Replit Secrets / environment variables.
-Never create or commit a backend/.env file.
+All credentials are in Replit Secrets. Never commit backend/.env.
 
-### Preserve original scraped data
-The original_data column is written once (on scrape) and never changed.
-The edited_fields column tracks what the owner changed.
+### Preserve original data
+`original_data` written once on scrape, never changed. `edited_fields` tracks changes.
 
-### Update this file when done
-After completing each phase or sub-task, mark it [x] in the checklist above and update the "Next Action" section. If you do not, the next AI starts blind.
+### No ad-hoc SQL
+New tables/columns → add a migration to `choice121/Choice/supabase/migrations/`
+
+### Update this file
+After completing any work, mark phases [x] and update the Next Action section.
+
+### Cross-repo changes
+When making changes that affect the Choice website's database structure, also update `choice121/Choice`. Use the GitHub token available in the environment.
 
 ---
 
 ## Project Structure (Key Files)
 
 ```
+ECOSYSTEM.md                      ← Cross-project bible — read first for any cross-repo work
+SETUP_SUPABASE.md                 ← One-time Supabase schema exposure guide
 backend/
-  services/
-    ai_client.py        ← SHARED AI config, client, retry logic (NEW — Phase 1)
-    ai_enricher.py      ← Auto-enrichment on scrape (updated Phases 1 + 3)
-    enrichment_queue.py ← Rate-controlled enrichment serializer (NEW — Phase 3B)
-    pricing_service.py  ← Pricing rules applied during enrichment
-  routers/
-    ai.py               ← All AI API endpoints (updated Phase 1)
-    properties.py       ← CRUD endpoints for pipeline properties
-    publisher.py        ← Publish to live Supabase + ImageKit
-    scraper.py          ← Triggers HomeHarvest scraping
   database/
-    repository.py       ← Supabase read/write layer
-    supabase_client.py  ← Lazy Supabase connection singleton
+    supabase_client.py            ← get_supabase() [public] + get_pipeline_schema() [pipeline]
+    repository.py                 ← All CRUD; uses _pipeline for pipeline_ tables
+  services/
+    ai_client.py                  ← SHARED AI config + client (Phase 1)
+    ai_enricher.py                ← Auto-enrichment on scrape
+    enrichment_queue.py           ← Rate-controlled enrichment serializer (Phase 3B)
+    publisher_service.py          ← Publish to public.properties + ImageKit
+    setup_service.py              ← Credential + schema validation
+  routers/
+    ai.py                         ← All AI endpoints
+    properties.py                 ← CRUD endpoints for pipeline properties
+    publisher.py                  ← Publish endpoint
+    scraper.py                    ← Scraping endpoints
 frontend/
   src/
     components/
-      AiAssistant.jsx   ← 9-tab AI panel in the editor
-      PropertyCard.jsx  ← Library cards with AI health badges
-      PublishButton.jsx ← Publish gate with pre-publish AI check
+      AiAssistant.jsx             ← 9-tab AI panel
+      PropertyCard.jsx            ← Library cards with AI health badges
+      PublishButton.jsx           ← Publish gate with pre-publish checks
     pages/
-      Library.jsx       ← Property grid with bulk scan/clean
-      Editor.jsx        ← Full property editor
-      Audit.jsx         ← Library-wide quality dashboard
+      Library.jsx                 ← Property grid
+      Editor.jsx                  ← Full property editor
+      Audit.jsx                   ← Quality dashboard
 ```
+
+---
+
+## Choice Website — What AI Working Here Needs to Know
+
+The Choice website (`choice121/Choice`) is a **static HTML/CSS/JS site** deployed on **Cloudflare Pages**.
+
+- **No Node.js server, no Python, no Express** — everything runs in the browser + Supabase
+- **Backend logic**: Supabase Edge Functions (Deno/TypeScript) in `supabase/functions/`
+- **Database migrations**: `supabase/migrations/` — all changes go here
+- **Deployment**: Push to `main` → GitHub CI validates → Cloudflare Pages auto-deploys
+- **Replit role in Choice**: editing only — Replit is NOT the host
+- **Live URL**: https://choice-properties-site.pages.dev
+
+### Choice website tables this pipeline touches (public schema):
+- `public.properties` — publisher writes here when a listing is approved
+- `public.property_photos` — publisher writes ImageKit URLs here
+
+### Choice website tables this pipeline NEVER touches:
+- `public.applications`, `public.leases`, `public.landlords`, `public.sign_events` — all belong to the Choice website's lease/application workflow
 
 ---
 
 ## Credentials & Environment
 
-All credentials are in Replit environment variables. DO NOT ask the owner for them.
-
 | Variable | Purpose |
 |---|---|
-| SUPABASE_URL | Supabase project REST URL |
-| SUPABASE_SERVICE_ROLE_KEY | Supabase service-role JWT |
+| SUPABASE_URL | `https://tlfmwetmhthpyrytrcfo.supabase.co` |
+| SUPABASE_SERVICE_ROLE_KEY | Full DB access (pipeline + public schema) |
 | DEEPSEEK_API_KEY | All AI features |
 | IMAGEKIT_PUBLIC_KEY | ImageKit uploads |
-| IMAGEKIT_PRIVATE_KEY | ImageKit uploads |
+| IMAGEKIT_PRIVATE_KEY | ImageKit uploads (server-side) |
 | IMAGEKIT_URL_ENDPOINT | ImageKit CDN base URL |
+| CHOICE_LANDLORD_ID | Optional — auto-resolved from public.landlords if unset |
 
-Supabase project ID: `tlfmwetmhthpyrytrcfo`
-ImageKit account: `21rg7lvzo`
+DO NOT ask the owner for credentials. They are all in Replit Secrets.
 
 ---
 
 ## GitHub Push Instructions
 
-The repo remote is: `https://github.com/choice121/property-pipeline`
-Current branch: `main`
-
-To push after completing a phase:
-```bash
-git add -A
-git commit -m "Phase X complete: [short description of what was done]"
-git push origin main
-```
-
-The GITHUB_TOKEN is available as an environment variable. Configure git credentials before pushing:
 ```bash
 git config user.email "agent@replit.com"
 git config user.name "Replit Agent"
 git remote set-url origin https://x-access-token:$GITHUB_TOKEN@github.com/choice121/property-pipeline.git
+git add -A
+git commit -m "Phase X complete: [description]"
 git push origin main
 ```
+
+To also update the Choice repo (when making cross-project changes):
+Use the GitHub REST API with the token in `GITHUB_TOKEN` env var. See `ECOSYSTEM.md` for cross-repo rules.
