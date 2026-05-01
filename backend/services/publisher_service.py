@@ -311,7 +311,7 @@ def refresh_images(prop, repo) -> dict:
 
     # Photos live in property_photos (not on properties columns).
     # Delete the old rows and replace with freshly-uploaded ones.
-    client.table("property_photos").delete().eq("id", prop.choice_property_id).execute()
+    client.table("property_photos").delete().eq("property_id", prop.choice_property_id).execute()
     photos_payload = [
         {
             "property_id":   prop.choice_property_id,
