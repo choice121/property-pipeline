@@ -90,12 +90,27 @@ When the pipeline owner approves a listing and clicks Publish:
 
 1. `backend/services/publisher_service.py` runs
 2. It **upserts** a row into `public.properties` (creating or updating the live listing)
-3. It uploads photos to ImageKit CDN
+3. It uploads up to **40 photos** to ImageKit CDN
 4. It inserts rows into `public.property_photos` with the ImageKit URLs
 5. It resolves the landlord UUID from `public.landlords` (or uses `CHOICE_LANDLORD_ID` env var)
 6. The Choice website immediately reflects the new listing (no rebuild needed — it queries Supabase live)
 
 The pipeline writes **only** to `public.properties` and `public.property_photos`. It never touches applications, leases, landlords, or any other public table.
+
+### IMPORTANT: property_photos column schema
+
+```
+property_id      text  -- e.g. "PROP-BF860F35" (matches properties.id)
+url              text  -- ImageKit CDN URL
+file_id          text  -- ImageKit file ID
+display_order    int   -- 0-indexed gallery order
+alt_text         text
+caption          text
+watermark_status text
+width / height   int
+```
+
+**`public.properties` does NOT have `photo_urls` or `photo_file_ids` columns.** Those were removed in Choice migration `20260426000002`. All photo data lives in `property_photos`. Any code referencing those old columns will fail with a PostgREST 204 error.
 
 ---
 
