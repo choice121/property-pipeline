@@ -1,29 +1,25 @@
-# Supabase One-Time Setup
+# Supabase Setup
 
-This document covers the single manual step required to connect the pipeline to your Supabase database, plus the full database overview.
+This document covers the Supabase database configuration for the pipeline, plus the full database overview.
 
 ---
 
-## Required: Expose the Pipeline Schema (One Step)
+## Pipeline Schema Exposure — ALREADY DONE ✅
 
-The pipeline uses a private `pipeline` schema in your Supabase database. This schema must be exposed to the Supabase API. You only do this once.
+The `pipeline` schema is already exposed to the Supabase PostgREST API. No manual action is needed.
 
-### Steps
+This was configured programmatically via the Supabase Management API:
+```
+PATCH https://api.supabase.com/v1/projects/tlfmwetmhthpyrytrcfo/config/database/postgrest
+Body: {"db_schema": "public,graphql_public,pipeline"}
+```
 
-1. Go to your Supabase dashboard:
-   **https://supabase.com/dashboard/project/tlfmwetmhthpyrytrcfo/settings/api**
+**If you ever need to re-do this** (e.g. after a Supabase project reset):
+1. Use the token in `SUPABASE_MANAGEMENT_API_TOKEN` (Replit Secrets)
+2. Send the PATCH request above
+3. Or go to: https://supabase.com/dashboard/project/tlfmwetmhthpyrytrcfo/settings/api and add `pipeline` to "Extra schemas"
 
-2. Scroll to **"API Settings"**
-
-3. Find the field labeled **"Extra schemas to expose in your API"** (also called `db_extra_search_path`)
-
-4. Add `pipeline` to the list (alongside the default `public`)
-
-5. Click **Save**
-
-6. Come back to this app and click **Recheck** on the setup screen — it should now show green
-
-That's it. The pipeline schema is already set up with all its tables (35,000+ properties from previous scraping). This step just tells Supabase's API layer that it's allowed to talk to them.
+The setup screen in the app will show ✅ for both schemas when everything is correct.
 
 ---
 
