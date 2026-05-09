@@ -91,6 +91,10 @@ SAFE_SKIP_KEYS = frozenset({
     "source", "source_url", "source_listing_id", "original_data",
     "status", "id", "scraped_at", "updated_at", "edited_fields",
     "inferred_features", "missing_fields", "data_quality_score",
+    # Agent/broker metadata — these identify who listed the property, not
+    # whether the photos contain watermarks. Blocking on these causes false
+    # positives for legitimate rentals listed by major brokerages.
+    "agent_name", "broker_name", "office_name", "listing_agent",
 })
 
 BRANDED_CONTENT_KEYS = frozenset({
