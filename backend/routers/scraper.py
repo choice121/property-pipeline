@@ -22,9 +22,109 @@ from services.scraper_service import (
 )
 from services.validator import validate_and_filter
 from services.watermark_filter import watermark_reasons
+from services.url_scraper_service import scrape_by_url
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class ScrapeByUrlsRequest(BaseModel):
+    urls: List[str]
+
+
+@router.post("/scrape/by-urls")
+def scrape_by_urls(
+    req: ScrapeByUrlsRequest,
+    background_tasks: BackgroundTasks,
+    repo: Repository = Depends(get_db),
+):
+    """Scrape a specific list of property URLs — one property per URL."""
+    if not req.urls:
+        raise HTTPException(status_code=400, detail="No URLs provided.")
+
+    saved = []
+    errors = []
+
+    for url in req.urls:
+        url = url.strip()
+        if not url:
+            continue
+
+        try:
+            data = scrape_by_url(url)
+        except Exception as e:
+            errors.append({"url": url, "error": str(e)})
+            logger.error("scrape_by_url failed for %s: %s", url, e)
+            continue
+
+        if not data:
+            errors.append({"url": url, "error": "No data returned — URL may be unsupported or the page blocked."})
+            continue
+
+        source_listing_id = data.get("source_listing_id")
+        if source_listing_id:
+            existing = repo.get_by_source_listing_id(source_listing_id)
+            if existing:
+                saved.append({"property": existing.to_dict(), "action": "existing"})
+                continue
+
+        # For URL-specified properties the user has explicitly chosen, save the
+        # property even if rent is missing — the user can fill it in before publishing.
+        if not data.get("monthly_rent") and data.get("address"):
+            from services.validator import validate_and_warn
+            data = validate_and_warn(data)
+        else:
+            data, reject_reason = validate_and_filter(data)
+            if reject_reason:
+                errors.append({"url": url, "error": f"Validation failed: {reject_reason}"})
+                continue
+
+        from services.enrichment_service import run_rule_based_enrichment
+        data = run_rule_based_enrichment(data)
+
+        image_urls = []
+        try:
+            image_urls = json.loads(data.get("original_image_urls", "[]"))
+        except Exception:
+            pass
+
+        score, missing = _calculate_weighted_quality(data, image_urls)
+        data["data_quality_score"] = score
+        data["missing_fields"] = json.dumps(missing)
+
+        prop_id = generate_property_id()
+        from database.repository import PROPERTY_FIELDS
+        valid_cols = set(PROPERTY_FIELDS)
+        prop_data = {k: v for k, v in data.items() if k in valid_cols}
+        prop = PropertyRecord(id=prop_id, **prop_data)
+
+        try:
+            repo.save(prop)
+        except Exception as e:
+            errors.append({"url": url, "error": f"Save failed: {e}"})
+            logger.error("Failed to save property from %s: %s", url, e)
+            continue
+
+        if image_urls:
+            background_tasks.add_task(download_images_task, prop_id, image_urls)
+        background_tasks.add_task(enqueue_enrichment, prop_id)
+
+        agent_name = data.get("agent_name")
+        broker_name = data.get("broker_name")
+        agent_image_url = data.get("agent_image_url")
+        if agent_name or broker_name:
+            background_tasks.add_task(
+                _resolve_poster_task,
+                prop_id, agent_name, broker_name, agent_image_url, repo,
+            )
+
+        saved.append({"property": prop.to_dict(), "action": "created"})
+
+    return {
+        "count": len(saved),
+        "saved": saved,
+        "errors": errors,
+    }
 
 
 def _resolve_poster_task(prop_id: str, agent_name, broker_name, agent_image_url, repo: Repository):
