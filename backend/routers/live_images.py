@@ -1,4 +1,5 @@
 import logging
+from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
@@ -128,9 +129,59 @@ async def upload_live_image(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f'Upload failed: {e}')
 
-    # Append the new photo to property_photos at the next display_order
     urls, file_ids = _fetch_photos(prop.choice_property_id)
     new_urls = urls + [result['url']]
     new_ids = file_ids + [result['file_id']]
     photos = _save_photos(prop.choice_property_id, new_urls, new_ids)
     return {'ok': True, 'photo': result, 'photos': photos}
+
+
+@router.post('/live-images/{id}/upload-many')
+async def upload_live_images_many(
+    id: str,
+    files: List[UploadFile] = File(...),
+    repo: Repository = Depends(get_db),
+):
+    """Upload multiple photos at once to a live (published) property."""
+    prop = repo.get(id)
+    _require_live(prop)
+
+    if not files:
+        raise HTTPException(status_code=400, detail='No files provided.')
+
+    uploaded = []
+    errors = []
+
+    for file in files[:40]:  # cap at 40 per batch
+        if file.content_type not in ALLOWED_TYPES:
+            errors.append(f'{file.filename}: invalid type')
+            continue
+        content = await file.read()
+        if len(content) > MAX_BYTES:
+            errors.append(f'{file.filename}: too large (max 15 MB)')
+            continue
+        try:
+            result = imagekit_service.upload_file(
+                content,
+                file.filename or 'photo.jpg',
+                prop.choice_property_id,
+            )
+            uploaded.append(result)
+        except Exception as e:
+            errors.append(f'{file.filename}: {e}')
+
+    if not uploaded:
+        raise HTTPException(status_code=502, detail=f'All uploads failed. {"; ".join(errors)}')
+
+    # Append all new photos
+    urls, file_ids = _fetch_photos(prop.choice_property_id)
+    new_urls = urls + [r['url'] for r in uploaded]
+    new_ids = file_ids + [r['file_id'] for r in uploaded]
+    photos = _save_photos(prop.choice_property_id, new_urls, new_ids)
+
+    return {
+        'ok': True,
+        'uploaded': len(uploaded),
+        'errors': errors,
+        'photos': photos,
+    }

@@ -94,7 +94,8 @@ export const aiDescriptionHistory = (propertyId) => api.get('/ai/description-his
 export const getLiveImages = (id) => api.get('/live-images/' + id)
 export const deleteLiveImage = (id, fileId) => api.delete('/live-images/' + id + '/' + encodeURIComponent(fileId))
 export const reorderLiveImages = (id, order) => api.put('/live-images/' + id + '/reorder', { order })
-export const uploadLiveImage = (id, formData) => api.post('/live-images/' + id + '/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+export const uploadLiveImage  = (id, formData) => api.post('/live-images/' + id + '/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+export const uploadLiveImages = (id, formData) => api.post('/live-images/' + id + '/upload-many', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 
 export const syncFromLive = () => api.post('/sync/from-live')
 export const getSyncStatus = () => api.get('/sync/status', { skipGlobalErrorHandler: true })
