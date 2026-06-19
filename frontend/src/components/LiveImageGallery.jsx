@@ -6,6 +6,7 @@ import { transformImage } from '../utils/imageUrl'
 export default function LiveImageGallery({ propertyId }) {
   const queryClient = useQueryClient()
   const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
   const [dragIdx, setDragIdx] = useState(null)
   const [overIdx, setOverIdx] = useState(null)
   const [uploadError, setUploadError] = useState(null)
@@ -113,34 +114,61 @@ export default function LiveImageGallery({ propertyId }) {
           {photos.length} photo{photos.length !== 1 ? 's' : ''}
           {photos.length > 0 && <span className="hidden sm:inline"> · drag to reorder · live instantly</span>}
         </p>
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-          className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl active:scale-95 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
-        >
-          {isUploading ? (
-            <>
-              <svg className="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
-              </svg>
-              Uploading…
-            </>
-          ) : (
-            <>
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
-              </svg>
-              Add Photos
-            </>
-          )}
-        </button>
-        {/* Hidden file input — multiple + image/* triggers native camera roll on mobile */}
+        <div className="flex items-center gap-2">
+          {/* Take Photo — opens rear camera directly on iOS/Android */}
+          <button
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={isUploading}
+            title="Take a photo with your camera"
+            className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-xl active:scale-95 active:bg-gray-50 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
+            </svg>
+            <span className="hidden sm:inline">Take Photo</span>
+          </button>
+
+          {/* Add from library — multi-select gallery/files */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isUploading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl active:scale-95 disabled:opacity-50 transition-all touch-manipulation min-h-[44px]"
+          >
+            {isUploading ? (
+              <>
+                <svg className="w-4 h-4 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
+                Uploading…
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                </svg>
+                Add Photos
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Hidden: gallery / file picker (multi-select) */}
         <input
           ref={fileInputRef}
           type="file"
           accept="image/jpeg,image/jpg,image/png,image/webp"
           multiple
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        {/* Hidden: camera capture (rear-facing, single shot → user can retake or confirm) */}
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
           className="hidden"
           onChange={handleFileChange}
         />
@@ -189,13 +217,31 @@ export default function LiveImageGallery({ propertyId }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
                 </svg>
               </div>
-              <p className="text-sm font-semibold text-gray-700">Tap to add photos</p>
-              <p className="text-xs text-gray-400 mt-1">
-                Choose from your camera roll or files<br className="hidden sm:block"/>
-                <span className="sm:hidden"> · </span>
-                <span className="hidden sm:inline">or drag &amp; drop · </span>
-                JPEG, PNG, WebP · up to 15 MB each
-              </p>
+              <p className="text-sm font-semibold text-gray-700 mb-4">No photos yet</p>
+              <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); cameraInputRef.current?.click() }}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 bg-gray-900 text-white text-sm font-medium rounded-xl active:scale-95 transition-all touch-manipulation min-h-[44px]"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z"/>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z"/>
+                  </svg>
+                  Take Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click() }}
+                  className="flex items-center justify-center gap-2 px-5 py-2.5 border border-gray-200 bg-white text-gray-700 text-sm font-medium rounded-xl active:scale-95 active:bg-gray-50 transition-all touch-manipulation min-h-[44px]"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5"/>
+                  </svg>
+                  Choose from Library
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-3">JPEG, PNG, WebP · up to 15 MB each</p>
             </>
           )}
         </div>
