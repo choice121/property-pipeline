@@ -81,6 +81,8 @@ A poor listing has:
 
 PROMPT_VERSION = "v3"
 
+_GROQ_BASE_URL      = "https://api.groq.com/openai/v1"
+_GROQ_MODEL         = "llama-3.3-70b-versatile"
 _GEMINI_BASE_URL    = "https://generativelanguage.googleapis.com/v1beta/openai/"
 _GEMINI_MODEL       = "gemini-2.0-flash"
 _DEEPSEEK_BASE_URL  = "https://api.deepseek.com"
@@ -92,8 +94,15 @@ _OPENROUTER_MODEL   = "anthropic/claude-3.5-sonnet"
 def get_client() -> tuple[OpenAI, str]:
     """
     Returns (client, model_name).
-    Priority: OpenRouter → Gemini → DeepSeek.
+    Priority: Groq (free) → OpenRouter → Gemini → DeepSeek.
     """
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        return (
+            OpenAI(api_key=groq_key, base_url=_GROQ_BASE_URL),
+            _GROQ_MODEL,
+        )
+
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if openrouter_key:
         return (
@@ -124,7 +133,7 @@ def get_client() -> tuple[OpenAI, str]:
 
     raise HTTPException(
         status_code=500,
-        detail="No AI API key configured. Set OPENROUTER_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY.",
+        detail="No AI API key configured. Set GROQ_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, or DEEPSEEK_API_KEY.",
     )
 
 
