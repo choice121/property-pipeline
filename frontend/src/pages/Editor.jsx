@@ -289,7 +289,12 @@ export default function Editor() {
   })()
 
   const images = (() => {
-    try { return JSON.parse(form.local_image_paths || '[]') } catch { return [] }
+    try {
+      const parsed = JSON.parse(form.local_image_paths || '[]')
+      // Guard against legacy doubly-nested format: [["p1","p2"]] → ["p1","p2"]
+      const flat = Array.isArray(parsed) ? parsed.flat(Infinity) : []
+      return flat.filter((p) => typeof p === 'string')
+    } catch { return [] }
   })()
 
   const missingFields = parseArray(form.missing_fields)

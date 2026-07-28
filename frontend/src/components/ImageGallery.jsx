@@ -13,6 +13,7 @@ export default function ImageGallery({ propertyId, images, onDelete, onReorder }
   }
 
   function getUrl(path) {
+    if (typeof path !== 'string') return ''
     const parts = path.split('/')
     const filename = parts[parts.length - 1]
     const propId = parts[parts.length - 2]
