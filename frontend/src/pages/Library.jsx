@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, Link } from 'react-router-dom'
 import { getProperties, bulkAction, aiBulkScan, aiBulkClean, aiBulkEnrich, getQualityStats, startBulkImageDownload, getBulkImageDownloadStatus, restoreLibrary, startBulkPublish, getBulkPublishStatus, watermarkScanStart, watermarkScanStatus, watermarkGetFlagged, watermarkUnflag, watermarkClearFlags } from '../api/client'
 import PropertyCard from '../components/PropertyCard'
-import SyncStatus from '../components/SyncStatus'
 import ConfirmModal from '../components/ConfirmModal'
 import PullToRefresh from '../components/PullToRefresh'
 import { SkeletonCard } from '../components/Skeleton'
@@ -780,10 +779,6 @@ export default function Library() {
             + Scrape
           </Link>
         </div>
-      </div>
-
-      <div className="flex items-center justify-between mb-4">
-        <SyncStatus />
       </div>
 
       {/* Quality stats panel */}

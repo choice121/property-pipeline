@@ -11,7 +11,6 @@ const SILENT_URLS = new Set([
   '/img-batch/status',
   '/bulk-publish/status',
   '/wm-scan/status',
-  '/sync/status',
   '/setup/status',
 ])
 
@@ -97,8 +96,6 @@ export const reorderLiveImages = (id, order) => api.put('/live-images/' + id + '
 export const uploadLiveImage  = (id, formData) => api.post('/live-images/' + id + '/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 export const uploadLiveImages = (id, formData) => api.post('/live-images/' + id + '/upload-many', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
 
-export const syncFromLive = () => api.post('/sync/from-live')
-export const getSyncStatus = () => api.get('/sync/status', { skipGlobalErrorHandler: true })
 export const getSetupStatus = () => api.get('/setup/status', { skipGlobalErrorHandler: true })
 
 export const getQualityStats = () => api.get('/stats/quality')
