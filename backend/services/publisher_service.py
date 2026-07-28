@@ -294,7 +294,10 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
 def refresh_images(prop, repo) -> dict:
     local_paths = []
     try:
-        local_paths = json.loads(prop.local_image_paths or "[]")
+        parsed = json.loads(prop.local_image_paths or "[]")
+        # Flatten legacy doubly-nested format: [["p1","p2"]] → ["p1","p2"]
+        flat = [p for item in parsed for p in (item if isinstance(item, list) else [item])]
+        local_paths = [p for p in flat if isinstance(p, str)]
     except Exception:
         pass
 
@@ -498,7 +501,10 @@ def publish(prop, repo) -> dict:
 
     local_paths = []
     try:
-        local_paths = json.loads(prop.local_image_paths or "[]")
+        parsed = json.loads(prop.local_image_paths or "[]")
+        # Flatten legacy doubly-nested format: [["p1","p2"]] → ["p1","p2"]
+        flat = [p for item in parsed for p in (item if isinstance(item, list) else [item])]
+        local_paths = [p for p in flat if isinstance(p, str)]
     except Exception:
         pass
 
