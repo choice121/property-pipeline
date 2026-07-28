@@ -161,7 +161,7 @@ def _find_zillow_property(obj, url, depth=0):
             if result:
                 return result
         elif isinstance(v, list):
-            for item in v:
+            for item in v[:20]:  # cap per-list scan — Zillow photo arrays can be 100+ items
                 if isinstance(item, dict):
                     result = _find_zillow_property(item, url, depth + 1)
                     if result:
@@ -764,5 +764,37 @@ def scrape_by_url(url: str) -> Optional[dict]:
         logger.info("Scraping rentprogress.com: %s", url)
         return _scrape_rentprogress_url(url)
 
-    logger.warning("Unsupported URL: %s", url)
+    if "realtor.com" in url or "redfin.com" in url:
+        source = "realtor" if "realtor.com" in url else "redfin"
+        logger.info("Scraping %s URL via HomeHarvest: %s", source, url)
+        return _scrape_via_homeharvest_url(url, source)
+
+    logger.warning("Unsupported URL: %s — supported hosts: zillow.com, rentprogress.com, "
+                   "progressresidential.com, realtor.com, redfin.com", url)
+    return None
+
+
+def _scrape_via_homeharvest_url(url: str, source: str) -> Optional[dict]:
+    """Use HomeHarvest to scrape a realtor.com or redfin.com listing URL."""
+    proxy_kwargs = get_homeharvest_proxy_kwarg()
+    for listing_type in ("for_rent", "for_sale"):
+        try:
+            df = scrape_property(
+                location=url,
+                listing_type=listing_type,
+                limit=3,
+                **proxy_kwargs,
+            )
+            if df is not None and len(df) > 0:
+                row = df.iloc[0].to_dict()
+                row["_source"] = source
+                norm = normalize_row(row)
+                norm["source"] = source
+                norm["source_url"] = url
+                norm["status"] = "scraped"
+                logger.info("HomeHarvest URL scrape: got 1 result from %s", url)
+                return norm
+        except Exception as e:
+            logger.debug("homeharvest %s for %s URL: %s", listing_type, source, e)
+    logger.warning("HomeHarvest URL scrape returned nothing for %s", url)
     return None

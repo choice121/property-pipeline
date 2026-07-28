@@ -47,6 +47,7 @@ MARKET_MAP = {
     "jacksonville": "jacksonville-florida",
     "las vegas": "las-vegas-nevada",
     "minneapolis": "minneapolis-minnesota",
+    "nashville": "nashville-tennessee",
     "sacramento": "sacramento-california",
     "northern california": "sacramento-california",
     "orlando": "orlando-florida",

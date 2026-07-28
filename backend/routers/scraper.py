@@ -18,6 +18,7 @@ from services.scraper_service import (
     _calculate_weighted_quality,
     generate_property_id,
     ALL_SOURCES,
+    CUSTOM_SOURCES,
     ScrapeMetrics,
 )
 from services.validator import validate_and_filter
@@ -259,11 +260,36 @@ def scrape_properties(
     repo: Repository = Depends(get_db),
 ):
     source = (req.source or "realtor").lower()
-    if source not in ALL_SOURCES:
+    # "all" is a valid meta-source that fans out to every individual source.
+    _VALID_SOURCES = ALL_SOURCES | {"all"}
+    if source not in _VALID_SOURCES:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported source '{source}'. Supported: {', '.join(sorted(ALL_SOURCES))}."
+            detail=f"Unsupported source '{source}'. Supported: {', '.join(sorted(_VALID_SOURCES))}."
         )
+
+    # Warn when HomeHarvest-only parameters are sent to a custom scraper —
+    # those scrapers accept only location/price/beds and silently ignore the rest.
+    if source in CUSTOM_SOURCES:
+        _hh_only_used = {
+            k for k, v in {
+                "sort_by": req.sort_by, "radius": req.radius,
+                "baths_min": req.baths_min, "baths_max": req.baths_max,
+                "sqft_min": req.sqft_min, "sqft_max": req.sqft_max,
+                "lot_sqft_min": req.lot_sqft_min, "lot_sqft_max": req.lot_sqft_max,
+                "year_built_min": req.year_built_min, "year_built_max": req.year_built_max,
+                "past_days": req.past_days, "past_hours": req.past_hours,
+                "date_from": req.date_from, "date_to": req.date_to,
+                "mls_only": req.mls_only or False,
+                "foreclosure": req.foreclosure,
+                "exclude_pending": req.exclude_pending or False,
+            }.items() if v not in (None, False, 0, "")
+        }
+        if _hh_only_used:
+            logger.warning(
+                "Source '%s' is a custom scraper — these HomeHarvest-only params "
+                "will be ignored: %s", source, sorted(_hh_only_used)
+            )
 
     # Phase 5 (5.3): idempotency — reject duplicate requests within 30 s.
     idem_key = _make_idempotency_key(req)
@@ -295,37 +321,72 @@ def scrape_properties(
 
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(
-                scraper_service.scrape,
-                location=req.location,
-                source=source,
-                listing_type=req.listing_type,
-                property_type=req.property_type,
-                min_price=req.min_price,
-                max_price=req.max_price,
-                beds_min=req.beds_min,
-                beds_max=req.beds_max,
-                baths_min=req.baths_min,
-                baths_max=req.baths_max,
-                sqft_min=req.sqft_min,
-                sqft_max=req.sqft_max,
-                lot_sqft_min=req.lot_sqft_min,
-                lot_sqft_max=req.lot_sqft_max,
-                year_built_min=req.year_built_min,
-                year_built_max=req.year_built_max,
-                past_days=req.past_days,
-                past_hours=req.past_hours,
-                date_from=req.date_from,
-                date_to=req.date_to,
-                radius=req.radius,
-                limit=req.limit,
-                mls_only=req.mls_only,
-                foreclosure=req.foreclosure,
-                exclude_pending=req.exclude_pending,
-                sort_by=req.sort_by,
-                sort_direction=req.sort_direction,
-            )
-            results = future.result(timeout=timeout_s)
+            if source == "all":
+                # Fan out to every source simultaneously via scrape_all_sources.
+                future = pool.submit(
+                    scraper_service.scrape_all_sources,
+                    location=req.location,
+                    listing_type=req.listing_type,
+                    property_type=req.property_type,
+                    min_price=req.min_price,
+                    max_price=req.max_price,
+                    beds_min=req.beds_min,
+                    beds_max=req.beds_max,
+                    baths_min=req.baths_min,
+                    baths_max=req.baths_max,
+                    sqft_min=req.sqft_min,
+                    sqft_max=req.sqft_max,
+                    lot_sqft_min=req.lot_sqft_min,
+                    lot_sqft_max=req.lot_sqft_max,
+                    year_built_min=req.year_built_min,
+                    year_built_max=req.year_built_max,
+                    past_days=req.past_days,
+                    past_hours=req.past_hours,
+                    date_from=req.date_from,
+                    date_to=req.date_to,
+                    radius=req.radius,
+                    limit=req.limit,
+                    mls_only=req.mls_only,
+                    foreclosure=req.foreclosure,
+                    exclude_pending=req.exclude_pending,
+                    sort_by=req.sort_by,
+                    sort_direction=req.sort_direction,
+                )
+                results, src_counts = future.result(timeout=timeout_s)
+                # Merge per-source counts from scrape_all_sources into metrics.
+                metrics.per_source_counts = src_counts
+            else:
+                future = pool.submit(
+                    scraper_service.scrape,
+                    location=req.location,
+                    source=source,
+                    listing_type=req.listing_type,
+                    property_type=req.property_type,
+                    min_price=req.min_price,
+                    max_price=req.max_price,
+                    beds_min=req.beds_min,
+                    beds_max=req.beds_max,
+                    baths_min=req.baths_min,
+                    baths_max=req.baths_max,
+                    sqft_min=req.sqft_min,
+                    sqft_max=req.sqft_max,
+                    lot_sqft_min=req.lot_sqft_min,
+                    lot_sqft_max=req.lot_sqft_max,
+                    year_built_min=req.year_built_min,
+                    year_built_max=req.year_built_max,
+                    past_days=req.past_days,
+                    past_hours=req.past_hours,
+                    date_from=req.date_from,
+                    date_to=req.date_to,
+                    radius=req.radius,
+                    limit=req.limit,
+                    mls_only=req.mls_only,
+                    foreclosure=req.foreclosure,
+                    exclude_pending=req.exclude_pending,
+                    sort_by=req.sort_by,
+                    sort_direction=req.sort_direction,
+                )
+                results = future.result(timeout=timeout_s)
     except FuturesTimeoutError:
         msg = f"scrape_timeout:{timeout_s}s"
         metrics.errors.append(msg)
@@ -432,7 +493,7 @@ def scrape_properties(
         count_total=metrics.total_scraped,
         count_new=metrics.saved,
         avg_score=avg_score,
-        error_message=metrics.to_json(),
+        error_message="; ".join(metrics.errors) if metrics.errors else None,
         count_watermarked=metrics.watermarked_dropped,
         count_duplicate=metrics.duplicate_skipped,
         count_validation_rejected=metrics.validation_rejected,

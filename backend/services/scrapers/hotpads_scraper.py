@@ -226,6 +226,41 @@ def _try_html_embedded(location_encoded: str, params: dict, limit: int) -> list:
             html = resp.text
             results = []
 
+            # ── __NEXT_DATA__ (Next.js SSR) — most reliable path ──────────────
+            nd_m = re.search(
+                r'<script[^>]+id="__NEXT_DATA__"[^>]*>\s*(\{.+?\})\s*</script>',
+                html, re.DOTALL
+            )
+            if nd_m:
+                try:
+                    nd = json.loads(nd_m.group(1))
+                    props = nd.get("props", {}).get("pageProps", {})
+                    candidates: list = []
+                    for _k in ("listings", "searchResults", "results", "rentals", "homes"):
+                        _v = props.get(_k)
+                        if isinstance(_v, list) and _v:
+                            candidates = _v
+                            break
+                    if not candidates:
+                        for _k in ("initialState", "initialData", "serverProps"):
+                            _v = props.get(_k)
+                            if isinstance(_v, dict):
+                                for _sk in ("listings", "searchResults", "results"):
+                                    _sv = _v.get(_sk)
+                                    if isinstance(_sv, list) and _sv:
+                                        candidates = _sv
+                                        break
+                                if candidates:
+                                    break
+                    if candidates:
+                        normalized = [_normalize(r) for r in candidates[:limit] if isinstance(r, dict)]
+                        normalized = [r for r in normalized if r]
+                        if normalized:
+                            logger.info("HotPads __NEXT_DATA__: got %d results", len(normalized))
+                            return normalized
+                except Exception:
+                    pass
+
             # JSON-LD first
             try:
                 from bs4 import BeautifulSoup

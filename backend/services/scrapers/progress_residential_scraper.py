@@ -385,7 +385,16 @@ def _try_html(location_slug: str, beds_min, beds_max, limit) -> list:
         with httpx.Client(headers=random_headers(HEADER_EXTRAS), timeout=25, follow_redirects=True, proxy=get_proxy_url()) as client:
             resp = client.get(url)
             if resp.status_code != 200:
-                logger.warning("Progress Residential HTML returned %d for %s", resp.status_code, url)
+                if resp.status_code in (403, 429, 503):
+                    logger.warning(
+                        "Progress Residential returned %d for %s — likely Cloudflare block. "
+                        "Set PIPELINE_SCRAPER_PROXY to a residential proxy to bypass.",
+                        resp.status_code, url,
+                    )
+                else:
+                    logger.warning(
+                        "Progress Residential HTML returned %d for %s", resp.status_code, url
+                    )
                 return []
 
             html = resp.text

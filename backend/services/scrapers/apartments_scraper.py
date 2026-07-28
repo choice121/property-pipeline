@@ -6,6 +6,7 @@ Uses their public search page and parses embedded JSON/schema.org data.
 import json
 import logging
 import re
+import time
 from typing import Optional
 from datetime import datetime
 
@@ -173,7 +174,14 @@ def _normalize_card(card, base_url: str) -> Optional[dict]:
         state = ""
         zip_code = ""
         addr_parts = address_text.split(",")
-        if len(addr_parts) >= 2:
+        if len(addr_parts) >= 3:
+            # "123 Main St, Austin, TX 78701" — three-part comma-separated
+            street = addr_parts[0].strip()
+            city = addr_parts[1].strip()
+            state_zip = addr_parts[2].strip().split()
+            state = state_zip[0] if state_zip else ""
+            zip_code = state_zip[1] if len(state_zip) > 1 else ""
+        elif len(addr_parts) == 2:
             street = addr_parts[0].strip()
             rest = addr_parts[1].strip()
             state_zip = rest.split()
@@ -181,6 +189,8 @@ def _normalize_card(card, base_url: str) -> Optional[dict]:
                 city = " ".join(state_zip[:-2]) if len(state_zip) > 2 else ""
                 state = state_zip[-2] if len(state_zip) >= 2 else ""
                 zip_code = state_zip[-1]
+            else:
+                city = rest
         elif address_text:
             street = address_text
 
@@ -368,6 +378,7 @@ def scrape(
                            soup.find("a", class_=re.compile(r"next|next-page", re.I))
                 if not next_btn:
                     break
+                time.sleep(1.5)  # polite delay between pages to avoid rate-limiting
                 page += 1
 
         except Exception as e:

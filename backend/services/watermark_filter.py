@@ -25,7 +25,9 @@ WATERMARKED_BRAND_TERMS = (
     "weichert",
     "exit realty",
     "homes for heroes",
-    "invitation homes",
+    # NOTE: "invitation homes" intentionally removed — it is an active scraper
+    # source and its own listings mention the brand name in descriptions,
+    # causing all Invitation Homes results to be silently dropped.
     "tricon",
     "american homes 4 rent",
 )

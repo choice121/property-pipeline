@@ -783,6 +783,10 @@ def _scrape_homeharvest(
     kwargs["sort_direction"] = sort_direction
     kwargs["exclude_pending"] = exclude_pending
     kwargs["mls_only"] = mls_only
+    # foreclosure=False means "exclude foreclosures" — preserve it explicitly
+    # because the None-filter above strips all False values.
+    if foreclosure is not None:
+        kwargs["foreclosure"] = foreclosure
     if limit:
         kwargs["limit"] = limit
 
@@ -932,10 +936,12 @@ def scrape_all_sources(
     unique = []
     for r in all_results:
         lid = r.get("source_listing_id")
-        addr = (str(r.get("address") or "") + str(r.get("city") or "")).lower().strip()
+        addr = f"{str(r.get('address') or '')}|{str(r.get('city') or '')}".lower().strip()
 
         if lid and lid in seen_ids:
             continue
+        # Use a separator so "123 Main S" + "tSpringfield" never collides with
+        # "123 Main St" + "Springfield" (pipe cannot appear in address/city).
         if not lid and addr and addr in seen_addresses:
             continue
 

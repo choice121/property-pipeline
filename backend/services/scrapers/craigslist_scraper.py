@@ -357,6 +357,17 @@ def scrape(
     """
     subdomain = _city_to_subdomain(location)
 
+    # Parse city/state from location string so we can inject them as fallbacks
+    # for entries that don't carry structured address data. Without this, nearly
+    # all results have address="" and are rejected by validate_and_filter.
+    _loc_city, _loc_state = "", ""
+    _loc_m = re.match(r"^(.+?),\s*([A-Za-z]{2})\s*$", location.strip())
+    if _loc_m:
+        _loc_city = _loc_m.group(1).strip().title()
+        _loc_state = _loc_m.group(2).upper()
+    elif location.strip():
+        _loc_city = location.strip().title()
+
     category_map = {
         "for_rent": "apa",
         "rooms": "roo",
@@ -398,6 +409,15 @@ def scrape(
                         break
                     normalized = _parse_rss_entry(entry, {})
                     if normalized:
+                        # Inject location fallbacks — RSS rarely has structured
+                        # city/state; without these most results fail
+                        # validate_and_filter("missing_address").
+                        if not normalized.get("city") and _loc_city:
+                            normalized["city"] = _loc_city
+                        if not normalized.get("state") and _loc_state:
+                            normalized["state"] = _loc_state
+                        if not normalized.get("address") and normalized.get("title"):
+                            normalized["address"] = normalized["title"][:120]
                         key = normalized.get("source_listing_id") or normalized.get("source_url")
                         if key and key not in seen_ids:
                             seen_ids.add(key)
@@ -432,6 +452,12 @@ def scrape(
                         continue
                     normalized = _parse_json_result(item, location)
                     if normalized:
+                        if not normalized.get("city") and _loc_city:
+                            normalized["city"] = _loc_city
+                        if not normalized.get("state") and _loc_state:
+                            normalized["state"] = _loc_state
+                        if not normalized.get("address") and normalized.get("title"):
+                            normalized["address"] = normalized["title"][:120]
                         key = normalized.get("source_listing_id") or normalized.get("source_url")
                         if key and key not in seen_ids:
                             seen_ids.add(key)

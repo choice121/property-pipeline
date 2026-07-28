@@ -143,7 +143,15 @@ def _normalize(home: dict, source_url: str = "") -> dict:
         "flooring": "[]",
         "lease_terms": "[]",
         "pet_types_allowed": "[]",
-        "original_data": json.dumps(home),
+        # Compact original_data — Opendoor responses can be large; only keep
+        # auditable identifiers + a note that this is a sale listing, not a rental.
+        "original_data": json.dumps({
+            "listing_id": listing_id,
+            "property_url": url,
+            "list_price": price,
+            "status": home.get("status") or home.get("listing_status") or "active",
+            "_note": "sale_listing: monthly_rent stores sale price not rent",
+        }),
         "scraped_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
         "_list_date": None,
