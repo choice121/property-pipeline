@@ -512,10 +512,7 @@ def publish(prop, repo) -> dict:
             "Duplicate detected: property %s matches existing Supabase record %s (%s, %s, %s). Skipping.",
             prop.id, existing_id, prop.address, prop.city, prop.state
         )
-        prop.status = "published"
-        prop.published_at = datetime.now(timezone.utc).isoformat()
-        prop.choice_property_id = existing_id
-        repo.save(prop)
+        repo.delete(prop.id)
         return {
             "ok":                True,
             "choice_property_id": existing_id,
@@ -593,12 +590,9 @@ def publish(prop, repo) -> dict:
                 "property_photos insert failed for %s: %s", choice_property_id, photo_exc
             )
 
-    prop.status = "published"
-    prop.published_at = now
-    prop.choice_property_id = str(choice_property_id)
-    repo.save(prop)
+    repo.delete(prop.id)
 
-    logger.info("Property %s published successfully as %s", prop.id, choice_property_id)
+    logger.info("Property %s published successfully as %s and removed from pipeline", prop.id, choice_property_id)
     return {
         "ok":                 True,
         "choice_property_id": str(choice_property_id),
