@@ -582,9 +582,20 @@ export default function Editor() {
           <h2 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wide">Description</h2>
           <Field label="Description">
             <textarea
-              className={inputCls + ' h-32 resize-y'}
+              className={inputCls + ' resize-none overflow-hidden'}
+              style={{ minHeight: '8rem', lineHeight: '1.6' }}
               value={form.description || ''}
-              onChange={(e) => set('description', e.target.value)}
+              onChange={(e) => {
+                set('description', e.target.value)
+                e.target.style.height = 'auto'
+                e.target.style.height = e.target.scrollHeight + 'px'
+              }}
+              ref={(el) => {
+                if (el) {
+                  el.style.height = 'auto'
+                  el.style.height = el.scrollHeight + 'px'
+                }
+              }}
             />
             {showOriginal && <p className="text-xs text-gray-400 mt-0.5 line-clamp-2">Original: {originalData.description || '—'}</p>}
           </Field>
