@@ -156,7 +156,7 @@ export default function Library() {
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['properties'],
-    queryFn: () => getProperties().then((r) => r.data),
+    queryFn: () => getProperties({ exclude_published: true }).then((r) => r.data),
     refetchInterval: (query) => {
       const props = query.state.data
       if (!props) return false
@@ -1271,7 +1271,6 @@ export default function Library() {
             <option value="scraped">Scraped</option>
             <option value="edited">Edited</option>
             <option value="ready">Ready</option>
-            <option value="published">Published</option>
             <option value="rented">Rented</option>
             <option value="archived">Archived</option>
           </select>
