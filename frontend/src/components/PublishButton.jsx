@@ -2,7 +2,39 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { publishProperty, syncFields, refreshImages, setListingStatus, aiDetectIssues, aiCheckDuplicates } from '../api/client'
 
-const LIVE_SITE_BASE = 'https://choice-properties-site.pages.dev/property.html'
+const LIVE_SITE_BASE = 'https://choice-properties-site.pages.dev'
+
+/**
+ * Build the SEO slug URL for a published property.
+ * Format: /rent/{state}/{city}/{beds}br-{type}-{prop-id-lowercase}/
+ * Example: /rent/tx/fort-worth/3br-house-prop-dfe94ad2/
+ *
+ * Falls back to the legacy property.html?id= format only if state/city/beds
+ * are missing (e.g. very old records with incomplete location data).
+ */
+function buildLiveUrl(property) {
+  if (!property.choice_property_id) return null
+
+  const state = (property.state || '').toLowerCase().trim()
+  const city = (property.city || '').toLowerCase().trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+
+  const beds = property.bedrooms != null ? Number(property.bedrooms) : null
+  const bedsSlug = beds === 0 ? 'studio' : (beds != null ? `${beds}br` : null)
+
+  const type = (property.property_type || 'property').toLowerCase().replace(/[^a-z0-9]/g, '')
+  // PROP-DFE94AD2 → prop-dfe94ad2
+  const propIdSlug = property.choice_property_id.toLowerCase()
+
+  if (!state || !city || !bedsSlug) {
+    // Not enough location/bedroom data — use legacy URL as fallback
+    return `${LIVE_SITE_BASE}/property.html?id=${property.choice_property_id}`
+  }
+
+  const listingSlug = `${bedsSlug}-${type}-${propIdSlug}`
+  return `${LIVE_SITE_BASE}/rent/${state}/${city}/${listingSlug}/`
+}
 
 function parseArray(value) {
   try {
@@ -141,9 +173,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
 
   // ── Already published ──────────────────────────────────────────────────────
   if (property.status === 'published' || property.status === 'rented' || property.status === 'archived' || property.choice_property_id) {
-    const liveUrl = property.choice_property_id
-      ? `${LIVE_SITE_BASE}?id=${property.choice_property_id}`
-      : null
+    const liveUrl = buildLiveUrl(property)
 
     return (
       <div className="flex flex-col gap-2 w-full">
