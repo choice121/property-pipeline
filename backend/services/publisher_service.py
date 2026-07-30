@@ -212,7 +212,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
             return f"{bed_bath} {ptype} in {location}" if location else f"{bed_bath} {ptype}"
         return f"{ptype} in {location}" if location else prop.address or "Rental Property"
 
-    choice_id = "PROP-" + uuid.uuid4().hex[:8].upper()
+    choice_id = "prop-" + uuid.uuid4().hex[:8]
 
     raw_type = (prop.property_type or "").upper()
     normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)

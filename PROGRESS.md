@@ -8,8 +8,8 @@
   ## Current Status
 
   **Active Stage:** Complete — All 7 stages done
-  **Last Updated:** 2026-04-11
-  **Last Worked On By:** Replit Agent (Stage 7)
+  **Last Updated:** 2026-07-30
+  **Last Worked On By:** Replit Agent (ID case fix)
 
   ---
 
@@ -20,6 +20,27 @@
   ---
 
   ## Completed Work
+
+  ### [2026-07-30] — Fix: Published property URLs returning "not found"
+
+  **Completed by:** Replit Agent
+
+  **What was done:**
+  - Root cause: publisher_service.py generated IDs as `PROP-XXXXXXXX` (uppercase), but the Choice website's `[slug].js` edge function extracts the ID from the URL slug (e.g. `prop-62db29d6`) and queries Supabase with `id=eq.prop-62db29d6` (lowercase). PostgreSQL text equality is case-sensitive → no match → 404.
+  - Fixed `publisher_service.py` line 215: changed `"PROP-" + uuid.uuid4().hex[:8].upper()` → `"prop-" + uuid.uuid4().hex[:8]`
+  - Migrated all 144 existing uppercase `PROP-XXXXXXXX` records in `public.properties` to lowercase `prop-xxxxxxxx` (insert new lowercase record + update `property_photos.property_id` + delete old uppercase record)
+  - All 144 migrated with 0 errors
+
+  **Issues encountered:**
+  - PostgREST PATCH cannot update primary keys (409 Conflict) — used insert+delete pattern instead
+  - `search_tsv` is a generated column and cannot be included in INSERT payloads — stripped it before inserting
+
+  **Next step:**
+  - All published property URLs should now resolve correctly on choice-properties-site.pages.dev
+
+  ---
+
+
 
   ### [2026-04-11] — Bulk Publish: 50 properties live
 
