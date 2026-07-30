@@ -48,6 +48,17 @@ def _do_enrich(property_id: str) -> None:
         fetch_missing_fields(property_id, repo)
         enrich_property(property_id, repo)
 
+        # Phase 9: FEMA flood zone + Walk Score (non-blocking — skip silently on error)
+        from services.enrichment_service import fetch_flood_zone, fetch_walk_score
+        try:
+            fetch_flood_zone(property_id, repo)
+        except Exception as _fe:
+            logger.debug("flood_zone enrichment skipped for %s: %s", property_id, _fe)
+        try:
+            fetch_walk_score(property_id, repo)
+        except Exception as _we:
+            logger.debug("walk_score enrichment skipped for %s: %s", property_id, _we)
+
         prop = repo.get(property_id)
         if not prop:
             return

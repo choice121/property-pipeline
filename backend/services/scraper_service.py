@@ -206,6 +206,37 @@ def _dedup_preserve_order(items: list) -> list:
     return out
 
 
+def _parse_nearby_schools(raw) -> str:
+    """Normalise the nearby_schools value homeharvest returns into a JSON string.
+
+    The field can be None, a list of dicts, or already a string.  We always
+    store it as a JSON-encoded list so downstream code can safely json.loads it.
+    """
+    if raw is None:
+        return json.dumps([])
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            return json.dumps(parsed if isinstance(parsed, list) else [])
+        except Exception:
+            return json.dumps([])
+    if isinstance(raw, list):
+        schools = []
+        for item in raw:
+            if isinstance(item, dict):
+                schools.append({
+                    "name":     item.get("name") or item.get("school_name") or "",
+                    "grades":   item.get("grades") or item.get("grade_range") or "",
+                    "rating":   item.get("rating") or item.get("great_schools_rating"),
+                    "distance": item.get("distance") or item.get("distance_miles"),
+                    "type":     item.get("education_levels") or item.get("type") or "",
+                })
+            elif isinstance(item, str):
+                schools.append({"name": item})
+        return json.dumps(schools)
+    return json.dumps([])
+
+
 def normalize_row(row: dict) -> dict:
     def get(key):
         v = row.get(key)
@@ -640,6 +671,9 @@ def normalize_row(row: dict) -> dict:
         "updated_at": datetime.utcnow().isoformat(),
         "_list_date": list_date,
         "_days_on_market": days_on_market,
+        # Phase 9: capture homeharvest fields previously discarded
+        "nearby_schools": _parse_nearby_schools(get("nearby_schools")),
+        "days_on_mls": to_int(first_value("days_on_mls", "days_on_market")),
     }
 
 

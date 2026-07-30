@@ -50,14 +50,122 @@ BOILERPLATE_PATTERNS = [
     r"All applicants must[^.]*\.",
     r"We (?:do not|don['']t) accept[^.]*applications[^.]*\.",
     r"Background check(?:s)? required[^.]*\.",
+    # Restrictive pet / smoking language (directive: always Pets Allowed, Smoking Allowed)
+    r"(?:Sorry,?\s+)?[Nn]o\s+pets?\s+allowed[^.]*\.",
+    r"[Pp]ets?\s+(?:are\s+)?not\s+allowed[^.]*\.",
+    r"[Nn]o\s+(?:dogs?|cats?|animals?)[^.]*\.",
+    r"[Pp]et[\s-]free[^.]*\.",
+    r"[Nn]o\s+smoking[^.]*\.",
+    r"[Ss]moke[\s-]free[^.]*\.",
+    r"[Nn]on[\s-]smoking[^.]*\.",
+    r"[Ss]moking\s+(?:is\s+)?(?:not\s+)?(?:allowed|permitted|prohibited)[^.]*\.",
+    # Contact / screening info
+    r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b[^.]*\.",
+    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
+    r"https?://\S+",
+    r"www\.\S+",
+    r"[Cc]redit\s+score[^.]*\.",
+    r"[Ii]ncome\s+(?:requirement|verification|must)[^.]*\.",
+    r"[Ee]viction\s+(?:history|record)[^.]*\.",
 ]
 
+# Amenity slug → human-readable label (raw homeharvest slugs arrive as-is)
+_AMENITY_SLUG_MAP = {
+    "fenced_yard": "Fenced Yard",
+    "open_concept_living": "Open Concept Living",
+    "floor_plan": "Floor Plan Available",
+    "den": "Den",
+    "hardwood_floors": "Hardwood Floors",
+    "granite_countertops": "Granite Countertops",
+    "stainless_appliances": "Stainless Steel Appliances",
+    "walk_in_closet": "Walk-In Closet",
+    "walk_in_closets": "Walk-In Closets",
+    "in_unit_laundry": "In-Unit Laundry",
+    "washer_dryer": "Washer/Dryer Included",
+    "washer_dryer_hookup": "Washer/Dryer Hookup",
+    "dishwasher": "Dishwasher",
+    "garbage_disposal": "Garbage Disposal",
+    "microwave": "Microwave",
+    "refrigerator": "Refrigerator",
+    "air_conditioning": "Air Conditioning",
+    "ceiling_fans": "Ceiling Fans",
+    "fireplace": "Fireplace",
+    "patio": "Patio",
+    "balcony": "Balcony",
+    "deck": "Deck",
+    "pool": "Swimming Pool",
+    "garage": "Garage",
+    "carport": "Carport",
+    "storage": "Storage",
+    "elevator": "Elevator",
+    "gym": "Gym / Fitness Center",
+    "fitness_center": "Fitness Center",
+    "clubhouse": "Clubhouse",
+    "gated_community": "Gated Community",
+    "security_system": "Security System",
+    "smart_home": "Smart Home",
+    "solar_panels": "Solar Panels",
+    "ev_charging": "EV Charging",
+    "wheelchair_accessible": "Wheelchair Accessible",
+    "new_construction": "New Construction",
+    "recently_renovated": "Recently Renovated",
+    "furnished": "Furnished",
+    "short_term_lease": "Short-Term Lease Available",
+}
 
-def _clean_description(text: str) -> str:
+
+def _humanize_amenities(items: list) -> list:
+    """Convert any raw homeharvest slugs (fenced_yard) to clean labels (Fenced Yard).
+
+    Items that are already human-readable labels pass through unchanged.
+    """
+    out = []
+    for item in items:
+        if not isinstance(item, str):
+            continue
+        mapped = _AMENITY_SLUG_MAP.get(item.lower().strip())
+        if mapped:
+            out.append(mapped)
+        else:
+            # Already a label — capitalise first letter, replace underscores
+            out.append(item.replace("_", " ").strip().title() if item == item.lower() else item.strip())
+    # Deduplicate while preserving order
+    seen = set()
+    result = []
+    for a in out:
+        if a not in seen:
+            seen.add(a)
+            result.append(a)
+    return result
+
+
+def _strip_prices(text: str, published_rent: int = 1800) -> str:
+    """Replace every price figure in the description with the published rent.
+
+    Catches: $1,855  $1855  $1,855/month  1855/mo  1,855 per month
+    """
+    rent_label = f"${published_rent:,}/month"
+    # $X,XXX/mo patterns (with or without comma, with or without /mo suffix)
+    text = re.sub(
+        r"\$\s*[\d,]{3,}(?:\.\d{2})?\s*(?:per\s+month|/\s*mo(?:nth)?)?",
+        rent_label, text, flags=re.IGNORECASE,
+    )
+    # Bare number + /month or per month (e.g. "1,855/month" or "1855 per month")
+    text = re.sub(
+        r"\b[\d,]{4,}\s*(?:per\s+month|/\s*mo(?:nth)?)\b",
+        rent_label, text, flags=re.IGNORECASE,
+    )
+    return text
+
+
+def _clean_description(text: str, monthly_rent: int | None = None) -> str:
     if not text:
         return text
     for pattern in BOILERPLATE_PATTERNS:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
+    # Fix 3: strip original price references and replace with published rent
+    if monthly_rent:
+        text = _strip_prices(text, monthly_rent)
     text = re.sub(r"\n{3,}", "\n\n", text)
     text = text.strip()
     return text
@@ -217,9 +325,37 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     raw_type = (prop.property_type or "").upper()
     normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)
 
-    pets_allowed = prop.pets_allowed
-    cleaned_description = _clean_description(prop.description)
+    # Fix 1: smoking_allowed is ALWAYS True per Choice Properties directive.
+    # Fix (pet): pets_allowed is ALWAYS True per Choice Properties directive.
+    pets_allowed = True
+    smoking_allowed = True
+
+    # Fix 3: pass monthly_rent so price references in description get replaced.
+    cleaned_description = _clean_description(prop.description, monthly_rent=prop.monthly_rent)
+
     application_fee = prop.application_fee if prop.application_fee is not None else 0
+
+    # Move-in total: sum of first month + deposit + application fee + any pet/admin deposits
+    move_in_total = sum(filter(None, [
+        prop.monthly_rent,
+        prop.security_deposit,
+        application_fee,
+        prop.pet_deposit,
+        prop.admin_fee,
+    ])) or None
+
+    # Fix 2: humanize amenity slugs before sending to Supabase
+    raw_amenities = _build_amenities_list(prop, parse_json)
+    clean_amenities = _humanize_amenities(raw_amenities)
+
+    # Nearby schools — stored as JSON string in pipeline, send as list to Supabase
+    nearby_schools = []
+    try:
+        nearby_schools = json.loads(prop.nearby_schools or "[]") if hasattr(prop, "nearby_schools") else []
+        if not isinstance(nearby_schools, list):
+            nearby_schools = []
+    except Exception:
+        nearby_schools = []
 
     record = {
         "id":                   choice_id,
@@ -234,6 +370,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "county":               prop.county,
         "lat":                  prop.lat,
         "lng":                  prop.lng,
+        "neighborhood":         prop.neighborhood,
         "property_type":        normalized_type,
         "year_built":           prop.year_built,
         "floors":               prop.floors,
@@ -255,6 +392,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "pet_deposit":          prop.pet_deposit,
         "admin_fee":            prop.admin_fee,
         "move_in_special":      prop.move_in_special,
+        "move_in_total":        move_in_total,
         "available_date":       prop.available_date,
         "lease_terms":          parse_json(prop.lease_terms),
         "minimum_lease_months": prop.minimum_lease_months,
@@ -262,25 +400,33 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "pet_types_allowed":    parse_json(prop.pet_types_allowed),
         "pet_weight_limit":     prop.pet_weight_limit,
         "pet_details":          prop.pet_details,
-        "smoking_allowed":      prop.smoking_allowed,
+        "smoking_allowed":      smoking_allowed,   # Fix 1: always True
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
-        "amenities":            _build_amenities_list(prop, parse_json),
+        "amenities":            clean_amenities,   # Fix 2: humanized
         "appliances":           parse_json(prop.appliances),
         "flooring":             parse_json(prop.flooring),
         "heating_type":         prop.heating_type,
         "cooling_type":         prop.cooling_type,
         "laundry_type":         prop.laundry_type,
         "virtual_tour_url":     prop.virtual_tour_url,
-        # photo_urls / photo_file_ids were removed from properties in Choice migration
-        # 20260426000002 — photos now live in property_photos table (inserted separately)
+        # Enriched fields — populated by enrichment_service after scrape
+        "flood_zone":           getattr(prop, "flood_zone", None),
+        "walk_score":           getattr(prop, "walk_score", None),
+        "transit_score":        getattr(prop, "transit_score", None),
+        "bike_score":           getattr(prop, "bike_score", None),
+        "nearby_schools":       nearby_schools if nearby_schools else None,
+        # photo_urls / photo_file_ids removed — photos in property_photos table
+        # (migration 20260426000002)
     }
 
     if landlord_id:
         record["landlord_id"] = landlord_id
 
-    SCHEMA_OPTIONAL_BOOLEANS = {"has_basement", "has_central_air", "smoking_allowed"}
+    # Only strip False for structural booleans — smoking_allowed is now always True
+    # so it no longer needs special treatment.
+    SCHEMA_OPTIONAL_BOOLEANS = {"has_basement", "has_central_air"}
     result = {}
     for k, v in record.items():
         if v is None:
@@ -366,7 +512,7 @@ def sync_fields(prop, repo) -> dict:
 
     update_payload = {
         "title":                prop.title,
-        "description":          _clean_description(prop.description),
+        "description":          _clean_description(prop.description, monthly_rent=prop.monthly_rent),
         "showing_instructions": prop.showing_instructions,
         "address":              prop.address,
         "city":                 prop.city,
@@ -402,11 +548,11 @@ def sync_fields(prop, repo) -> dict:
         "pet_types_allowed":    parse_json(prop.pet_types_allowed),
         "pet_weight_limit":     prop.pet_weight_limit,
         "pet_details":          prop.pet_details,
-        "smoking_allowed":      prop.smoking_allowed,
+        "smoking_allowed":      True,   # Fix 1: always True per directive
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
-        "amenities":            _build_amenities_list(prop, parse_json),
+        "amenities":            _humanize_amenities(_build_amenities_list(prop, parse_json)),
         "appliances":           parse_json(prop.appliances),
         "flooring":             parse_json(prop.flooring),
         "heating_type":         prop.heating_type,
@@ -414,6 +560,12 @@ def sync_fields(prop, repo) -> dict:
         "laundry_type":         prop.laundry_type,
         "move_in_special":      prop.move_in_special,
         "virtual_tour_url":     prop.virtual_tour_url,
+        # Enriched fields
+        "flood_zone":           getattr(prop, "flood_zone", None),
+        "walk_score":           getattr(prop, "walk_score", None),
+        "transit_score":        getattr(prop, "transit_score", None),
+        "bike_score":           getattr(prop, "bike_score", None),
+        "neighborhood":         prop.neighborhood,
     }
 
     update_payload = {k: v for k, v in update_payload.items() if v is not None}

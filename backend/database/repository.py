@@ -34,6 +34,9 @@ PROPERTY_FIELDS = [
     "neighborhood", "broker_name", "agent_name", "tax_value", "hoa_fee",
     # Phase 8 columns — poster attribution
     "agent_image_url", "poster_landlord_id",
+    # Phase 9 columns — enriched data (schools, flood, walk score, move-in)
+    "nearby_schools", "days_on_mls", "flood_zone",
+    "walk_score", "transit_score", "bike_score", "move_in_total",
 ]
 
 _PROPERTY_DEFAULTS = {
