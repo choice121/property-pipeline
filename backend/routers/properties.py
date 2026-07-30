@@ -81,9 +81,10 @@ def list_properties(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     sort: Optional[str] = Query("scraped_at"),
+    exclude_published: bool = Query(False),
     repo: Repository = Depends(get_db),
 ):
-    props = repo.list(status=status, search=search, sort=sort)
+    props = repo.list(status=status, search=search, sort=sort, exclude_published=exclude_published)
     return [p.to_dict() for p in props]
 
 
