@@ -21,7 +21,7 @@ Full cross-project rules and architecture: `ECOSYSTEM.md` in this repo.
 
 ---
 
-## Current System State (as of May 2026)
+## Current System State (as of July 2026)
 
 **Everything is working end-to-end.** The pipeline is fully operational.
 
@@ -32,6 +32,7 @@ Full cross-project rules and architecture: `ECOSYSTEM.md` in this repo.
 - ✅ Image download, watermark scan, bulk publish all working
 - ✅ Live sync (pipeline ← public.properties) working
 - ✅ All scrapers working (apartments, hotpads, craigslist, opendoor, invitation_homes, progress_residential, realtor, zillow, redfin)
+- ✅ Published property IDs are **lowercase** `prop-xxxxxxxx` (critical — see section below)
 
 ---
 
@@ -59,6 +60,31 @@ pipeline.pipeline_chat_conversations public.applications, leases …
 
 ---
 
+## CRITICAL: Published Property ID Format — Must Be Lowercase
+
+**Rule**: All IDs written to `public.properties` by this publisher **must** be lowercase `prop-xxxxxxxx`.
+
+```python
+# CORRECT — current code in publisher_service.py:
+choice_id = "prop-" + uuid.uuid4().hex[:8]       # e.g. "prop-62db29d6"
+
+# WRONG — never do this:
+choice_id = "PROP-" + uuid.uuid4().hex[:8].upper()  # e.g. "PROP-62DB29D6"  ← BREAKS live URLs
+```
+
+**Why this matters**: The Choice website's edge function (`functions/rent/[state]/[city]/[slug].js`) extracts the property ID from the URL slug and queries Supabase as `id=eq.prop-62db29d6` (lowercase). PostgreSQL text equality is case-sensitive, so an uppercase `PROP-62DB29D6` in the DB produces a 404 "Property not found" on every listing page.
+
+**URL slug format**: `/rent/{state}/{city}/{beds}br-{type}-{id}/`
+- `{id}` is always the full `prop-xxxxxxxx` value, already lowercase
+- e.g. `/rent/tx/bridgeport/3br-house-prop-62db29d6/`
+
+**If you ever see uppercase `PROP-` IDs in `public.properties`**, they are broken and will 404 on the live site. Fix with the insert+delete pattern (PostgREST cannot PATCH a primary key):
+1. INSERT new row with `id = old_id.lower()` — omit generated columns (`search_tsv`)
+2. PATCH `property_photos` rows: `property_id = old_id.lower()`
+3. DELETE old uppercase row
+
+---
+
 ## CRITICAL: property_photos Table (Not Columns on properties)
 
 Choice website migration `20260426000002` **removed** `photo_urls` and `photo_file_ids` from `public.properties`. Photos now live exclusively in `public.property_photos`.
@@ -66,7 +92,7 @@ Choice website migration `20260426000002` **removed** `photo_urls` and `photo_fi
 ### property_photos table schema:
 ```sql
 id               uuid (auto)
-property_id      text  -- matches public.properties.id (e.g. "PROP-BF860F35")
+property_id      text  -- matches public.properties.id (e.g. "prop-bf860f35") — always lowercase
 url              text  -- ImageKit CDN URL
 file_id          text  -- ImageKit file ID (for deletion/refresh)
 display_order    int   -- 0-indexed, controls gallery order
@@ -207,6 +233,12 @@ All 6 custom scrapers (apartments, craigslist, hotpads, opendoor, invitation_hom
 - Schema fix: added all 7 missing columns to `pipeline_scrape_runs` (`count_duplicate`, `count_watermarked`, `count_validation_rejected`, `count_image_failed`, `meta_json`, `idempotency_key`, `partial`) — scrape run logging now works fully
 - Migrations pushed to `choice121/Choice`: `20260502000001_add_count_duplicate_to_scrape_runs.sql`, `20260502000002_complete_scrape_runs_columns.sql`
 
+### Phase 10 — Published Property ID Case Fix ✅
+- Root cause: publisher generated `PROP-XXXXXXXX` (uppercase); Choice website queries `id=eq.prop-xxxxxxxx` (lowercase); PostgreSQL text equality is case-sensitive → 404 on every listing URL
+- Fixed `publisher_service.py`: `choice_id = "prop-" + uuid.uuid4().hex[:8]` (was `"PROP-" + ...upper()`)
+- Migrated all 144 existing uppercase `PROP-` IDs in `public.properties` to lowercase via insert+delete (PostgREST cannot PATCH a primary key); updated `property_photos.property_id` in the same pass
+- Added mandatory ID format rules to AI_HANDOFF.md (three locations) so this cannot be reintroduced
+
 ### Phase 9 — Replit Migration + Phase 8 Code Rebuild ✅
 - Full Replit environment migration: Python deps installed, frontend npm deps installed, all secrets configured
 - Phase 8 code was missing from the repo (only DB schema existed); fully rebuilt from scratch:
@@ -310,6 +342,11 @@ frontend/
 - pipeline_ tables → always `self._pipeline` in repository.py
 - public tables → always `self._client` or `get_supabase()`
 - Never write to public schema tables OTHER than properties + property_photos
+
+### Published property IDs
+- IDs written to `public.properties` **must be lowercase** `prop-xxxxxxxx`
+- The current code in `publisher_service.py` is correct: `"prop-" + uuid.uuid4().hex[:8]`
+- Never change this to uppercase — it silently breaks every published listing URL on the live site
 
 ### Photos
 - NO `photo_urls` or `photo_file_ids` anywhere — those columns were removed
