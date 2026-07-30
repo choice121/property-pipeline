@@ -107,11 +107,14 @@ class Repository:
             return PropertyRecord(**result.data[0])
         return None
 
-    def list(self, status=None, search=None, sort="scraped_at") -> list[PropertyRecord]:
+    def list(self, status=None, search=None, sort="scraped_at", exclude_published=False) -> list[PropertyRecord]:
         query = self._pipeline.table("pipeline_properties").select("*")
 
         if status:
             query = query.eq("status", status)
+
+        if exclude_published:
+            query = query.is_("choice_property_id", "null")
 
         sort_map = {
             "scraped_at":        ("scraped_at", True),
