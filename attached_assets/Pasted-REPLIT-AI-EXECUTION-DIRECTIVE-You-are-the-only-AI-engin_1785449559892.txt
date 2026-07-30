@@ -1,0 +1,129 @@
+REPLIT AI EXECUTION DIRECTIVE:
+You are the only AI engine. Perform all enrichment, validation, and rewriting internally. Do not call external APIs for content generation.
+
+JOB: Scrape exactly 10 (ten) unique, publishable Choice Properties listings in the 76078 ZIP code area (Rhome, TX) and surrounding areas.
+
+GEOGRAPHIC TARGET:
+
+· Primary: 76078 ZIP code (Rhome, TX)
+· If fewer than 10 found, expand to surrounding areas including: Haslet, Boyd, Aurora, Newark, and Decatur
+· Do not expand beyond Wise County or adjacent areas unless inventory is critically low
+
+SCRAPE PRICE RANGE: $1,800 or less per month (base rent, excluding fees)
+
+PUBLISHED PRICE: $1,800 per month (base rent, excluding fees) — ALL listings must be repriced to exactly $1,800. Ensure ALL price references in the description and metadata reflect this published price.
+
+BEDROOMS: Exactly 3 bedrooms
+BATHROOMS: Exactly 2 bathrooms
+PROPERTY TYPES: Single-family homes and townhomes. Exclude apartments, condos, duplexes, multi-family units, and commercial properties.
+
+---
+
+PERMANENT CHOICE PROPERTIES RULES (APPLY TO ALL LISTINGS):
+
+BRANDING:
+
+· All listings must be presented as "Choice Properties" exclusive offerings.
+· Do not mention the original source, MLS, third-party platform, or any external brand.
+
+DESCRIPTION REWRITING:
+
+· Rewrite every description in a warm, professional, neutral tone.
+· Remove all language about tours, showings, viewings, or open houses.
+· Remove all contact information (agent names, property manager names, owner names, management company names, phone numbers, emails, websites).
+· Remove all external application instructions (e.g., "apply at [URL]", "call to schedule").
+· Remove all restrictive applicant language: credit score minimums, income multiples, eviction history requirements, criminal background criteria, or any screening criteria.
+· Remove any mention of third-party branding (e.g., "powered by", "listed on").
+· PET & SMOKING POLICY: Publish every property as "Pets Allowed" and "Smoking Allowed." Remove any wording such as: No pets, Pets not allowed, No dogs, No cats, No smoking, Smoke-free property, Non-smoking property, Smoking prohibited, or any other restrictive pet or smoking language. Replace or rewrite the description so it reflects the published Choice Properties policy without leaving conflicting statements anywhere in the listing. Verify that no contradictory pet or smoking restrictions remain in the description or published property details.
+· Keep only: property highlights, neighborhood context, amenities, and a neutral invitation to inquire.
+
+PRICING VALIDATION:
+
+· CRITICAL: The scraped price must be $1,800 or less. You MUST adjust the published rent to exactly $1,800.
+· Search the entire listing for every price reference, including prices written with or without a dollar sign, with or without commas, inside sentences, and inside remarks. Replace every single rent amount with $1,800.
+· If the listing has multiple price points, use $1,800 consistently throughout.
+· Never leave any conflicting prices anywhere in the listing.
+· If the listing includes fees (pet rent, utilities, etc.), note them separately but do not include them in the base rent.
+
+IMAGE RULES:
+
+· Inspect every image in the property gallery.
+· If three (3) or more images contain watermarks, Realtor branding, Zillow branding, brokerage logos, agent branding, copyright overlays, or third-party branding, reject the property entirely and continue searching for another listing.
+· If only one (1) or two (2) images contain watermarks or branding: remove only the affected images, preserve the original order of the remaining images, and publish the remaining clean images.
+· Never crop, blur, or edit watermarks. Only publish clean, unbranded images.
+· After watermark check, upload all approved images to ImageKit.
+· Verify each upload succeeded before proceeding.
+· If any approved image fails to upload, reject the listing entirely.
+· Ensure the published gallery still meets minimum image requirements and maintains a professional appearance.
+
+DUPLICATE DETECTION:
+
+· Before publishing, compare against all previously scraped listings in this session.
+· If the address, unit number, or unique property ID matches a previously scraped listing, skip the duplicate.
+· If only the image set is identical but the address differs, treat as a new listing.
+
+DESCRIPTION CONSISTENCY VALIDATION (MANDATORY FINAL AUDIT):
+Before publishing any property, perform a final consistency audit of the entire listing. The rewritten description must always match the final published property details exactly. Never publish a listing that contains contradictory information.
+
+Automatic Conflict Detection - Scan the entire description, property notes, remarks, and any text fields for statements that conflict with the final published listing:
+
+· Pet Policy: If published says "Pets Allowed," remove or rewrite any wording such as: No pets, Pets not allowed, Sorry no pets, Dogs not allowed, Cats not allowed, No animals, No aggressive breeds, Pet restrictions, Breed restrictions, Weight restrictions. The final description must not contain any wording that contradicts the published pet policy.
+· Smoking Policy: If published says "Smoking Allowed," remove or rewrite any wording such as: No smoking, Non-smoking property, Smoke-free property, Smoking prohibited, No vaping, Smoking is not permitted. Remove every contradictory statement.
+· Pricing: CRITICAL: The published rent must be exactly $1,800. Search the entire listing for every price reference, including prices written with or without a dollar sign, with or without commas, inside sentences, and inside remarks. Replace every old rent amount with $1,800. Never leave conflicting prices anywhere in the listing.
+· Security Deposit: If the security deposit has changed, replace every outdated deposit reference.
+· Bedrooms & Bathrooms: Verify that the description states exactly 3 bedrooms and 2 bathrooms. Correct any mismatched values.
+· Utilities: If utilities are published as included, remove contradictory wording stating tenants must pay those same utilities.
+· Parking: Ensure parking information in the description matches the published parking information.
+· Laundry: Ensure laundry wording matches the published listing.
+· Appliances: Remove appliances from the description that are not listed in the final property details. Never advertise unavailable appliances.
+· Amenities: Only advertise verified amenities. Never leave amenities in the description that were removed from the final listing.
+
+Final Verification: Before publishing, perform one final read-through of the rewritten description as if you were a renter. If any sentence contradicts the published property details, rewrite or remove it. Do not publish until the description is fully consistent with every published property field. This validation step is mandatory for every property and cannot be skipped.
+
+FINAL VALIDATION (ALL MUST PASS):
+
+· Scraped price ≤ $1,800 (search filter)
+· Published price = exactly $1,800 (all price references updated)
+· Exactly 3 bedrooms (verify in both listing data and description)
+· Exactly 2 bathrooms (verify in both listing data and description)
+· Property type is single-family home or townhome (not apartment, condo, duplex, or multi-family)
+· Address is within 76078 ZIP code or surrounding areas (Rhome, Haslet, Boyd, Aurora, Newark, Decatur)
+· Fewer than 3 watermarked images (3+ = reject; 1–2 = remove those images only)
+· All approved images upload successfully to ImageKit
+· At least minimum image requirement met after watermark removal
+· Description has been fully rewritten per Choice Properties standards
+· Pet policy states "Pets Allowed" with no contradictory language anywhere in listing
+· Smoking policy states "Smoking Allowed" with no contradictory language anywhere in listing
+· All pricing references match final published rent ($1,800)
+· All deposit references match final published deposit
+· Bedroom/bathroom counts match description (3/2)
+· Utilities, parking, laundry, appliances, and amenities match published fields
+· No external contact or management references remain
+· No restrictive applicant language remains
+· Listing is not a duplicate
+· Description passes final consistency read-through
+
+---
+
+DELIVERABLE:
+Produce a numbered publishing report with exactly 10 listings (or fewer if fewer exist after expansion). For each listing, provide:
+
+1. Full address
+2. ZIP code
+3. Scraped price (original found)
+4. Published price (must show exactly $1,800)
+5. Bed/bath count (must show 3/2)
+6. Property type (single-family or townhome)
+7. Pet policy (must show "Pets Allowed")
+8. Smoking policy (must show "Smoking Allowed")
+9. Rewritten description (final version after consistency audit - no conflicting language, all prices updated to $1,800)
+10. ImageKit image URLs (all approved images)
+11. Number of images removed due to watermarks (if any)
+12. Consistency audit result (Pass/Fail with specific conflicts found and resolved)
+13. Validation status (Pass/Fail for each rule)
+
+If you cannot find 10 valid listings in 76078, expand to surrounding areas (Haslet, Boyd, Aurora, Newark, Decatur). If still fewer than 10, return the maximum number found and note the shortfall.
+
+---
+
+BEGIN SCRAPING NOW. Do not truncate, summarize, or skip validation. Deliver only fully compliant listings.
