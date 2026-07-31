@@ -37,6 +37,7 @@ class ScrapeMetrics:
     total_scraped: int = 0
     saved: int = 0
     duplicate_skipped: int = 0
+    address_duplicate_skipped: int = 0
     watermarked_dropped: int = 0
     validation_rejected: int = 0
     image_download_queued: int = 0
