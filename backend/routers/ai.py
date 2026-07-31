@@ -580,19 +580,36 @@ Return a JSON object with key "results" containing an array. One object per list
 - "suggestions": integer count of suggestions found
 - "top_issue": a single short string describing the most critical problem (be specific — name the field), or null if none"""
 
-        try:
-            raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
-            result = json.loads(raw)
-            batch_results = result.get("results", result) if isinstance(result, dict) else result
-            if isinstance(batch_results, list):
-                return batch_results
-            return []
-        except Exception as e:
-            logger.error("AI bulk scan batch failed: %s", e)
-            return [
-                {"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0, "top_issue": None}
-                for item in current_batch
-            ]
+        max_batch_retries = 2
+        for attempt in range(max_batch_retries + 1):
+            try:
+                raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
+                result = json.loads(raw)
+                batch_results = result.get("results", result) if isinstance(result, dict) else result
+                if isinstance(batch_results, list):
+                    return batch_results
+                return []
+            except HTTPException as e:
+                if e.status_code == 429 and attempt < max_batch_retries:
+                    wait = 10 * (attempt + 1)
+                    logger.warning("Bulk scan: rate limit hit, retrying in %ds (attempt %d/%d)", wait, attempt + 1, max_batch_retries)
+                    time.sleep(wait)
+                    continue
+                # Rate limit exhausted or other HTTP error — return error status
+                # (not silent zeros) so callers know these weren't actually scanned
+                logger.error("AI bulk scan batch failed (HTTP %s): %s", e.status_code, e.detail)
+                return [
+                    {"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0,
+                     "top_issue": None, "scan_error": e.detail}
+                    for item in current_batch
+                ]
+            except Exception as e:
+                logger.error("AI bulk scan batch failed: %s", e)
+                return [
+                    {"id": item.id, "errors": 0, "warnings": 0, "suggestions": 0,
+                     "top_issue": None, "scan_error": str(e)}
+                    for item in current_batch
+                ]
 
     for item in req.properties:
         # ── Skip recently-scanned properties that haven't been edited since ──
