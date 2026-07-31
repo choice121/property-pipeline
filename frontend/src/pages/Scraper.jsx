@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { searchProperties, saveProperty, getProperties } from '../api/client'
+import { searchProperties, saveProperty, getProperties, scrapeMetro, getMetros } from '../api/client'
 
 import SearchResultCard, { SearchResultRow } from '../components/SearchResultCard'
 import PropertyPreviewModal from '../components/PropertyPreviewModal'
@@ -185,6 +185,28 @@ export default function Scraper() {
   const [lastPayload, setLastPayload] = useState(null)
   const [retrying, setRetrying] = useState(false)
 
+  // Metro Sweep mode
+  const [pageMode, setPageMode] = useState('search') // 'search' | 'metro'
+  const [metros, setMetros] = useState([])
+  const [metroForm, setMetroForm] = useState({
+    metro: '',
+    source: 'realtor',
+    listing_type: 'for_rent',
+    property_types: [],
+    min_price: '',
+    max_price: '',
+    beds_min: '',
+    beds_max: '',
+    sqft_min: '',
+    sqft_max: '',
+    limit_per_zip: '100',
+    max_zips: '15',
+    mls_only: false,
+  })
+  const [metroRunning, setMetroRunning] = useState(false)
+  const [metroResult, setMetroResult] = useState(null)
+  const [metroError, setMetroError] = useState(null)
+
   useEffect(() => {
     getProperties()
       .then((res) => {
@@ -197,6 +219,49 @@ export default function Scraper() {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    getMetros()
+      .then((res) => setMetros(res.data || []))
+      .catch(() => {})
+  }, [])
+
+  const handleMetroChange = useCallback((e) => {
+    const { name, value, type, checked } = e.target
+    setMetroForm((prev) => ({ ...prev, [name]: type === 'checkbox' ? checked : value }))
+  }, [])
+
+  const handleMetroSubmit = useCallback(async (e) => {
+    e.preventDefault()
+    if (!metroForm.metro) return
+    setMetroRunning(true)
+    setMetroResult(null)
+    setMetroError(null)
+    const int = (v) => (v !== '' && v !== null ? parseInt(v) : null)
+    try {
+      const res = await scrapeMetro({
+        metro: metroForm.metro,
+        source: metroForm.source || 'realtor',
+        listing_type: metroForm.listing_type || 'for_rent',
+        property_type: metroForm.property_types.length > 0 ? metroForm.property_types : null,
+        min_price: int(metroForm.min_price),
+        max_price: int(metroForm.max_price),
+        beds_min: int(metroForm.beds_min),
+        beds_max: int(metroForm.beds_max),
+        sqft_min: int(metroForm.sqft_min),
+        sqft_max: int(metroForm.sqft_max),
+        limit_per_zip: int(metroForm.limit_per_zip) || 100,
+        max_zips: int(metroForm.max_zips) || 15,
+        mls_only: metroForm.mls_only,
+      })
+      setMetroResult(res.data)
+      queryClient.invalidateQueries({ queryKey: ['properties'] })
+    } catch (err) {
+      setMetroError(err.response?.data?.detail || err.message || 'Metro sweep failed.')
+    } finally {
+      setMetroRunning(false)
+    }
+  }, [metroForm, queryClient])
 
   const displayedResults = useMemo(() => {
     if (!searchResults) return []
@@ -452,6 +517,157 @@ export default function Scraper() {
           Search for listings, preview them in full, then choose which ones to save to your library. Watermarked listings are automatically blocked.
         </p>
       </div>
+
+      {/* Mode tabs */}
+      <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
+        <button
+          type="button"
+          onClick={() => setPageMode('search')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${pageMode === 'search' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          City / Zip Search
+        </button>
+        <button
+          type="button"
+          onClick={() => setPageMode('metro')}
+          className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${pageMode === 'metro' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+        >
+          Metro Sweep
+        </button>
+      </div>
+
+      {/* ── Metro Sweep mode ─────────────────────────────────────────────── */}
+      {pageMode === 'metro' && (
+        <div className="space-y-6">
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <strong>Metro Sweep</strong> automatically scrapes every zip code in a major metro area and saves new results directly to your library — no preview step needed. Results are cross-source deduplicated so the same address is never saved twice.
+          </div>
+
+          <form onSubmit={handleMetroSubmit} className="bg-white border border-gray-200 rounded-xl p-5 space-y-5">
+            <FieldRow>
+              <Field label="Metro Area *">
+                <select
+                  name="metro"
+                  value={metroForm.metro}
+                  onChange={handleMetroChange}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white"
+                  required
+                >
+                  <option value="">— Select a metro —</option>
+                  {metros.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Source">
+                <select name="source" value={metroForm.source} onChange={handleMetroChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white">
+                  {SOURCES.filter(s => !s.isAll).map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+              </Field>
+            </FieldRow>
+
+            <FieldRow>
+              <Field label="Listing Type">
+                <select name="listing_type" value={metroForm.listing_type} onChange={handleMetroChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white">
+                  {LISTING_TYPES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+                </select>
+              </Field>
+              <Field label="Min Beds">
+                <Input name="beds_min" type="number" value={metroForm.beds_min} onChange={handleMetroChange} placeholder="Any" min="0" />
+              </Field>
+            </FieldRow>
+
+            <FieldRow>
+              <Field label="Min Price">
+                <Input name="min_price" type="number" value={metroForm.min_price} onChange={handleMetroChange} placeholder="No min" />
+              </Field>
+              <Field label="Max Price">
+                <Input name="max_price" type="number" value={metroForm.max_price} onChange={handleMetroChange} placeholder="No max" />
+              </Field>
+            </FieldRow>
+
+            <div>
+              <SectionLabel>Zip Code Coverage</SectionLabel>
+              <FieldRow>
+                <Field label="Max zip codes to sweep" hint="Each zip scrapes independently. More zips = broader coverage but longer runtime.">
+                  <select name="max_zips" value={metroForm.max_zips} onChange={handleMetroChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white">
+                    <option value="5">5 zips (quick)</option>
+                    <option value="10">10 zips</option>
+                    <option value="15">15 zips (default)</option>
+                    <option value="20">20 zips</option>
+                    <option value="25">25 zips (maximum)</option>
+                  </select>
+                </Field>
+                <Field label="Limit per zip" hint="Max listings fetched from each zip code.">
+                  <select name="limit_per_zip" value={metroForm.limit_per_zip} onChange={handleMetroChange} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 bg-white">
+                    <option value="50">50 / zip</option>
+                    <option value="100">100 / zip (default)</option>
+                    <option value="200">200 / zip</option>
+                    <option value="500">500 / zip</option>
+                  </select>
+                </Field>
+              </FieldRow>
+              <p className="text-xs text-gray-400 mt-2">
+                Estimated max results: {(parseInt(metroForm.max_zips) || 15) * (parseInt(metroForm.limit_per_zip) || 100)} (before deduplication)
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
+              <button
+                type="submit"
+                disabled={metroRunning || !metroForm.metro}
+                className="px-6 py-2.5 rounded-lg bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {metroRunning ? 'Sweeping… (this may take several minutes)' : 'Start Metro Sweep'}
+              </button>
+            </div>
+          </form>
+
+          {metroError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800">
+              {metroError}
+            </div>
+          )}
+
+          {metroResult && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+              <h2 className="font-semibold text-gray-900">Metro Sweep Complete</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'New saved', value: metroResult.new_saved, color: 'bg-green-50 text-green-800' },
+                  { label: 'Already in library', value: metroResult.already_in_library, color: 'bg-gray-50 text-gray-700' },
+                  { label: 'Total found', value: metroResult.total_found, color: 'bg-blue-50 text-blue-800' },
+                  { label: 'Zips scraped', value: metroResult.zips_scraped, color: 'bg-gray-50 text-gray-700' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className={`rounded-lg p-3 text-center ${color}`}>
+                    <p className="text-2xl font-bold">{value ?? 0}</p>
+                    <p className="text-xs mt-0.5">{label}</p>
+                  </div>
+                ))}
+              </div>
+              {metroResult.zip_stats && Object.keys(metroResult.zip_stats).length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Results by zip code</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(metroResult.zip_stats).map(([zip, count]) => (
+                      <span
+                        key={zip}
+                        className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${count > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}
+                      >
+                        <span className="font-mono">{zip}</span>
+                        <span className="font-semibold">{count}</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── City / Zip Search mode ───────────────────────────────────────── */}
+      {pageMode === 'search' && (<>
 
       {/* Filter form */}
       {showForm ? (
@@ -967,6 +1183,8 @@ export default function Scraper() {
         </div>
       )}
 
+      </>)}
+
       {selectedResult && (
         <PropertyPreviewModal
           result={selectedResult}
@@ -980,3 +1198,4 @@ export default function Scraper() {
     </div>
   )
 }
+
