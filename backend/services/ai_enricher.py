@@ -44,6 +44,103 @@ SIGNIFICANT_FIELDS = frozenset([
     "amenities", "appliances", "description", "city", "state",
 ])
 
+# ── Structured field inference ─────────────────────────────────────────────────
+
+_STRUCTURED_FIELD_DESCRIPTIONS = {
+    "heating_type": (
+        "Type of heating system. Common values: 'Forced Air', 'Baseboard', 'Radiant', "
+        "'Heat Pump', 'Boiler', 'Electric'. Infer from property type and year built."
+    ),
+    "cooling_type": (
+        "Type of cooling. Common values: 'Central Air', 'Window Units', 'Mini-Split', 'None'. "
+        "Infer from year built and region (warmer states → more likely Central Air)."
+    ),
+    "laundry_type": (
+        "Laundry situation. Common values: 'In-unit', 'In-unit hookups', 'Shared laundry', 'None'. "
+        "Infer from property type and year built."
+    ),
+    "lease_terms": (
+        "JSON array of lease length options. Standard US residential is '[\"12-month\"]'. "
+        "Return as a JSON array string, e.g. '[\"12-month\"]' or '[\"12-month\", \"Month-to-month\"]'."
+    ),
+    "utilities_included": (
+        "JSON array of utilities included in rent. Most US rentals include at minimum "
+        "Water and Trash. Return as a JSON array string, e.g. '[\"Water\", \"Trash\"]'."
+    ),
+}
+
+
+def _needs_structured_inference(prop) -> bool:
+    """Return True if any structured fields are blank and we have enough context to infer them."""
+    # Need at least property_type to make a useful inference
+    if not prop.property_type:
+        return False
+    return (
+        not prop.heating_type
+        or not prop.cooling_type
+        or not prop.laundry_type
+        or not _parse_json_list(prop.lease_terms)
+        or not _parse_json_list(prop.utilities_included)
+    )
+
+
+def _llm_infer_structured_fields(prop) -> dict:
+    """
+    Use the LLM to infer blank structured fields (heating, cooling, laundry,
+    lease terms, utilities) from property_type + year_built + location.
+    Returns a dict of {field: inferred_value} for fields that could be filled.
+    Only runs for fields that are currently blank.
+    """
+    missing = [
+        f for f, _ in _STRUCTURED_FIELD_DESCRIPTIONS.items()
+        if f in ("lease_terms", "utilities_included")
+        and not _parse_json_list(getattr(prop, f, None))
+        or f not in ("lease_terms", "utilities_included")
+        and not getattr(prop, f, None)
+    ]
+    if not missing:
+        return {}
+
+    ptype = (prop.property_type or "").lower().replace("_", " ")
+    year  = prop.year_built
+    city  = prop.city or ""
+    state = prop.state or ""
+
+    context_parts = [f"Property type: {ptype}"]
+    if year:
+        context_parts.append(f"Year built: {year}")
+    if city or state:
+        context_parts.append(f"Location: {', '.join(filter(None, [city, state]))}")
+
+    fields_block = "\n".join(
+        f'- "{f}": {_STRUCTURED_FIELD_DESCRIPTIONS[f]}' for f in missing
+    )
+
+    user_prompt = f"""Infer the most likely values for these missing rental property fields.
+
+PROPERTY CONTEXT:
+{chr(10).join(context_parts)}
+
+FIELDS TO INFER:
+{fields_block}
+
+RULES:
+- Use property type, year built, and location to make confident, realistic inferences.
+- Apply US rental market knowledge: pre-1970 apartments → baseboard/radiator heat and window AC; post-2000 houses → forced air and central air; in-unit laundry standard after 2010.
+- For lease_terms: almost always '["12-month"]' for standard US residential.
+- For utilities_included: most US rentals include at minimum Water and Trash.
+- For lease_terms and utilities_included: return valid JSON array strings.
+- Skip any field you cannot reliably infer — omit it from the response.
+- Return ONLY a raw JSON object. No markdown, no explanation."""
+
+    try:
+        raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.2, json_mode=True)
+        result = json.loads(raw)
+        return {k: v for k, v in result.items() if k in missing and v}
+    except Exception as e:
+        logger.warning("ai_enricher: structured field inference failed: %s", e)
+        return {}
+
 
 # ── JSON list helpers ──────────────────────────────────────────────────────────
 
@@ -137,6 +234,9 @@ def _decide_tasks(prop) -> list[str]:
     title = (prop.title or "").strip()
     if not title or _is_generic_title(title):
         tasks.append("generate_title")
+
+    if _needs_structured_inference(prop):
+        tasks.append("infer_structured_fields")
 
     return tasks
 
@@ -478,10 +578,18 @@ def enrich_property(prop_id: str, repo) -> None:
         current_sig = _compute_input_sig(prop)
         stored_sig = _get_enriched_sig(prop)
         if stored_sig == current_sig:
+            # Even with a matching signature, run if structured fields still need
+            # inference — these weren't part of earlier enrichment passes and won't
+            # trigger a signature change on their own.
+            if not _needs_structured_inference(prop):
+                logger.info(
+                    "ai_enricher: inputs unchanged (sig %s), skipping %s", current_sig, prop_id
+                )
+                return
             logger.info(
-                "ai_enricher: inputs unchanged (sig %s), skipping %s", current_sig, prop_id
+                "ai_enricher: sig unchanged but structured fields missing — running inference for %s",
+                prop_id,
             )
-            return
 
         tasks = _decide_tasks(prop)
 
@@ -611,6 +719,30 @@ def enrich_property(prop_id: str, repo) -> None:
                 _add_inferred_to_prop(prop, "title_ai_generated")
                 changed = True
                 logger.info("ai_enricher: generated title for %s", prop_id)
+
+        if "infer_structured_fields" in tasks:
+            inferred_values = _llm_infer_structured_fields(prop)
+            for field, value in inferred_values.items():
+                # Normalize list fields to JSON array strings
+                if field in ("lease_terms", "utilities_included"):
+                    if isinstance(value, list):
+                        value = json.dumps(value)
+                    elif isinstance(value, str) and not value.strip().startswith("["):
+                        value = json.dumps([v.strip() for v in value.split(",") if v.strip()])
+                log_rows.append(AiEnrichmentLog(
+                    property_id=prop_id,
+                    field=field,
+                    method=f"ai_inferred_{PROMPT_VERSION}",
+                    ai_value=str(value)[:500],
+                ))
+                setattr(prop, field, value)
+                _add_inferred_to_prop(prop, f"{field}_ai_inferred")
+                changed = True
+            if inferred_values:
+                logger.info(
+                    "ai_enricher: inferred structured fields %s for %s",
+                    list(inferred_values.keys()), prop_id,
+                )
 
         if changed:
             # ── Phase 3C: stamp the input signature so next enrichment skips if unchanged ──
