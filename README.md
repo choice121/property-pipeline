@@ -1,77 +1,81 @@
 # Property Pipeline
 
-  A private, standalone property management tool for Choice Properties.
+An internal admin tool for Choice Properties. Scrapes rental listings, lets you review and edit them, then publishes approved listings to the Choice Properties website.
 
-  ## What This Is
+---
 
-  This tool lets you:
-  1. **Scrape** property listings from Zillow, Realtor.com, and Redfin using HomeHarvest
-  2. **View** all scraped properties with photos in a private dashboard
-  3. **Edit** any property field before publishing
-  4. **Publish** approved listings directly to your live Choice Properties website
+## What It Does
 
-  Nothing touches your live website until you explicitly click Publish.
+1. **Scrape** — Pull listings from Zillow, Redfin, Realtor.com, Apartments.com, HotPads, Craigslist, and more
+2. **Review** — Browse all scraped properties in the Library with photos, quality scores, and status
+3. **Edit** — Open any property and edit every field before publishing
+4. **Publish** — Upload photos to ImageKit and push the listing to the live Choice Properties website
 
-  ---
+Nothing touches the live site until you click Publish.
 
-  ## How to Use This Documentation
+---
 
-  This project is built in **7 stages**. Each stage is small, self-contained, and fully documented.
+## How to Run
 
-  ### For Any AI Working on This Project
+Dependencies install automatically. Just start the app:
 
-  1. Read `AI_HANDOFF.md` first — mandatory before touching any code
-  2. Read `PROGRESS.md` — tells you exactly what has been done and what is next
-  3. Read `STAGES.md` — master list of all stages and current status
-  4. Open the relevant stage file in `stages/` and follow it precisely
-  5. Update `PROGRESS.md` when you finish any work
+```bash
+bash start.sh
+```
 
-  ### Document Structure
+- **Frontend** — React dashboard at `http://localhost:5000`
+- **Backend** — FastAPI at `http://localhost:8000`
 
-  ```
-  property-pipeline/
-  ├── README.md              # Project overview
-  ├── ARCHITECTURE.md        # Full tech stack and design decisions
-  ├── STAGES.md              # Master stage list with status
-  ├── PROGRESS.md            # Running log of all work done (AI must update)
-  ├── AI_HANDOFF.md          # Rules every AI must read before working
-  └── stages/
-      ├── STAGE_1.md         # Project setup & foundation
-      ├── STAGE_2.md         # Scraping engine
-      ├── STAGE_3.md         # Image downloading & storage
-      ├── STAGE_4.md         # React frontend foundation
-      ├── STAGE_5.md         # Property library UI
-      ├── STAGE_6.md         # Property editor UI
-      └── STAGE_7.md         # Publisher (connects to live website)
-  ```
+---
 
-  ---
+## Required Secrets
 
-  ## Quick Start (After All Stages Complete)
+All credentials are stored as Replit environment variables. Do not add a `.env` file.
 
-  ```bash
-  # Clone the repo
-  git clone https://github.com/choice121/property-pipeline
-  cd property-pipeline
+| Variable | Purpose |
+|---|---|
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Full DB access (pipeline + public schema) |
+| `DEEPSEEK_API_KEY` | AI enrichment (descriptions, SEO) |
+| `IMAGEKIT_PUBLIC_KEY` | Photo uploads |
+| `IMAGEKIT_PRIVATE_KEY` | Photo uploads (server-side) |
+| `IMAGEKIT_URL_ENDPOINT` | ImageKit CDN base URL |
+| `GEMINI_API_KEY` | AI enrichment (primary model) |
+| `GEOAPIFY_API_KEY` | Geocoding |
+| `GITHUB_TOKEN` | GitHub API (for pushing code changes) |
+| `CHOICE_LANDLORD_ID` | Optional — auto-resolved from Supabase if unset |
 
-  # Backend
-  cd backend
-  pip install -r requirements.txt
-  cp .env.example .env
-  python main.py
+---
 
-  # Frontend
-  cd frontend
-  npm install
-  npm run dev
-  ```
+## Architecture
 
-  ---
+```
+property-pipeline/
+├── backend/              # FastAPI (Python 3.11) — port 8000
+│   ├── routers/          # API endpoints
+│   ├── services/         # Scraping, publishing, AI, images
+│   ├── database/         # Supabase client + repository
+│   └── requirements.txt
+├── frontend/             # React + Vite — port 5000
+│   └── src/
+│       ├── pages/        # Library, Editor, Scraper, Audit, Posters
+│       └── components/
+├── vite.config.js        # Vite config (root — used for dev + build)
+├── start.sh              # Startup script
+└── replit.md             # Project notes and preferences
+```
 
-  ## Important Rules
+---
 
-  - **Never write to the live Supabase database** without the owner's explicit approval
-  - **Stage 7 (Publisher)** requires credentials provided by the owner — do not attempt without them
-  - **Always update PROGRESS.md** after completing any work
-  - **Never skip a stage** — each one builds on the previous
-  
+## Ecosystem
+
+This tool shares a Supabase database with the [Choice website](https://github.com/choice121/Choice).
+
+| Schema | Owner |
+|---|---|
+| `pipeline.*` | This tool (scraping, staging) |
+| `public.*` | Choice website (live listings) |
+
+When you publish a property, this tool writes to `public.properties` and `public.property_photos` — which the Choice website reads immediately.
+
+See `ECOSYSTEM.md` for full cross-project details.
