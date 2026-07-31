@@ -151,6 +151,24 @@ _SINGLE_SOURCE_TIMEOUT = int(__import__("os").environ.get("PIPELINE_SCRAPE_TIMEO
 _ALL_SOURCE_TIMEOUT    = int(__import__("os").environ.get("PIPELINE_SCRAPE_TIMEOUT_ALL",    "120"))
 
 
+class MetroScrapeRequest(BaseModel):
+    metro: str
+    source: Optional[str] = "realtor"
+    listing_type: Optional[str] = "for_rent"
+    property_type: Optional[List[str]] = None
+    min_price: Optional[int] = None
+    max_price: Optional[int] = None
+    beds_min: Optional[int] = None
+    beds_max: Optional[int] = None
+    baths_min: Optional[float] = None
+    baths_max: Optional[float] = None
+    sqft_min: Optional[int] = None
+    sqft_max: Optional[int] = None
+    limit_per_zip: Optional[int] = 100
+    max_zips: Optional[int] = 15
+    mls_only: Optional[bool] = False
+
+
 class ScrapeRequest(BaseModel):
     location: str
     source: Optional[str] = "realtor"
@@ -422,6 +440,14 @@ def scrape_properties(
         if source_listing_id:
             existing = repo.get_by_source_listing_id(source_listing_id)
 
+        # Cross-source address dedup — same house listed on Zillow + Realtor
+        if not existing and data.get("address") and data.get("city"):
+            existing = repo.get_by_address(
+                data["address"].strip(), data["city"].strip(), data.get("state", "")
+            )
+            if existing:
+                metrics.address_duplicate_skipped += 1
+
         if existing:
             metrics.duplicate_skipped += 1
             saved.append(existing)
@@ -506,6 +532,210 @@ def scrape_properties(
     return {
         "count": len(saved),
         "properties": [p.to_dict() for p in saved],
+        "meta": metrics.to_dict(),
+    }
+
+
+@router.get("/scrape/metros")
+def list_metros():
+    """Return all supported metro areas for the metro sweep feature."""
+    from services.metro_zips import METRO_NAMES
+    return METRO_NAMES
+
+
+@router.post("/scrape/metro")
+def scrape_metro(
+    req: MetroScrapeRequest,
+    background_tasks: BackgroundTasks,
+    repo: Repository = Depends(get_db),
+):
+    """Sweep an entire metro area by scraping each zip code independently.
+
+    Runs scrapes for up to `max_zips` zip codes from the metro's list,
+    deduplicates across zips (by source_listing_id and address), runs the
+    same watermark / validation / enrichment pipeline as a regular scrape,
+    and saves new results directly to the library.
+    """
+    from services.metro_zips import METRO_ZIPS, METRO_NAMES
+    from concurrent.futures import ThreadPoolExecutor, as_completed as futs_as_completed
+
+    metro_key = req.metro.strip().lower().replace(" ", "_").replace("-", "_")
+    zip_codes = METRO_ZIPS.get(metro_key) or METRO_ZIPS.get(req.metro.strip().lower(), [])
+    if not zip_codes:
+        available = [m["value"] for m in METRO_NAMES]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown metro '{req.metro}'. Available: {available}",
+        )
+
+    max_zips = min(req.max_zips or 15, 25)
+    zip_codes = list(dict.fromkeys(zip_codes))[:max_zips]  # dedup + cap
+    limit_per_zip = min(req.limit_per_zip or 100, 500)
+    source = (req.source or "realtor").lower()
+
+    logger.info(
+        "Metro sweep: %s — %d zips, source=%s, limit_per_zip=%d",
+        req.metro, len(zip_codes), source, limit_per_zip,
+    )
+
+    # Scrape all zips in parallel (max 3 concurrent to avoid rate-limiting)
+    all_raw: list = []
+    seen_ids: set = set()
+    seen_addresses: set = set()
+    zip_stats: dict = {}
+
+    def _scrape_zip(zc: str):
+        try:
+            return zc, scraper_service.scrape(
+                location=zc,
+                source=source,
+                listing_type=req.listing_type or "for_rent",
+                property_type=req.property_type,
+                min_price=req.min_price,
+                max_price=req.max_price,
+                beds_min=req.beds_min,
+                beds_max=req.beds_max,
+                baths_min=req.baths_min,
+                baths_max=req.baths_max,
+                sqft_min=req.sqft_min,
+                sqft_max=req.sqft_max,
+                limit=limit_per_zip,
+                mls_only=req.mls_only or False,
+            )
+        except Exception as e:
+            logger.warning("Metro sweep: zip %s failed: %s", zc, e)
+            return zc, []
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = {pool.submit(_scrape_zip, zc): zc for zc in zip_codes}
+        for fut in futs_as_completed(futures, timeout=600):
+            zc = futures[fut]
+            try:
+                z, results = fut.result(timeout=10)
+                count_before = len(all_raw)
+                for r in results:
+                    lid = r.get("source_listing_id")
+                    addr_key = (
+                        f"{(r.get('address') or '').lower().strip()}"
+                        f"|{(r.get('city') or '').lower().strip()}"
+                    )
+                    if lid and lid in seen_ids:
+                        continue
+                    if addr_key and addr_key in seen_addresses:
+                        continue
+                    if lid:
+                        seen_ids.add(lid)
+                    if addr_key:
+                        seen_addresses.add(addr_key)
+                    all_raw.append(r)
+                zip_stats[z] = len(all_raw) - count_before
+            except Exception as e:
+                logger.warning("Metro sweep future failed for %s: %s", zc, e)
+                zip_stats[zc] = 0
+
+    logger.info("Metro sweep: %d unique results across %d zips", len(all_raw), len(zip_codes))
+
+    # Process and save — same pipeline as regular scrape
+    metrics = ScrapeMetrics()
+    metrics.total_scraped = len(all_raw)
+    all_raw = scraper_service._ensure_source(all_raw, source)
+
+    saved = []
+    from database.repository import PROPERTY_FIELDS
+    valid_cols = set(PROPERTY_FIELDS)
+
+    for data in all_raw:
+        reasons = watermark_reasons(data)
+        if reasons:
+            metrics.watermarked_dropped += 1
+            continue
+
+        source_listing_id = data.get("source_listing_id")
+        existing = None
+        if source_listing_id:
+            existing = repo.get_by_source_listing_id(source_listing_id)
+
+        if not existing and data.get("address") and data.get("city"):
+            existing = repo.get_by_address(
+                data["address"].strip(), data["city"].strip(), data.get("state", "")
+            )
+            if existing:
+                metrics.address_duplicate_skipped += 1
+
+        if existing:
+            metrics.duplicate_skipped += 1
+            saved.append(existing)
+            continue
+
+        data, reject_reason = validate_and_filter(data)
+        if reject_reason:
+            metrics.validation_rejected += 1
+            continue
+        data = run_rule_based_enrichment(data)
+
+        image_urls = []
+        try:
+            image_urls = json.loads(data.get("original_image_urls", "[]"))
+        except Exception:
+            pass
+
+        score, missing = _calculate_weighted_quality(data, image_urls)
+        data["data_quality_score"] = score
+        data["missing_fields"] = json.dumps(missing)
+
+        prop_id = generate_property_id()
+        prop_data = {k: v for k, v in data.items() if k in valid_cols}
+        prop = PropertyRecord(id=prop_id, **prop_data)
+
+        try:
+            repo.save(prop)
+        except Exception as e:
+            metrics.errors.append(f"save_failed:{e}")
+            logger.error("Metro sweep: failed to save %s: %s", prop_id, e)
+            continue
+
+        saved.append(prop)
+        metrics.saved += 1
+
+        if image_urls:
+            metrics.image_download_queued += len(image_urls)
+            background_tasks.add_task(download_images_task, prop_id, image_urls)
+        background_tasks.add_task(enqueue_enrichment, prop_id)
+
+        agent_name = data.get("agent_name")
+        broker_name = data.get("broker_name")
+        agent_image_url = data.get("agent_image_url")
+        if agent_name or broker_name:
+            background_tasks.add_task(
+                _resolve_poster_task,
+                prop_id, agent_name, broker_name, agent_image_url, repo,
+            )
+
+    run = ScrapeRunRecord(
+        source=f"metro:{req.metro}",
+        location=req.metro,
+        count_total=metrics.total_scraped,
+        count_new=metrics.saved,
+        avg_score=None,
+        error_message="; ".join(metrics.errors) if metrics.errors else None,
+        count_watermarked=metrics.watermarked_dropped,
+        count_duplicate=metrics.duplicate_skipped,
+        count_validation_rejected=metrics.validation_rejected,
+        count_image_failed=0,
+        meta_json=metrics.to_json(),
+        idempotency_key=(
+            f"metro:{req.metro}:{source}:{datetime.now(timezone.utc).strftime('%Y%m%d%H%M')}"
+        ),
+    )
+    repo.add_scrape_run(run)
+
+    return {
+        "new_saved": metrics.saved,
+        "total_found": metrics.total_scraped,
+        "already_in_library": metrics.duplicate_skipped,
+        "address_deduped": metrics.address_duplicate_skipped,
+        "zip_stats": zip_stats,
+        "zips_scraped": len(zip_codes),
         "meta": metrics.to_dict(),
     }
 
