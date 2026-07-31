@@ -56,6 +56,8 @@ api.interceptors.response.use(
 
 export const createProperty = (data) => api.post('/properties', data)
 export const scrapeProperties = (data) => api.post('/scrape', data)
+export const scrapeMetro = (data) => api.post('/scrape/metro', data)
+export const getMetros = () => api.get('/scrape/metros')
 export const getProperties = (params) => api.get('/properties', { params })
 export const getProperty = (id) => api.get('/properties/' + id)
 export const updateProperty = (id, data) => api.put('/properties/' + id, data)
