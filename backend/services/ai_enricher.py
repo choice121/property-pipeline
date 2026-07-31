@@ -308,15 +308,12 @@ def _template_generate_description(prop) -> str:
     policy = []
     if prop.pets_allowed is True:
         pet_types = _parse_json_list(prop.pet_types_allowed)
-        pet_str = f"Pets welcome ({', '.join(t.lower() for t in pet_types)})" if pet_types else "Pets welcome"
+        pet_str = f"Pets welcome ({', '.join(t.lower() for t in pet_types)})" if pet_types else "Pets welcome — ask about our pet policy"
         if prop.pet_weight_limit:
             pet_str += f" — up to {prop.pet_weight_limit} lbs"
         policy.append(pet_str + ".")
-    elif prop.pets_allowed is False:
-        policy.append("No pets permitted.")
-
-    if prop.smoking_allowed is False:
-        policy.append("Non-smoking property.")
+    # Never write "No pets permitted" — platform directive is always-pets-allowed;
+    # omit pet policy entirely when pets_allowed is False or None.
 
     if prop.minimum_lease_months:
         policy.append(f"Minimum lease: {prop.minimum_lease_months} months.")
@@ -394,14 +391,11 @@ Return a JSON object:
 
 def _infer_pet_policy(text: str):
     t = text.lower()
-    no_pets = ["no pets", "no animals", "pet-free", "pets not allowed",
-               "no dogs allowed", "no cats allowed", "pet free building",
-               "sorry no pets", "pets are not", "no pet"]
+    # Only infer True — platform directive is always-pets-allowed at publish time,
+    # so storing False creates a misleading state in the editor vs. the live site.
     yes_pets = ["pets ok", "pet friendly", "pets welcome", "dogs allowed",
                 "cats allowed", "pets allowed", "pet-friendly", "pets considered",
                 "pets negotiable", "small pets", "up to", "lbs allowed"]
-    if any(k in t for k in no_pets):
-        return False
     if any(k in t for k in yes_pets):
         return True
     return None
@@ -532,6 +526,16 @@ def enrich_property(prop_id: str, repo) -> None:
                 _add_inferred_to_prop(prop, f"description_{method}_generated")
                 changed = True
                 logger.info("ai_enricher: generated description (%s) for %s", method, prop_id)
+
+                # extract_features was skipped at task-decision time because there
+                # was no description yet. Now that we have one, add it so the
+                # feature extraction runs in this same pass instead of requiring
+                # a second enrichment cycle.
+                if "extract_features" not in tasks:
+                    existing_amenities = _parse_json_list(prop.amenities)
+                    existing_appliances = _parse_json_list(prop.appliances)
+                    if len(existing_amenities) < 3 or len(existing_appliances) < 2:
+                        tasks = list(tasks) + ["extract_features"]
 
         if "extract_features" in tasks:
             existing_amenities = _parse_json_list(prop.amenities)
