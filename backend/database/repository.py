@@ -107,6 +107,29 @@ class Repository:
             return PropertyRecord(**result.data[0])
         return None
 
+    def get_by_address(self, address: str, city: str, state: str = "") -> PropertyRecord | None:
+        """Cross-source dedup — find an existing property at the same address.
+
+        Used to prevent the same house listed on Zillow and Realtor from being
+        saved twice with different source_listing_ids.
+        """
+        if not address or not city:
+            return None
+        try:
+            result = (
+                self._pipeline.table("pipeline_properties")
+                .select("*")
+                .ilike("address", address.strip())
+                .ilike("city", city.strip())
+                .limit(1)
+                .execute()
+            )
+            if result.data:
+                return PropertyRecord(**result.data[0])
+        except Exception:
+            pass
+        return None
+
     def list(self, status=None, search=None, sort="scraped_at", exclude_published=False) -> list[PropertyRecord]:
         query = self._pipeline.table("pipeline_properties").select("*")
 
