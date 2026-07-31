@@ -1,12 +1,47 @@
 import json
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ChoiceBot/1.0)"}
+
+
+def _target_fields_complete(prop) -> bool:
+    """Return True only if all fields this fetcher handles are already populated."""
+    try:
+        lease = json.loads(prop.lease_terms or "[]")
+    except Exception:
+        lease = []
+    try:
+        utils = json.loads(prop.utilities_included or "[]")
+    except Exception:
+        utils = []
+    return bool(
+        prop.heating_type
+        and prop.cooling_type
+        and prop.laundry_type
+        and lease
+        and utils
+        and prop.available_date
+        and prop.security_deposit
+        and prop.parking
+    )
+
+
+def _get_fetch_timestamp(prop) -> str | None:
+    """Read stored detail_fetched timestamp from inferred_features."""
+    try:
+        features = json.loads(prop.inferred_features or "[]")
+        for f in features:
+            if isinstance(f, str) and f.startswith("detail_fetched:"):
+                return f[len("detail_fetched:"):]
+    except Exception:
+        pass
+    return None
 
 EXTRACTORS = {
     "available_date": [
@@ -103,8 +138,19 @@ def fetch_missing_fields(prop_id: str, repo) -> None:
     prop = repo.get(prop_id)
     if not prop:
         return
-    if (prop.data_quality_score or 0) >= 70:
+    # Skip if every field this fetcher handles is already populated
+    if _target_fields_complete(prop):
         return
+    # Skip if we already fetched this source URL recently (within 7 days) —
+    # prevents hammering source sites for listings that just didn't have the data
+    fetch_ts = _get_fetch_timestamp(prop)
+    if fetch_ts:
+        try:
+            fetched_at = datetime.fromisoformat(fetch_ts)
+            if (datetime.now(timezone.utc) - fetched_at) < timedelta(days=7):
+                return
+        except Exception:
+            pass
     if not prop.source_url:
         return
 
@@ -228,10 +274,22 @@ def fetch_missing_fields(prop_id: str, repo) -> None:
             except (ValueError, IndexError):
                 pass
 
+    # Stamp the fetch timestamp so we don't re-hit the source URL unnecessarily,
+    # even if we didn't extract any new fields (source page may not have them).
+    now_ts = datetime.now(timezone.utc).isoformat()
+    inferred = [f for f in inferred if not (isinstance(f, str) and f.startswith("detail_fetched:"))]
+    inferred.append(f"detail_fetched:{now_ts}")
+    prop.inferred_features = json.dumps(inferred)
+
     if changed:
-        prop.inferred_features = json.dumps(inferred)
         try:
             repo.save(prop)
             logger.info("detail_fetcher: enriched fields for property %s", prop_id)
         except Exception as e:
             logger.warning("detail_fetcher: save failed for %s: %s", prop_id, e)
+    else:
+        # Save only the timestamp update — no fields changed but mark as visited
+        try:
+            repo.save(prop)
+        except Exception:
+            pass
