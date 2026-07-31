@@ -543,16 +543,32 @@ def bulk_scan(req: BulkScanRequest, repo: Repository = Depends(get_db)):
 
         user_prompt = f"""You are a quality control assistant reviewing multiple rental listings at once.
 
-For each listing below, quickly assess how many errors, warnings, and suggestions it has based on these rules:
+For each listing below, assess how many errors, warnings, and suggestions it has:
 
-ERRORS (critical — should not publish):
-- Missing rent, missing address, missing bedrooms/bathrooms, no description at all, contradictory data
+ERRORS (critical — must fix before publishing):
+- Missing rent amount
+- Missing address or location
+- Missing bedroom or bathroom count
+- No description at all
+- Description contradicts structured fields (e.g. says "3 beds" but field shows 2)
+- Rent is implausibly low or high for bedroom count (e.g. $200/mo 3BR or $15,000/mo studio)
 
 WARNINGS (should fix before publishing):
-- Description too short or generic, tour/showing language, screening criteria in description, no amenities, no lease terms
+- Description under 50 words or clearly copy-pasted boilerplate
+- Description contains tour/showing language ("contact to schedule", "book a showing")
+- Description contains screening criteria (credit score, income multiplier, "no Section 8")
+- Description contains hard "no pets" language — violates platform guidelines
+- Description contains contact info (phone numbers, emails, website URLs)
+- No amenities listed at all
+- No lease terms specified
+- Missing parking info for a house or condo
 
-SUGGESTIONS (nice improvements):
-- Missing sqft, incomplete amenities, pet policy unclear, no move-in special mentioned
+SUGGESTIONS (nice to have):
+- Missing square footage
+- Incomplete amenities for property type
+- Pet policy not mentioned when pets are welcome
+- No move-in special mentioned
+- Missing year built
 
 LISTINGS TO REVIEW:
 {listings_block}
@@ -562,7 +578,7 @@ Return a JSON object with key "results" containing an array. One object per list
 - "errors": integer count of errors found
 - "warnings": integer count of warnings found
 - "suggestions": integer count of suggestions found
-- "top_issue": a single short string describing the most critical problem, or null if none"""
+- "top_issue": a single short string describing the most critical problem (be specific — name the field), or null if none"""
 
         try:
             raw = call_deepseek(PLATFORM_CONTEXT, user_prompt, temperature=0.1, json_mode=True)
