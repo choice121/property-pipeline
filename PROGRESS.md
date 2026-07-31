@@ -1,180 +1,106 @@
 # Progress Log
 
-  This file is the single source of truth for what has been done.
-  Every AI that works on this project **must** update this file before finishing.
+Single source of truth for all work done on this project.
+Every AI that works here **must** add an entry before finishing.
 
-  ---
+---
 
-  ## Current Status
+## Current Status
 
-  **Active Stage:** Complete — All 7 stages done
-  **Last Updated:** 2026-07-30
-  **Last Worked On By:** Replit Agent (ID case fix)
+**All features complete and operational.**
+**Last Updated:** 2026-07-30
+**Last Worked On By:** Replit Agent
 
-  ---
+---
 
-  ## What Is Ready to Build
+## Completed Work
 
-  All stages complete. The tool is fully functional end-to-end including publishing to Choice Properties.
+### [2026-07-30] — Cleanup: Remove unnecessary files, update documentation
 
-  ---
+**What was done:**
+- Deleted all one-time SQL migration/backfill scripts (already applied to Supabase)
+- Deleted Docker files (Dockerfile, docker-compose.yml, .dockerignore) — not used on Replit
+- Deleted root main.py stub, pyproject.toml, uv.lock (unused uv/pip artifacts)
+- Deleted Makefile (docker-based, irrelevant on Replit)
+- Deleted all stage planning docs (STAGES.md, stages/) — all 7 stages complete
+- Deleted SETUP_SUPABASE.md, PIPELINE_PROGRESS.md, docs/ — superseded/one-time
+- Deleted attached_assets/ — old development session screenshots and PDFs
+- Deleted choice-website/ — separate project, belongs in its own repo
+- Deleted empty backend junk (=8.0.0, properties.db, data/, storage/)
+- Rewrote README.md, AI_HANDOFF.md, PROGRESS.md, replit.md — clean and current
 
-  ## Completed Work
+---
 
-  ### [2026-07-30] — Fix: Published property URLs returning "not found"
+### [2026-07-30] — Feature: Hide published properties from library
 
-  **Completed by:** Replit Agent
+**What was done:**
+- Added `exclude_published` param to `backend/database/repository.py` `list()` — filters `choice_property_id IS NULL`
+- Exposed `exclude_published: bool` query param on `GET /api/properties` in `backend/routers/properties.py`
+- Updated Library.jsx to always pass `exclude_published: true` — published properties disappear from library immediately on next refresh
+- Removed "Published" option from Library status filter dropdown (no longer relevant)
+- Library count dropped from 412 → 316, confirming 96 published properties removed from view
 
-  **What was done:**
-  - Root cause: publisher_service.py generated IDs as `PROP-XXXXXXXX` (uppercase), but the Choice website's `[slug].js` edge function extracts the ID from the URL slug (e.g. `prop-62db29d6`) and queries Supabase with `id=eq.prop-62db29d6` (lowercase). PostgreSQL text equality is case-sensitive → no match → 404.
-  - Fixed `publisher_service.py` line 215: changed `"PROP-" + uuid.uuid4().hex[:8].upper()` → `"prop-" + uuid.uuid4().hex[:8]`
-  - Migrated all 144 existing uppercase `PROP-XXXXXXXX` records in `public.properties` to lowercase `prop-xxxxxxxx` (insert new lowercase record + update `property_photos.property_id` + delete old uppercase record)
-  - All 144 migrated with 0 errors
+---
 
-  **Issues encountered:**
-  - PostgREST PATCH cannot update primary keys (409 Conflict) — used insert+delete pattern instead
-  - `search_tsv` is a generated column and cannot be included in INSERT payloads — stripped it before inserting
+### [2026-07-30] — AI Enrichment: Triggered bulk run
 
-  **Next step:**
-  - All published property URLs should now resolve correctly on choice-properties-site.pages.dev
+**What was done:**
+- Called `POST /api/ai/bulk-enrich` — 15 properties queued (rest already had descriptions + score ≥ 60)
+- Enrichment runs in background via DeepSeek/Gemini
 
-  ---
+---
 
+### [2026-07-30] — Fix: Published property URLs returning "Not Found"
 
+**What was done:**
+- Root cause: `publisher_service.py` generated IDs as `PROP-XXXXXXXX` (uppercase), but the Choice website queries Supabase as `prop-xxxxxxxx` (lowercase). PostgreSQL text equality is case-sensitive → 404.
+- Fixed `publisher_service.py`: changed `"PROP-" + uuid.uuid4().hex[:8].upper()` → `"prop-" + uuid.uuid4().hex[:8]`
+- Migrated all 144 existing uppercase records in `public.properties` to lowercase — 0 errors
 
-  ### [2026-04-11] — Bulk Publish: 50 properties live
+---
 
-  **Completed by:** Replit Agent
+### [2026-04-11] — Bulk Publish: 50 properties live
 
-  **What was done:**
-  - Discovered that HomeHarvest returns `list_price_min` / `list_price_max` for apartment complexes where `list_price` is NULL
-  - Updated scraper_service.py to fall back to `list_price_min` when `list_price` is null — rent is now populated for all scraped properties
-  - Scraped 200 properties each from Austin TX, Nashville TN, Denver CO, Atlanta GA, Phoenix AZ, Charlotte NC (1,000+ total)
-  - Backfilled `monthly_rent` for all existing scraped properties using the same fallback logic
-  - Selected 9 properties per city (6 cities = 54 candidates, capped at 50) with at least 1 downloaded image
-  - Published all 50 in one automated run — 0 failures
-  - Supabase now has 58 active listings across Austin, Atlanta, Phoenix, Nashville, Denver, Charlotte (plus 8 pre-existing)
-  - Removed bulk_scrape_publish.py (no longer needed)
+**What was done:**
+- Discovered HomeHarvest returns `list_price_min/max` for apartment complexes where `list_price` is NULL
+- Updated `scraper_service.py` to fall back to `list_price_min` when `list_price` is null
+- Scraped 200 properties each from Austin, Nashville, Denver, Atlanta, Phoenix, Charlotte (1,000+ total)
+- Published 50 properties in one automated run — 0 failures
+- Supabase now has 58+ active listings across 6 cities
 
-  **Issues encountered:**
-  - Zillow for_rent scrapes return `list_price=NULL` for apartment complexes — solved by using `list_price_min` as fallback
-  - `monthly_rent` NOT NULL constraint in Supabase required the fallback to be applied before any insert
+---
 
-  **Next step:**
-  - Publish to production (deploy) so the admin dashboard is accessible outside Replit
-  - Optionally set CHOICE_LANDLORD_ID secret if property landlord linking is needed
+### [2026-04-11] — Stages 1–7 Complete
 
-  ---
+All 7 stages implemented and verified:
+- Stage 1: FastAPI + React/Vite project skeleton
+- Stage 2: HomeHarvest scraping engine (all sources)
+- Stage 3: Image downloading and local storage
+- Stage 4: React app shell with routing
+- Stage 5: Property Library UI (grid, search, filter, sort)
+- Stage 6: Property Editor UI (full form, image management)
+- Stage 7: Publisher (ImageKit upload + Supabase insert)
 
-  ### [2026-04-11] — Stage 7: Publisher
+---
 
-  **Completed by:** Replit Agent
+## Known Issues / Open Items
 
-  **What was done:**
-  - Implemented backend/services/publisher_service.py — ImageKit upload (v5 SDK) + Supabase insert + local DB update
-  - Implemented backend/routers/publisher.py — POST /api/publish/{id} with proper 400/502/500 error handling
-  - Created frontend/src/components/PublishButton.jsx — full state machine (idle → confirm → loading → success/error)
-  - Updated frontend/src/pages/Editor.jsx — imports and renders PublishButton, shows published state in status field
-  - All 5 credentials stored as Replit secrets (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IMAGEKIT_PRIVATE_KEY, IMAGEKIT_PUBLIC_KEY, IMAGEKIT_URL_ENDPOINT)
-  - CHOICE_LANDLORD_ID is optional — omitted from Supabase record if not set
+- `pets_allowed` and `smoking_allowed` are force-set to `True` in `publisher_service.py` regardless of scraped/edited values — needs fixing
+- `neighborhood` field is scraped and published but not editable in the Editor UI
 
-  **Issues encountered:**
-  - imagekitio v5 (5.3.0) installed instead of v3 — completely different API; fixed by using ik.files.upload() with private_key-only constructor
-  - Supabase service role key returning 401 in dev shell tests — credentials are correctly stored and will be used by the running app
+---
 
-  **Next step:**
-  - Scrape a property, mark it Ready, and test the Publish button end-to-end
-  - If landlord_id is needed by the Supabase schema, add CHOICE_LANDLORD_ID secret
+## How to Add an Entry
 
-  ---
+```
+### [DATE] — Description
 
-  ### [2026-04-10] — Stages 1–6: Full Application Build
+**What was done:**
+- Specific changes made
 
-  **Completed by:** Replit Agent
+**Issues encountered:**
+- Problems found and how they were resolved
 
-  **What was done:**
-
-  **Stage 1 — Project Setup & Foundation:**
-  - Created complete folder structure: backend/ and frontend/
-  - backend/main.py — FastAPI app with CORS and health endpoint
-  - backend/requirements.txt — all Python dependencies
-  - backend/.env.example — template with Stage 7 vars
-  - backend/database/db.py — SQLAlchemy engine, session, Base, init_db()
-  - backend/database/models.py — Property model with all schema columns
-  - backend/routers/health.py — GET /api/health returns {"status":"ok"}
-  - backend/routers/scraper.py, properties.py, images.py, publisher.py (stub)
-  - backend/services/scraper_service.py, image_service.py, publisher_service.py (empty)
-  - frontend/package.json, vite.config.js (at root), tailwind.config.js, postcss.config.js
-  - frontend/src/main.jsx, App.jsx, index.css
-  - frontend/src/api/client.js — Axios instance + all API functions
-  - SQLite DB created at backend/data/pipeline.db
-
-  **Stage 2 — Scraping Engine:**
-  - backend/services/scraper_service.py — HomeHarvest integration with field mapping and normalization
-  - backend/routers/scraper.py — POST /api/scrape endpoint with upsert logic
-  - backend/routers/properties.py — GET/PUT/DELETE /api/properties with search, filter, sort
-  - Duplicate prevention via source_listing_id upsert
-
-  **Stage 3 — Image Downloading & Storage:**
-  - backend/services/image_service.py — download_images, delete_image, reorder_images
-  - backend/routers/images.py — serve images, delete, reorder endpoints
-  - Image downloads run as FastAPI BackgroundTasks after scrape
-
-  **Stage 4 — React Frontend Foundation:**
-  - frontend/src/components/Layout.jsx — nav with Library and Scrape links
-  - frontend/src/pages/Library.jsx, Scraper.jsx, Editor.jsx (full implementations in stages 5+6)
-  - Vite proxy /api → http://localhost:8000 configured
-
-  **Stage 5 — Property Library UI:**
-  - frontend/src/components/PropertyCard.jsx — shows photo, price, address, bed/bath/sqft, status badge
-  - frontend/src/components/StatusBadge.jsx — color-coded status pills
-  - frontend/src/pages/Library.jsx — property grid with search, filter by status, sort controls
-  - Loading skeletons and empty state handled
-
-  **Stage 6 — Property Editor UI:**
-  - frontend/src/components/ImageGallery.jsx — horizontal scroll with delete and reorder arrows
-  - frontend/src/pages/Editor.jsx — full property form, all fields, status dropdown
-  - Compare with Original toggle, edited fields count display
-  - Save, Mark as Ready, Delete Property actions
-
-  **What was NOT done:**
-  - Stage 7 (Publisher) — Locked, requires owner credentials (Supabase + ImageKit)
-
-  **Issues encountered:**
-  - Tailwind v4 was installed (not v3), required @tailwindcss/postcss plugin and @import "tailwindcss" CSS syntax
-  - pydantic version conflict with homeharvest; resolved by allowing latest compatible versions
-  - Vite config placed at workspace root to use root-level node_modules
-
-  **Next step:**
-  - Owner provides Stage 7 credentials (SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, IMAGEKIT keys, CHOICE_LANDLORD_ID)
-  - Then implement publisher_service.py and publisher.py per stages/STAGE_7.md
-
-  ---
-
-  ## Known Issues / Blockers
-
-  - None. All stages complete.
-  - Note: CHOICE_LANDLORD_ID is not set — if the Supabase properties table requires a non-null landlord_id, add this secret and the publisher will include it automatically.
-
-  ---
-
-  ## How to Update This File
-
-  When you finish any work, add an entry at the top of "Completed Work" in this format:
-
-  ```
-  ### [DATE] — Stage X: [Stage Title]
-  **Completed by:** AI session
-  **What was done:**
-  - List every task completed
-  - Be specific about files created or changed
-
-  **What was NOT done (if anything):**
-  - Any tasks left incomplete and why
-
-  **Issues encountered:**
-  - Any problems found and how they were resolved
-
-  **Next step:**
-  - Exactly what the next AI should do
-  ```
+**Next step:**
+- What the next AI should do (if anything)
+```
