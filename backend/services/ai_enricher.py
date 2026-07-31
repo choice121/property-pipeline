@@ -491,11 +491,22 @@ Return a JSON object:
 
 def _infer_pet_policy(text: str):
     t = text.lower()
-    # Only infer True — platform directive is always-pets-allowed at publish time,
-    # so storing False creates a misleading state in the editor vs. the live site.
-    yes_pets = ["pets ok", "pet friendly", "pets welcome", "dogs allowed",
-                "cats allowed", "pets allowed", "pet-friendly", "pets considered",
-                "pets negotiable", "small pets", "up to", "lbs allowed"]
+    # Check for hard "no pets" phrasing FIRST — these phrases contain substrings
+    # that also appear in the yes_pets list (e.g. "pets allowed" is inside
+    # "no pets allowed"), so order matters.
+    no_pets_phrases = [
+        "no pets", "no animals", "pet-free", "pets not allowed",
+        "no dogs allowed", "no cats allowed", "pet free building", "sorry no pets",
+    ]
+    if any(k in t for k in no_pets_phrases):
+        # Source says no pets — don't infer either way. Platform overrides to
+        # True at publish, but we shouldn't store a misleading True in the editor.
+        return None
+    yes_pets = [
+        "pets ok", "pet friendly", "pets welcome", "dogs allowed",
+        "cats allowed", "pets allowed", "pet-friendly", "pets considered",
+        "pets negotiable", "small pets", "lbs allowed",
+    ]
     if any(k in t for k in yes_pets):
         return True
     return None
