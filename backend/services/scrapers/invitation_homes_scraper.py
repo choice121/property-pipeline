@@ -36,31 +36,55 @@ HTML_HEADER_EXTRAS = {
 
 # Market slug map — city/state keywords → IH market slug
 MARKET_MAP = {
+    # Southeast
     "atlanta": "atlanta-georgia",
-    "austin": "austin-texas",
     "carolinas": "charlotte-north-carolina",
     "charlotte": "charlotte-north-carolina",
-    "chicago": "chicago-illinois",
-    "dallas": "dallas-texas",
-    "denver": "denver-colorado",
-    "houston": "houston-texas",
     "jacksonville": "jacksonville-florida",
-    "las vegas": "las-vegas-nevada",
-    "minneapolis": "minneapolis-minnesota",
-    "nashville": "nashville-tennessee",
-    "sacramento": "sacramento-california",
-    "northern california": "sacramento-california",
-    "orlando": "orlando-florida",
-    "phoenix": "phoenix-arizona",
-    "salt lake": "salt-lake-city-utah",
-    "salt lake city": "salt-lake-city-utah",
-    "san antonio": "san-antonio-texas",
-    "seattle": "seattle-washington",
     "miami": "miami-florida",
     "south florida": "miami-florida",
-    "los angeles": "los-angeles-california",
-    "southern california": "los-angeles-california",
+    "fort lauderdale": "miami-florida",
+    "orlando": "orlando-florida",
     "tampa": "tampa-florida",
+    "st pete": "tampa-florida",
+    "st. pete": "tampa-florida",
+    "saint pete": "tampa-florida",
+    # Southeast — expanded
+    "savannah": "atlanta-georgia",       # IH has ATL-area coverage near SAV
+    "raleigh": "charlotte-north-carolina",
+    "durham": "charlotte-north-carolina",
+    # Texas
+    "austin": "austin-texas",
+    "dallas": "dallas-texas",
+    "dfw": "dallas-texas",
+    "fort worth": "dallas-texas",
+    "houston": "houston-texas",
+    "san antonio": "san-antonio-texas",
+    # Midwest / Great Plains
+    "chicago": "chicago-illinois",
+    "minneapolis": "minneapolis-minnesota",
+    "indianapolis": "indianapolis-indiana",
+    "kansas city": "kansas-city-missouri",
+    # Mountain / Southwest
+    "denver": "denver-colorado",
+    "las vegas": "las-vegas-nevada",
+    "vegas": "las-vegas-nevada",
+    "phoenix": "phoenix-arizona",
+    "scottsdale": "phoenix-arizona",
+    "tucson": "phoenix-arizona",
+    "salt lake": "salt-lake-city-utah",
+    "salt lake city": "salt-lake-city-utah",
+    "slc": "salt-lake-city-utah",
+    # West Coast
+    "los angeles": "los-angeles-california",
+    "la": "los-angeles-california",
+    "southern california": "los-angeles-california",
+    "sacramento": "sacramento-california",
+    "northern california": "sacramento-california",
+    "seattle": "seattle-washington",
+    "tacoma": "seattle-washington",
+    # Mid-Atlantic
+    "nashville": "nashville-tennessee",
 }
 
 # State abbreviation → likely market slug (best-effort fallback)
