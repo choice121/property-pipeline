@@ -199,9 +199,20 @@ def infer_pet_policy(prop: dict) -> dict:
     if prop.get("pets_allowed") is not None:
         return prop
     text = (prop.get("description") or "").lower()
-    # Only infer True — platform directive is always-pets-allowed at publish time,
-    # so storing False creates a misleading state in the editor vs. the live site.
-    yes_keywords = ["pets ok", "pet friendly", "pets welcome", "dogs allowed", "cats allowed", "pets allowed", "pet-friendly"]
+    # Check hard "no pets" phrasing FIRST — these phrases contain substrings
+    # that also appear in the yes list (e.g. "pets allowed" inside "no pets allowed").
+    no_keywords = [
+        "no pets", "no animals", "pet-free", "pets not allowed",
+        "no dogs allowed", "no cats allowed", "pet free building",
+    ]
+    if any(k in text for k in no_keywords):
+        # Source says no pets — leave unset. Platform overrides to True at publish,
+        # but we shouldn't store a misleading True in the editor.
+        return prop
+    yes_keywords = [
+        "pets ok", "pet friendly", "pets welcome", "dogs allowed",
+        "cats allowed", "pets allowed", "pet-friendly",
+    ]
     if any(k in text for k in yes_keywords):
         prop["pets_allowed"] = True
         _add_inferred(prop, "pets_allowed_from_text")
