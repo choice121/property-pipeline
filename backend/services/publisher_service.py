@@ -1,4 +1,5 @@
 import json
+import hashlib
 import logging
 import os
 import re
@@ -91,6 +92,8 @@ EXPLICIT_NULL_FIELDS = {
     "move_in_total", "available_date", "lease_terms", "minimum_lease_months",
     "pet_deposit", "pets_allowed", "pet_types_allowed", "pet_weight_limit",
     "pet_details", "smoking_allowed", "virtual_tour_url",
+    "bedrooms", "bathrooms", "half_bathrooms", "total_bathrooms", "square_footage",
+    "community_starting_rent", "community_max_rent", "community_rent_basis",
 }
 
 
@@ -265,39 +268,542 @@ def _positive_number(value):
     return number if number >= 0 else None
 
 
+def _safe_https_photo_urls(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    urls = []
+    seen = set()
+    for item in value[:40]:
+        raw_url = item if isinstance(item, str) else item.get("url") if isinstance(item, dict) else None
+        if not isinstance(raw_url, str) or len(raw_url) > 2048:
+            continue
+        raw_url = raw_url.strip()
+        try:
+            parsed_url = urlparse(raw_url)
+        except ValueError:
+            continue
+        if (
+            parsed_url.scheme != "https"
+            or not parsed_url.hostname
+            or parsed_url.username
+            or parsed_url.password
+            or raw_url in seen
+        ):
+            continue
+        seen.add(raw_url)
+        urls.append(raw_url)
+    return urls
+
+
 def _build_unit_options(original_data: dict) -> list[dict]:
     raw_options = original_data.get("unit_options")
     if not isinstance(raw_options, list):
         return []
 
     options = []
-    for item in raw_options[:100]:
+    for source_order, item in enumerate(raw_options[:100]):
         if not isinstance(item, dict):
             continue
-        unit = {}
+        option = {}
+        source_kind = str(item.get("source_kind") or "").strip().lower()
         unit_number = item.get("unit_number") or item.get("unit")
         floor_plan_name = item.get("floor_plan_name") or item.get("name")
+        is_floor_plan = source_kind in {"floor_plan", "floorplan"} or (
+            not unit_number and isinstance(floor_plan_name, str) and floor_plan_name.strip()
+        )
+        if is_floor_plan:
+            source_kind = "floor_plan"
+        elif isinstance(unit_number, str) and unit_number.strip():
+            source_kind = "unit"
+        else:
+            continue
+
+        option["source_kind"] = source_kind
+        option["source_order"] = source_order
         if isinstance(unit_number, str) and unit_number.strip():
-            unit["unit_number"] = unit_number.strip()[:80]
+            cleaned_unit_number = unit_number.strip().lstrip("#")
+            if not re.fullmatch(
+                r"(?:\d{1,6}[a-z]?|[a-z]{1,3}\d{1,5}|[a-z]|[a-z]{1,4}-\d{1,5}|\d{1,4}[a-z]?-\d{1,4})",
+                cleaned_unit_number,
+                re.IGNORECASE,
+            ):
+                continue
+            option["unit_number"] = cleaned_unit_number[:80]
         if isinstance(floor_plan_name, str) and floor_plan_name.strip():
-            unit["floor_plan_name"] = floor_plan_name.strip()[:120]
+            option["floor_plan_name"] = floor_plan_name.strip()[:120]
+        building_name = item.get("building_name")
+        if isinstance(building_name, str) and building_name.strip():
+            option["building_name"] = building_name.strip()[:120]
+        for target, sources, limit in (
+            ("building_code", ("building_code",), 80),
+            ("building_source_id", ("building_source_id", "building_id"), 120),
+            ("floor_source_id", ("floor_source_id", "floor_id"), 120),
+        ):
+            value = next((item.get(key) for key in sources if item.get(key) is not None), None)
+            if isinstance(value, (str, int)) and str(value).strip():
+                option[target] = str(value).strip()[:limit]
+        source_id = item.get("source_id") or item.get("id")
+        if isinstance(source_id, (str, int)) and str(source_id).strip():
+            option["source_id"] = str(source_id).strip()[:120]
         for target, sources in {
-            "unit_floor": ("unit_floor", "floor"),
             "bedrooms": ("bedrooms", "beds"),
             "bathrooms": ("bathrooms", "baths"),
             "square_footage": ("square_footage", "sqft"),
-            "monthly_rent": ("monthly_rent", "starting_rent", "rent"),
         }.items():
             value = next((item.get(key) for key in sources if item.get(key) is not None), None)
             parsed = _positive_number(value)
             if parsed is not None:
-                unit[target] = int(parsed) if parsed.is_integer() else parsed
+                option[target] = int(parsed) if parsed.is_integer() else parsed
+
+        floor = item.get("unit_floor", item.get("floor"))
+        if source_kind == "unit" and isinstance(floor, (str, int, float)) and str(floor).strip():
+            option["unit_floor"] = str(floor).strip()[:60]
+        if source_kind == "unit":
+            photo_urls = _safe_https_photo_urls(item.get("photo_urls", item.get("photos")))
+            if photo_urls:
+                option["photo_urls"] = photo_urls
+
+        rent_value = next(
+            (item.get(key) for key in ("monthly_rent", "rent") if item.get(key) is not None),
+            None,
+        )
+        parsed_rent = _positive_number(rent_value)
+        if source_kind == "unit" and parsed_rent is not None:
+            option["monthly_rent"] = int(parsed_rent) if parsed_rent.is_integer() else parsed_rent
+
+        starting_rent = _positive_number(item.get("starting_rent"))
+        if source_kind == "floor_plan" and starting_rent is not None:
+            option["starting_rent"] = int(starting_rent) if starting_rent.is_integer() else starting_rent
+
         rent_basis = item.get("rent_basis")
         if isinstance(rent_basis, str) and rent_basis.strip():
-            unit["rent_basis"] = rent_basis.strip()[:80]
-        if unit:
-            options.append(unit)
-    return options
+            rent_basis = rent_basis.strip()
+            if re.search(r"\btotal\s+monthly\b", rent_basis, re.IGNORECASE):
+                option["rent_basis"] = "total_monthly_price"
+            elif re.search(r"\bbase\s+rent\b", rent_basis, re.IGNORECASE):
+                option["rent_basis"] = "base_rent"
+            else:
+                option["rent_basis"] = rent_basis[:80]
+        if source_kind == "floor_plan":
+            image_url = item.get("image_url") or item.get("floor_plan_image")
+            if isinstance(image_url, str) and image_url.strip():
+                parsed_url = urlparse(image_url.strip())
+                if parsed_url.scheme == "https" and parsed_url.netloc and not parsed_url.username and not parsed_url.password:
+                    option["image_url"] = image_url.strip()[:2048]
+        options.append(option)
+    deduplicated = []
+    seen_units = {}
+    seen_floor_plans = {}
+    for option in options:
+        if option["source_kind"] == "unit":
+            key = option.get("unit_number", "").casefold()
+            existing = seen_units.get(key)
+            if existing is not None:
+                for field, value in option.items():
+                    if field != "source_order" and existing.get(field) is None:
+                        existing[field] = value
+                continue
+            seen_units[key] = option
+        else:
+            key = (
+                str(option.get("floor_plan_name") or "").casefold(),
+                option.get("bedrooms"),
+                option.get("bathrooms"),
+                option.get("square_footage"),
+            )
+            existing = seen_floor_plans.get(key)
+            if existing is not None:
+                for field, value in option.items():
+                    if field != "source_order" and existing.get(field) is None:
+                        existing[field] = value
+                continue
+            seen_floor_plans[key] = option
+        deduplicated.append(option)
+    return deduplicated
+
+
+def _is_community_listing(prop, original_data: dict, unit_options: list[dict]) -> bool:
+    if str(getattr(prop, "unit_number", "") or "").strip():
+        return False
+    property_type = str(getattr(prop, "property_type", "") or "").strip().lower()
+    return (
+        _is_true(original_data.get("is_multi_unit"))
+        or (getattr(prop, "total_units", None) or 0) > 1
+        or (property_type in {"apartment", "apartments", "multi_family", "multifamily"} and bool(unit_options))
+    )
+
+
+def _community_price_info(unit_options: list[dict]) -> tuple[int | None, int | None]:
+    exact_unit_prices = [
+        option["monthly_rent"]
+        for option in unit_options
+        if option.get("source_kind") == "unit"
+        and isinstance(option.get("monthly_rent"), (int, float))
+        and 0 < option["monthly_rent"] <= 100000
+        and float(option["monthly_rent"]).is_integer()
+    ]
+    plan_starting_prices = [
+        option["starting_rent"]
+        for option in unit_options
+        if option.get("source_kind") == "floor_plan"
+        and isinstance(option.get("starting_rent"), (int, float))
+        and 0 < option["starting_rent"] <= 100000
+        and float(option["starting_rent"]).is_integer()
+    ]
+    starting_prices = exact_unit_prices + plan_starting_prices
+    return (
+        int(min(starting_prices)) if starting_prices else None,
+        int(max(exact_unit_prices)) if exact_unit_prices else None,
+    )
+
+
+def _unclassified_unit_options(original_data: dict) -> list[int]:
+    raw_options = original_data.get("unit_options")
+    if not isinstance(raw_options, list):
+        return []
+    unclassified = []
+    for index, item in enumerate(raw_options[:100]):
+        if not isinstance(item, dict):
+            continue
+        source_kind = str(item.get("source_kind") or "").strip().lower()
+        unit_number = item.get("unit_number") or item.get("unit")
+        plan_name = item.get("floor_plan_name") or item.get("name")
+        is_plan = source_kind in {"floor_plan", "floorplan"} or (
+            not unit_number and isinstance(plan_name, str) and plan_name.strip()
+        )
+        if is_plan:
+            if not isinstance(plan_name, str) or not plan_name.strip():
+                unclassified.append(index)
+        elif isinstance(unit_number, str) and re.fullmatch(
+            r"(?:\d{1,6}[a-z]?|[a-z]{1,3}\d{1,5}|[a-z]|[a-z]{1,4}-\d{1,5}|\d{1,4}[a-z]?-\d{1,4})",
+            unit_number.strip().lstrip("#"),
+            re.IGNORECASE,
+        ):
+            continue
+        else:
+            unclassified.append(index)
+    if len(raw_options) > 100:
+        unclassified.append(100)
+    return unclassified
+
+
+def _normalized_inventory_payloads(property_id: str, unit_options: list[dict]) -> tuple[list[dict], list[dict]]:
+    units = []
+    floor_plans = []
+    for option in unit_options:
+        source_order = option["source_order"]
+        source_id = str(option.get("source_id") or f"{source_order}-{option.get('unit_number') or option.get('floor_plan_name')}")[:120]
+        source_key = f"pipeline:{source_id}"
+        common = {
+            "property_id": property_id,
+            "source_order": source_order,
+            "building_name": option.get("building_name"),
+            "bedrooms": option.get("bedrooms"),
+            "bathrooms": option.get("bathrooms"),
+            "square_footage": option.get("square_footage"),
+            "rent_basis": option.get("rent_basis"),
+            "status": "active",
+            "review_status": "approved",
+        }
+        if option.get("source_kind") == "unit":
+            rent = option.get("monthly_rent")
+            if not isinstance(rent, (int, float)) or not 0 < rent <= 100000 or not float(rent).is_integer():
+                continue
+            units.append({
+                **common,
+                "unit_number": option["unit_number"],
+                "monthly_rent": int(rent),
+                "source_unit_id": source_key,
+                "unit_floor_label": option.get("unit_floor"),
+                "floor_plan_name": option.get("floor_plan_name"),
+                "unit_photos": [{"url": url} for url in _safe_https_photo_urls(option.get("photo_urls", []))],
+                "_building_source_id": option.get("building_source_id") or option.get("building_code") or option.get("building_name"),
+                "_building_code": option.get("building_code"),
+                "_floor_source_id": option.get("floor_source_id"),
+            })
+        elif option.get("source_kind") == "floor_plan":
+            rent = option.get("starting_rent")
+            if not isinstance(rent, (int, float)) or not 0 < rent <= 100000 or not float(rent).is_integer():
+                continue
+            floor_plans.append({
+                **common,
+                "source_plan_id": source_key,
+                "name": option["floor_plan_name"],
+                "starting_rent": int(rent),
+                "image_url": option.get("image_url"),
+            })
+    return units, floor_plans
+
+
+def _approved_public_unit_options(unit_options: list[dict]) -> list[dict]:
+    units, floor_plans = _normalized_inventory_payloads("pending", unit_options)
+    published = []
+    for unit in units:
+        published.append({
+            "source_kind": "unit",
+            "source_order": unit["source_order"],
+            "source_id": unit["source_unit_id"].removeprefix("pipeline:"),
+            "unit_number": unit["unit_number"],
+            "unit_floor": unit.get("unit_floor_label"),
+            "building_name": unit.get("building_name"),
+            "building_code": unit.get("_building_code"),
+            "building_source_id": unit.get("_building_source_id"),
+            "floor_source_id": unit.get("_floor_source_id"),
+            "floor_plan_name": unit.get("floor_plan_name"),
+            "bedrooms": unit.get("bedrooms"),
+            "bathrooms": unit.get("bathrooms"),
+            "square_footage": unit.get("square_footage"),
+            "monthly_rent": unit["monthly_rent"],
+            "rent_basis": unit.get("rent_basis"),
+            **({"photo_urls": [photo["url"] for photo in unit["unit_photos"]]} if unit.get("unit_photos") else {}),
+        })
+    for plan in floor_plans:
+        published.append({
+            "source_kind": "floor_plan",
+            "source_order": plan["source_order"],
+            "source_id": plan["source_plan_id"].removeprefix("pipeline:"),
+            "floor_plan_name": plan["name"],
+            "building_name": plan.get("building_name"),
+            "bedrooms": plan.get("bedrooms"),
+            "bathrooms": plan.get("bathrooms"),
+            "square_footage": plan.get("square_footage"),
+            "starting_rent": plan["starting_rent"],
+            "rent_basis": plan.get("rent_basis"),
+            "image_url": plan.get("image_url"),
+        })
+    return sorted(published, key=lambda option: option["source_order"])
+
+
+def _sync_normalized_inventory(client, property_id: str, unit_options: list[dict]) -> tuple[int, int]:
+    units, floor_plans = _normalized_inventory_payloads(property_id, unit_options)
+    try:
+        existing_units = (
+            client.table("property_units")
+            .select("*")
+            .eq("property_id", property_id)
+            .like("source_unit_id", "pipeline:%")
+            .execute()
+        ).data or []
+        existing_plans = (
+            client.table("property_floor_plans")
+            .select("*")
+            .eq("property_id", property_id)
+            .like("source_plan_id", "pipeline:%")
+            .execute()
+        ).data or []
+        existing_floors = (
+            client.table("property_floors")
+            .select("*")
+            .eq("property_id", property_id)
+            .like("source_floor_id", "pipeline:%")
+            .execute()
+        ).data or []
+        existing_buildings = (
+            client.table("property_buildings")
+            .select("*")
+            .eq("property_id", property_id)
+            .like("source_building_id", "pipeline:%")
+            .execute()
+        ).data or []
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not read the existing apartment inventory; no inventory changes were made."
+        ) from exc
+
+    buildings_by_source = {}
+    floors_by_source = {}
+    building_specs = {}
+    floor_specs = {}
+    floors = []
+    for unit in units:
+        building_name = unit.get("building_name")
+        building_code = unit.get("_building_code")
+        building_identity = unit.get("_building_source_id")
+        if not (building_name or building_code):
+            continue
+        building_name = building_name or building_code
+        building_source_id = "pipeline:" + (
+            str(building_identity).strip()[:120]
+            if building_identity
+            else hashlib.sha256(str(building_name).casefold().encode()).hexdigest()[:32]
+        )
+        unit["_building_key"] = building_source_id
+        building_specs.setdefault(building_source_id, {
+            "property_id": property_id,
+            "name": building_name,
+            "building_code": building_code,
+            "sort_order": unit["source_order"],
+            "amenities": [],
+            "metadata": {"source": "property_pipeline"},
+            "source_building_id": building_source_id,
+        })
+        building_specs[building_source_id]["sort_order"] = min(
+            building_specs[building_source_id]["sort_order"], unit["source_order"]
+        )
+        floor_label = unit.get("unit_floor_label")
+        if floor_label is None or not str(floor_label).strip():
+            continue
+        floor_identity = unit.get("_floor_source_id") or str(floor_label).casefold()
+        floor_source_id = "pipeline:" + hashlib.sha256(
+            f"{building_source_id}:{str(floor_identity).strip().casefold()}".encode()
+        ).hexdigest()[:32]
+        unit["_floor_key"] = floor_source_id
+        floor_specs.setdefault(floor_source_id, {
+            "property_id": property_id,
+            "floor_label": str(floor_label).strip()[:60],
+            "floor_code": str(floor_label).strip()[:60],
+            "sort_order": unit["source_order"],
+            "metadata": {"source": "property_pipeline"},
+            "source_floor_id": floor_source_id,
+        })
+        floor_specs[floor_source_id]["sort_order"] = min(
+            floor_specs[floor_source_id]["sort_order"], unit["source_order"]
+        )
+
+    try:
+        for row in building_specs.values():
+            saved = next((item for item in existing_buildings if item.get("source_building_id") == row["source_building_id"]), None)
+            if saved and saved.get("id"):
+                row["id"] = saved["id"]
+        if building_specs:
+            response = client.table("property_buildings").upsert(
+                list(building_specs.values()), on_conflict="property_id,source_building_id"
+            ).select("id,source_building_id").execute()
+            buildings_by_source = {
+                row["source_building_id"]: row["id"]
+                for row in (response.data or [])
+                if row.get("source_building_id") and row.get("id")
+            }
+            if len(buildings_by_source) != len(building_specs):
+                raise RuntimeError("Building upsert did not return every building ID.")
+
+        for source_id, row in floor_specs.items():
+            unit = next(unit for unit in units if unit.get("_floor_key") == source_id)
+            building_id = buildings_by_source.get(unit.get("_building_key"))
+            if not building_id:
+                continue
+            row["building_id"] = building_id
+            saved = next((item for item in existing_floors if item.get("source_floor_id") == source_id), None)
+            if saved and saved.get("id"):
+                row["id"] = saved["id"]
+            floors.append(row)
+        if floors:
+            response = client.table("property_floors").upsert(
+                floors, on_conflict="property_id,source_floor_id"
+            ).select("id,source_floor_id").execute()
+            floors_by_source = {
+                row["source_floor_id"]: row["id"]
+                for row in (response.data or [])
+                if row.get("source_floor_id") and row.get("id")
+            }
+            if len(floors_by_source) != len(floors):
+                raise RuntimeError("Floor upsert did not return every floor ID.")
+
+        for unit in units:
+            building_key = unit.pop("_building_key", None)
+            floor_key = unit.pop("_floor_key", None)
+            unit.pop("_building_source_id", None)
+            unit.pop("_building_code", None)
+            unit.pop("_floor_source_id", None)
+            unit["building_id"] = buildings_by_source.get(building_key)
+            unit["floor_id"] = floors_by_source.get(floor_key)
+            saved = next((item for item in existing_units if item.get("source_unit_id") == unit["source_unit_id"]), None)
+            if saved and saved.get("id"):
+                unit["id"] = saved["id"]
+        if units:
+            client.table("property_units").upsert(
+                units, on_conflict="property_id,source_unit_id"
+            ).execute()
+        if floor_plans:
+            client.table("property_floor_plans").upsert(
+                floor_plans, on_conflict="property_id,source_plan_id"
+            ).execute()
+        unit_ids = {row["source_unit_id"] for row in units}
+        plan_ids = {row["source_plan_id"] for row in floor_plans}
+        for row in existing_units:
+            if row.get("source_unit_id") not in unit_ids:
+                client.table("property_units").update({
+                    "status": "inactive",
+                    "review_status": "pending",
+                    "building_id": None,
+                    "floor_id": None,
+                }).eq("property_id", property_id).eq("source_unit_id", row["source_unit_id"]).execute()
+        for row in existing_plans:
+            if row.get("source_plan_id") not in plan_ids:
+                client.table("property_floor_plans").update({
+                    "status": "inactive",
+                    "review_status": "pending",
+                }).eq("property_id", property_id).eq("source_plan_id", row["source_plan_id"]).execute()
+        active_floor_ids = set(floors_by_source)
+        active_building_ids = set(buildings_by_source)
+        for row in existing_floors:
+            if row.get("source_floor_id") not in active_floor_ids:
+                client.table("property_floors").delete().eq("property_id", property_id).eq(
+                    "source_floor_id", row["source_floor_id"]
+                ).execute()
+        for row in existing_buildings:
+            if row.get("source_building_id") not in active_building_ids:
+                client.table("property_buildings").delete().eq("property_id", property_id).eq(
+                    "source_building_id", row["source_building_id"]
+                ).execute()
+    except Exception as exc:
+        rollback_errors = []
+        old_unit_ids = {row.get("source_unit_id") for row in existing_units}
+        old_plan_ids = {row.get("source_plan_id") for row in existing_plans}
+        old_floor_ids = {row.get("source_floor_id") for row in existing_floors}
+        old_building_ids = {row.get("source_building_id") for row in existing_buildings}
+        for table, source_column, rows, old_ids in (
+            ("property_units", "source_unit_id", units, old_unit_ids),
+            ("property_floor_plans", "source_plan_id", floor_plans, old_plan_ids),
+        ):
+            try:
+                for row in rows:
+                    source_id = row.get(source_column)
+                    if source_id and source_id not in old_ids:
+                        client.table(table).delete().eq("property_id", property_id).eq(
+                            source_column, source_id
+                        ).execute()
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{table} cleanup: {rollback_exc}")
+        for table, rows, conflict in (
+            ("property_buildings", existing_buildings, "property_id,source_building_id"),
+            ("property_floors", existing_floors, "property_id,source_floor_id"),
+            ("property_units", existing_units, "property_id,source_unit_id"),
+            ("property_floor_plans", existing_plans, "property_id,source_plan_id"),
+        ):
+            try:
+                if rows:
+                    client.table(table).upsert(rows, on_conflict=conflict).execute()
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{table}: {rollback_exc}")
+        for table, rows, old_ids, source_column in (
+            ("property_floors", floors, old_floor_ids, "source_floor_id"),
+            ("property_buildings", list(building_specs.values()), old_building_ids, "source_building_id"),
+        ):
+            try:
+                for row in rows:
+                    source_id = row.get(source_column)
+                    if source_id and source_id not in old_ids:
+                        client.table(table).delete().eq("property_id", property_id).eq(
+                            source_column, source_id
+                        ).execute()
+            except Exception as rollback_exc:
+                rollback_errors.append(f"{table} cleanup: {rollback_exc}")
+        if rollback_errors:
+            logger.error(
+                "Inventory sync failed for %s and compensation was incomplete: %s",
+                property_id,
+                "; ".join(rollback_errors),
+            )
+            raise RuntimeError(
+                "Could not synchronize apartment inventory, and restoring the previous inventory "
+                "also failed. Manual recovery is required."
+            ) from exc
+        raise RuntimeError(
+            "Could not synchronize normalized apartment inventory; the previous inventory was restored. "
+            "Apply the apartment inventory migration and retry."
+        ) from exc
+    return len(units), len(floor_plans)
 
 
 def _build_floor_plan_media(original_data: dict) -> list[dict]:
@@ -478,14 +984,13 @@ def _build_supabase_record(
 
     original_data = _parse_object(getattr(prop, "original_data", None))
     unit_options = _build_unit_options(original_data)
+    is_community = _is_community_listing(prop, original_data, unit_options)
+    community_starting_rent, community_max_rent = _community_price_info(unit_options)
     source_description = _clean_description(prop.description)
     source_original_description = _clean_description(
         getattr(prop, "original_description", None) or prop.description
     )
-    is_multi_unit = _is_true(original_data.get("is_multi_unit")) or bool(
-        (prop.total_units or 0) > 1
-        or unit_options
-    )
+    is_multi_unit = is_community
     building_name = _metadata_text(original_data.get("building_name"), 160)
     price_range = _metadata_text(original_data.get("price_range"), 120)
     unit_floor = _positive_number(original_data.get("unit_floor"))
@@ -528,19 +1033,22 @@ def _build_supabase_record(
         "building_name":        building_name,
         "is_multi_unit":        is_multi_unit,
         "price_range":          price_range,
-        "unit_options":         unit_options,
+        "unit_options":         _approved_public_unit_options(unit_options),
         "unit_floor":           unit_floor,
-        "bedrooms":             prop.bedrooms,
-        "bathrooms":            prop.bathrooms,
-        "half_bathrooms":       prop.half_bathrooms,
-        "total_bathrooms":      prop.total_bathrooms,
-        "square_footage":       prop.square_footage,
+        "bedrooms":             None if is_community else prop.bedrooms,
+        "bathrooms":            None if is_community else prop.bathrooms,
+        "half_bathrooms":       None if is_community else prop.half_bathrooms,
+        "total_bathrooms":      None if is_community else prop.total_bathrooms,
+        "square_footage":       None if is_community else prop.square_footage,
         "lot_size_sqft":        prop.lot_size_sqft,
         "garage_spaces":        prop.garage_spaces,
         "has_basement":         prop.has_basement,
         "has_central_air":      prop.has_central_air,
-        "monthly_rent":         prop.monthly_rent,
-        "security_deposit":     prop.monthly_rent,
+        "monthly_rent":         community_starting_rent if is_community else prop.monthly_rent,
+        "security_deposit":     community_starting_rent if is_community else prop.monthly_rent,
+        "community_starting_rent": community_starting_rent if is_community else None,
+        "community_max_rent":   community_max_rent if is_community else None,
+        "community_rent_basis": _metadata_text(original_data.get("rent_basis"), 80) if is_community else None,
         "last_months_rent":     prop.last_months_rent,
         "application_fee":      50,
         "pet_deposit":          None,
@@ -583,6 +1091,14 @@ def _build_supabase_record(
         for key, value in record.items()
         if value is not None or key in EXPLICIT_NULL_FIELDS
     }
+    if is_community:
+        result.update({
+            "bedrooms": None,
+            "bathrooms": None,
+            "half_bathrooms": None,
+            "total_bathrooms": None,
+            "square_footage": None,
+        })
     if not result.get("unit_options"):
         result.pop("unit_options", None)
     return result
@@ -639,7 +1155,7 @@ def refresh_images(prop, repo) -> dict:
     }
 
 
-def sync_fields(prop, repo) -> dict:
+def sync_fields(prop, repo, inventory_reviewed: bool = False) -> dict:
     if not prop.choice_property_id:
         raise ValueError("Property has not been published yet.")
 
@@ -662,6 +1178,16 @@ def sync_fields(prop, repo) -> dict:
 
     original_data = _parse_object(getattr(prop, "original_data", None))
     unit_options = _build_unit_options(original_data)
+    is_community = _is_community_listing(prop, original_data, unit_options)
+    community_starting_rent, community_max_rent = _community_price_info(unit_options)
+    inventory_review_required = bool(unit_options) or _is_true(original_data.get("is_multi_unit"))
+    if inventory_review_required and inventory_reviewed is not True:
+        raise ValueError("Review and confirm apartment unit/plan inventory before syncing fields.")
+    unclassified = _unclassified_unit_options(original_data)
+    if unclassified:
+        raise ValueError("Apartment inventory contains unclassified or invalid option records.")
+    if is_community and community_starting_rent is None:
+        raise ValueError("Community inventory needs a verified unit rent or floor-plan starting rent.")
 
     update_payload = {
         "title":                _standard_title(prop),
@@ -683,21 +1209,24 @@ def sync_fields(prop, repo) -> dict:
         "unit_number":          prop.unit_number,
         "total_units":          prop.total_units,
         "building_name":        _metadata_text(original_data.get("building_name"), 160),
-        "is_multi_unit":        _is_true(original_data.get("is_multi_unit")) or (prop.total_units or 0) > 1 or bool(unit_options),
+        "is_multi_unit":        is_community,
         "price_range":          _metadata_text(original_data.get("price_range"), 120),
-        "unit_options":         unit_options,
+        "unit_options":         _approved_public_unit_options(unit_options),
         "unit_floor":           _positive_number(original_data.get("unit_floor")),
-        "bedrooms":             prop.bedrooms,
-        "bathrooms":            prop.bathrooms,
-        "half_bathrooms":       prop.half_bathrooms,
-        "total_bathrooms":      prop.total_bathrooms,
-        "square_footage":       prop.square_footage,
+        "bedrooms":             None if is_community else prop.bedrooms,
+        "bathrooms":            None if is_community else prop.bathrooms,
+        "half_bathrooms":       None if is_community else prop.half_bathrooms,
+        "total_bathrooms":      None if is_community else prop.total_bathrooms,
+        "square_footage":       None if is_community else prop.square_footage,
         "lot_size_sqft":        prop.lot_size_sqft,
         "garage_spaces":        prop.garage_spaces,
         "has_basement":         prop.has_basement,
         "has_central_air":      prop.has_central_air,
-        "monthly_rent":         prop.monthly_rent,
-        "security_deposit":     prop.monthly_rent,
+        "monthly_rent":         community_starting_rent if is_community else prop.monthly_rent,
+        "security_deposit":     community_starting_rent if is_community else prop.monthly_rent,
+        "community_starting_rent": community_starting_rent if is_community else None,
+        "community_max_rent":   community_max_rent if is_community else None,
+        "community_rent_basis": _metadata_text(original_data.get("rent_basis"), 80) if is_community else None,
         "last_months_rent":     prop.last_months_rent,
         "application_fee":      50,
         "pet_deposit":          None,
@@ -734,7 +1263,7 @@ def sync_fields(prop, repo) -> dict:
         for key, value in update_payload.items()
         if value is not None or key in EXPLICIT_NULL_FIELDS
     }
-    update_payload["security_deposit"] = prop.monthly_rent
+    update_payload["security_deposit"] = community_starting_rent if is_community else prop.monthly_rent
     update_payload["application_fee"] = 50
     update_payload["available_date"] = None
     update_payload["lease_terms"] = None
@@ -749,6 +1278,25 @@ def sync_fields(prop, repo) -> dict:
     update_payload["move_in_special"] = None
     update_payload["virtual_tour_url"] = None
 
+    previous_property = None
+    if inventory_review_required:
+        try:
+            previous_property = (
+                client.table("properties")
+                .select("*")
+                .eq("id", prop.choice_property_id)
+                .maybe_single()
+                .execute()
+            ).data
+        except Exception as exc:
+            raise RuntimeError(
+                "Could not read the current property before syncing reviewed inventory."
+            ) from exc
+        if not previous_property:
+            raise RuntimeError(
+                "Property was not found; apartment inventory was not synchronized."
+            )
+
     result = (
         client.table("properties")
         .update(update_payload)
@@ -760,6 +1308,34 @@ def sync_fields(prop, repo) -> dict:
         raise RuntimeError(
             "Supabase update returned no data. Record may not exist or permissions insufficient."
         )
+
+    if inventory_review_required:
+        try:
+            _sync_normalized_inventory(client, prop.choice_property_id, unit_options)
+        except Exception as inventory_exc:
+            restore_payload = {
+                key: previous_property.get(key)
+                for key in update_payload
+            }
+            try:
+                (
+                    client.table("properties")
+                    .update(restore_payload)
+                    .eq("id", prop.choice_property_id)
+                    .execute()
+                )
+            except Exception as restore_exc:
+                logger.exception(
+                    "Could not restore property fields after inventory sync failure for %s",
+                    prop.choice_property_id,
+                )
+                raise RuntimeError(
+                    "Apartment inventory sync failed and restoring the previous property fields also failed. "
+                    "Manual recovery is required."
+                ) from restore_exc
+            raise RuntimeError(
+                f"Apartment inventory sync failed; previous property fields were restored: {inventory_exc}"
+            ) from inventory_exc
 
     logger.info("Fields synced for property %s → %s", prop.id, prop.choice_property_id)
     return {
@@ -832,16 +1408,29 @@ BLOCKING_RULES = [
 
 def pre_publish_checks(prop) -> list[str]:
     errors = []
+    original_data = _parse_object(getattr(prop, "original_data", None))
+    unit_options = _build_unit_options(original_data)
+    is_community = _is_community_listing(prop, original_data, unit_options)
+    community_starting_rent, _ = _community_price_info(unit_options)
     for name, check, message in BLOCKING_RULES:
+        if is_community and name in {"rent", "bedrooms", "bathrooms"}:
+            continue
         try:
             if not check(prop):
                 errors.append(message)
         except Exception as e:
             errors.append(f"Check '{name}' failed unexpectedly: {e}")
+    if is_community and community_starting_rent is None:
+        errors.append("Community inventory needs a verified unit rent or floor-plan starting rent")
     return errors
 
 
-def publish(prop, repo, listing_status: str = "private_placement") -> dict:
+def publish(
+    prop,
+    repo,
+    listing_status: str = "private_placement",
+    inventory_reviewed: bool = False,
+) -> dict:
     if not isinstance(listing_status, str) or listing_status not in {"private_placement", "active"}:
         raise ValueError("Listing visibility must be private_placement or active")
     if prop.choice_property_id:
@@ -852,6 +1441,22 @@ def publish(prop, repo, listing_status: str = "private_placement") -> dict:
     blocking_errors = pre_publish_checks(prop)
     if blocking_errors:
         raise ValueError("Cannot publish — failing checks:\n• " + "\n• ".join(blocking_errors))
+
+    original_data = _parse_object(getattr(prop, "original_data", None))
+    unit_options = _build_unit_options(original_data)
+    is_community = _is_community_listing(prop, original_data, unit_options)
+    community_starting_rent, _ = _community_price_info(unit_options)
+    unclassified = _unclassified_unit_options(original_data)
+    if unclassified:
+        raise ValueError(
+            "Apartment inventory has unclassified or invalid option records at positions "
+            + ", ".join(str(index + 1) for index in unclassified[:10])
+            + ". Correct or remove them before publishing."
+        )
+    if is_community and community_starting_rent is None:
+        raise ValueError("Community publication requires a verified unit rent or floor-plan starting rent.")
+    if (unit_options or is_community) and inventory_reviewed is not True:
+        raise ValueError("Review and confirm apartment unit/plan inventory before publishing.")
 
     image_results = _parse_photo_urls(prop.original_image_urls)
     if not image_results:
@@ -944,9 +1549,14 @@ def publish(prop, repo, listing_status: str = "private_placement") -> dict:
                 len(photos_payload), choice_property_id
             )
         except Exception as photo_exc:
-            _rollback_published_record(client, choice_property_id)
+            rollback_errors = _rollback_published_record(client, choice_property_id)
+            rollback_message = (
+                "Publication was rolled back."
+                if not rollback_errors
+                else f"Rollback incomplete; manual recovery is required ({'; '.join(rollback_errors)})."
+            )
             raise RuntimeError(
-                f"Photo insertion failed for {choice_property_id}; publication was rolled back."
+                f"Photo insertion failed for {choice_property_id}; {rollback_message}"
             ) from photo_exc
 
     floor_plan_media = _build_floor_plan_media(_parse_object(getattr(prop, "original_data", None)))
@@ -958,10 +1568,35 @@ def publish(prop, repo, listing_status: str = "private_placement") -> dict:
         try:
             client.table("property_media").insert(media_payload).execute()
         except Exception as media_exc:
-            _rollback_published_record(client, choice_property_id)
+            rollback_errors = _rollback_published_record(client, choice_property_id)
+            rollback_message = (
+                "Publication was rolled back."
+                if not rollback_errors
+                else f"Rollback incomplete; manual recovery is required ({'; '.join(rollback_errors)})."
+            )
             raise RuntimeError(
-                f"Floor-plan media insertion failed for {choice_property_id}; publication was rolled back."
+                f"Floor-plan media insertion failed for {choice_property_id}; {rollback_message}"
             ) from media_exc
+
+    unit_payload, floor_plan_payload = _normalized_inventory_payloads(
+        str(choice_property_id), unit_options
+    )
+    try:
+        if unit_payload:
+            client.table("property_units").insert(unit_payload).execute()
+        if floor_plan_payload:
+            client.table("property_floor_plans").insert(floor_plan_payload).execute()
+    except Exception as inventory_exc:
+        rollback_errors = _rollback_published_record(client, choice_property_id)
+        rollback_message = (
+            "Publication was rolled back."
+            if not rollback_errors
+            else f"Rollback incomplete; manual recovery is required ({'; '.join(rollback_errors)})."
+        )
+        raise RuntimeError(
+            f"Apartment inventory insertion failed for {choice_property_id}; {rollback_message} "
+            "Apply the apartment inventory migration before publishing unit options."
+        ) from inventory_exc
 
     repo.delete(prop.id)
 
@@ -975,14 +1610,19 @@ def publish(prop, repo, listing_status: str = "private_placement") -> dict:
         "listing_status":     listing_status,
         "photo_count":        len(image_results),
         "floor_plan_count":   len(floor_plan_media),
+        "unit_count":         len(unit_payload),
+        "floor_plan_layout_count": len(floor_plan_payload),
         "message":            "Private placement created" if listing_status == "private_placement" else "Published publicly",
         "was_duplicate":     False,
     }
 
 
-def _rollback_published_record(client, property_id: str) -> None:
-    for table in ("property_media", "property_photos", "properties"):
+def _rollback_published_record(client, property_id: str) -> list[str]:
+    errors = []
+    for table in ("property_floor_plans", "property_units", "property_media", "property_photos", "properties"):
         try:
             client.table(table).delete().eq("property_id" if table != "properties" else "id", property_id).execute()
-        except Exception:
+        except Exception as exc:
             logger.exception("Could not roll back %s for incomplete publication %s", table, property_id)
+            errors.append(f"{table}: {exc}")
+    return errors

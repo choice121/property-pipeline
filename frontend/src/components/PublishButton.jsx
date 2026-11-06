@@ -45,6 +45,58 @@ function parseArray(value) {
   }
 }
 
+function parseObject(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) return value
+  try {
+    const parsed = JSON.parse(value || '{}')
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function getApartmentInventory(property) {
+  const original = parseObject(property.original_data)
+  const options = Array.isArray(original.unit_options) ? original.unit_options : []
+  const unitPattern = /^(?:\d{1,6}[a-z]?|[a-z]{1,3}\d{1,5}|[a-z]|[a-z]{1,4}-\d{1,5}|\d{1,4}[a-z]?-\d{1,4})$/i
+  const rows = options.slice(0, 100).map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return { index, label: 'Invalid option', details: '', valid: false }
+    }
+    const kind = String(item.source_kind || '').trim().toLowerCase()
+    const unitNumber = String(item.unit_number || item.unit || '').trim().replace(/^#/, '')
+    const planName = String(item.floor_plan_name || item.name || '').trim()
+    const isPlan = ['floor_plan', 'floorplan'].includes(kind) || (!unitNumber && !!planName)
+    if (isPlan && planName) {
+      const rent = Number(item.starting_rent)
+      const price = Number.isFinite(rent) && rent > 0 ? `From $${rent.toLocaleString()}/mo` : 'Starting rent not listed'
+      return { index, label: planName, details: `Floor plan · ${price}`, valid: true }
+    }
+    if (!isPlan && unitNumber && unitPattern.test(unitNumber)) {
+      const rent = Number(item.monthly_rent ?? item.rent)
+      const price = Number.isFinite(rent) && rent > 0 ? `$${rent.toLocaleString()}/mo` : 'Exact rent not listed'
+      const building = item.building_name ? ` · ${item.building_name}` : ''
+      const floor = item.unit_floor != null ? ` · Floor ${item.unit_floor}` : ''
+      return { index, label: `Unit ${unitNumber}`, details: `${price}${building}${floor}`, valid: true }
+    }
+    return { index, label: 'Unclassified option', details: 'Fix or remove this record before publishing.', valid: false }
+  })
+  if (options.length > 100) {
+    rows.push({ index: 100, label: 'Too many options', details: 'Maximum is 100; remove extra records.', valid: false })
+  }
+  const isCommunity = !property.unit_number && (
+    property.is_multi_unit === true ||
+    Number(property.total_units) > 1 ||
+    String(property.property_type || '').toLowerCase().includes('apartment')
+  )
+  return {
+    rows,
+    required: rows.length > 0 || isCommunity,
+    invalidCount: rows.filter(row => !row.valid).length,
+    isCommunity,
+  }
+}
+
 const LISTING_STATUS_OPTIONS = [
   { value: 'private_placement', label: 'Private placement', color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
   { value: 'active',   label: 'Active',   color: 'text-green-700 bg-green-50 border-green-200' },
@@ -93,6 +145,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   const [refreshDone, setRefreshDone] = useState(false)
   const [statusDone, setStatusDone] = useState(false)
   const [makePublic, setMakePublic] = useState(false)
+  const [inventoryReviewed, setInventoryReviewed] = useState(false)
 
   const [gateChecking, setGateChecking] = useState(false)
   const [gateIssues, setGateIssues] = useState(null)
@@ -101,6 +154,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
 
   const missingFields = parseArray(property.missing_fields)
   const qualityScore = property.data_quality_score
+  const apartmentInventory = getApartmentInventory(property)
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['properties'] })
@@ -108,20 +162,22 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   }
 
   const publishMutation = useMutation({
-    mutationFn: () => publishProperty(property.id, makePublic ? 'active' : 'private_placement').then((r) => r.data),
+    mutationFn: () => publishProperty(property.id, makePublic ? 'active' : 'private_placement', inventoryReviewed).then((r) => r.data),
     onSuccess: (data) => {
       setConfirming(false)
       setGateIssues(null)
       setGateOverride(false)
+      setInventoryReviewed(false)
       invalidate()
       if (onPublished) onPublished(data)
     },
   })
 
   const syncMutation = useMutation({
-    mutationFn: () => syncFields(property.id).then((r) => r.data),
+    mutationFn: () => syncFields(property.id, inventoryReviewed).then((r) => r.data),
     onSuccess: () => {
       setSyncDone(true)
+      setInventoryReviewed(false)
       invalidate()
       if (onSynced) onSynced()
       setTimeout(() => setSyncDone(false), 3000)
@@ -139,6 +195,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   })
 
   async function handlePublishClick() {
+    setInventoryReviewed(false)
     setGateChecking(true)
     setGateIssues(null)
     setGateOverride(false)
@@ -180,12 +237,28 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
     return (
       <div className="flex flex-col gap-2 w-full">
         {savedAfterPublish && (
-          <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex flex-col gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
             <p className="text-xs font-medium text-amber-800">Changes saved — push them to the live site</p>
+            {apartmentInventory.required && apartmentInventory.rows.length > 0 && apartmentInventory.invalidCount === 0 && (
+              <label className="flex items-start gap-2 text-xs text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={inventoryReviewed}
+                  onChange={(event) => setInventoryReviewed(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I re-reviewed the apartment units, floor plans, prices, labels, and source order.</span>
+              </label>
+            )}
             <button
               onClick={() => syncMutation.mutate()}
-              disabled={syncMutation.isPending}
-              className="text-xs font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+              disabled={syncMutation.isPending ||
+                (apartmentInventory.required && (
+                  apartmentInventory.rows.length === 0 ||
+                  apartmentInventory.invalidCount > 0 ||
+                  !inventoryReviewed
+                ))}
+              className="self-start text-xs font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
             >
               {syncMutation.isPending ? 'Syncing…' : 'Sync Now'}
             </button>
@@ -384,6 +457,38 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
             Make this listing public now. It will appear in public browse and search.
           </span>
         </label>
+        {apartmentInventory.required && (
+          <div className="rounded-md border border-indigo-200 bg-indigo-50 p-3">
+            <p className="mb-2 text-xs font-semibold text-indigo-900">Apartment inventory review</p>
+            {apartmentInventory.rows.length > 0 ? (
+              <ul className="mb-3 max-h-40 space-y-1 overflow-y-auto text-xs text-indigo-900">
+                {apartmentInventory.rows.map((row) => (
+                  <li key={row.index} className={row.valid ? '' : 'font-semibold text-red-700'}>
+                    {row.label} <span className="font-normal text-indigo-700">— {row.details}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mb-3 text-xs text-red-700">No unit or floor-plan inventory was captured. Add and verify inventory before publishing this community.</p>
+            )}
+            {apartmentInventory.invalidCount > 0 && (
+              <p className="mb-2 text-xs font-semibold text-red-700">
+                Correct or remove {apartmentInventory.invalidCount} unclassified option{apartmentInventory.invalidCount === 1 ? '' : 's'} before publishing.
+              </p>
+            )}
+            {apartmentInventory.invalidCount === 0 && apartmentInventory.rows.length > 0 && (
+              <label className="flex items-start gap-2 text-xs text-indigo-900">
+                <input
+                  type="checkbox"
+                  checked={inventoryReviewed}
+                  onChange={(event) => setInventoryReviewed(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>I verified each unit versus floor-plan record, exact versus starting rent, building/floor labels, and source order.</span>
+              </label>
+            )}
+          </div>
+        )}
         {duplicateWarning && duplicateWarning.length > 0 && (
           <div className="text-xs bg-orange-50 border border-orange-200 rounded-md px-3 py-2 space-y-1">
             <p className="font-semibold text-orange-800">⚠ Possible duplicate listing detected</p>
@@ -406,7 +511,12 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
         <div className="flex gap-2">
           <button
             onClick={() => publishMutation.mutate()}
-            disabled={publishMutation.isPending}
+            disabled={publishMutation.isPending ||
+              (apartmentInventory.required && (
+                apartmentInventory.rows.length === 0 ||
+                apartmentInventory.invalidCount > 0 ||
+                !inventoryReviewed
+              ))}
             className="bg-green-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
             {publishMutation.isPending ? 'Publishing…' : makePublic ? 'Publish Publicly' : 'Create Private Placement'}

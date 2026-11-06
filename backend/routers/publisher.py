@@ -92,7 +92,13 @@ def publish_property(id: str, body: dict = None, repo: Repository = Depends(get_
 
     try:
         listing_status = (body or {}).get("status", "private_placement")
-        result = publisher_service.publish(prop, repo, listing_status=listing_status)
+        inventory_reviewed = (body or {}).get("inventory_reviewed") is True
+        result = publisher_service.publish(
+            prop,
+            repo,
+            listing_status=listing_status,
+            inventory_reviewed=inventory_reviewed,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -137,7 +143,7 @@ def refresh_published_images(id: str, repo: Repository = Depends(get_db)):
 
 
 @router.post("/publish/{id}/sync-fields")
-def sync_published_fields(id: str, repo: Repository = Depends(get_db)):
+def sync_published_fields(id: str, body: dict = None, repo: Repository = Depends(get_db)):
     prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -146,7 +152,8 @@ def sync_published_fields(id: str, repo: Repository = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Property has not been published yet")
 
     try:
-        result = publisher_service.sync_fields(prop, repo)
+        inventory_reviewed = (body or {}).get("inventory_reviewed") is True
+        result = publisher_service.sync_fields(prop, repo, inventory_reviewed=inventory_reviewed)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

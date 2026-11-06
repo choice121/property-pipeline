@@ -75,9 +75,19 @@ def _property(**overrides):
                     "bathrooms": 1.5,
                     "square_footage": 900,
                     "monthly_rent": 1800,
+                    "photo_urls": ["https://cdn.example.com/unit-A101.jpg", "javascript:alert(1)"],
                     "available_date": "2026-11-15",
                     "pet_policy": "Cats allowed",
-                }
+                },
+                {
+                    "source_kind": "floor_plan",
+                    "floor_plan_name": "The Oak",
+                    "bedrooms": 1,
+                    "bathrooms": 1,
+                    "square_footage": 700,
+                    "starting_rent": 1450,
+                    "rent_basis": "base_rent",
+                },
             ],
             "media": [
                 {
@@ -128,7 +138,7 @@ def test_publish_record_keeps_multifamily_type_and_sanitized_unit_inventory(monk
     assert record["property_type"] == "apartment"
     assert record["status"] == "private_placement"
     assert record["application_fee"] == 50
-    assert record["security_deposit"] == 1800
+    assert record["security_deposit"] == 1450
     assert record["pets_allowed"] is None
     assert record["pet_types_allowed"] is None
     assert record["smoking_allowed"] is None
@@ -139,16 +149,75 @@ def test_publish_record_keeps_multifamily_type_and_sanitized_unit_inventory(monk
     )
     assert "$1,650 per month" in record["description"]
     assert "unit_options" in record
-    assert record["unit_options"] == [{
-        "unit_number": "A101",
-        "unit_floor": 1,
-        "bedrooms": 2,
-        "bathrooms": 1.5,
-        "square_footage": 900,
-        "monthly_rent": 1800,
-    }]
+    assert record["unit_options"] == [
+        {
+            "source_kind": "unit",
+            "source_order": 0,
+            "source_id": "0-A101",
+            "unit_number": "A101",
+            "unit_floor": "1",
+            "building_name": None,
+            "floor_plan_name": None,
+            "bedrooms": 2,
+            "bathrooms": 1.5,
+            "square_footage": 900,
+            "monthly_rent": 1800,
+            "rent_basis": None,
+            "photo_urls": ["https://cdn.example.com/unit-A101.jpg"],
+        },
+        {
+            "source_kind": "floor_plan",
+            "source_order": 1,
+            "source_id": "1-The Oak",
+            "floor_plan_name": "The Oak",
+            "building_name": None,
+            "bedrooms": 1,
+            "bathrooms": 1,
+            "square_footage": 700,
+            "starting_rent": 1450,
+            "rent_basis": "base_rent",
+            "image_url": None,
+        },
+    ]
     assert record["building_name"] == "Main Street Apartments"
     assert record["is_multi_unit"] is True
+
+
+def test_unit_option_normalization_does_not_promote_starting_rent_or_unclassified_rows():
+    options = publisher_service._build_unit_options({
+        "unit_options": [
+            {"source_kind": "unit", "unit_number": "B204", "starting_rent": 1600, "building_name": "North Tower"},
+            {
+                "source_kind": "unit",
+                "unit_number": "B204",
+                "monthly_rent": 1600,
+                "unit_floor": "2",
+                "photos": ["https://cdn.example.com/b204.jpg", "javascript:alert(1)"],
+            },
+            {"source_kind": "floor_plan", "floor_plan_name": "Studio", "starting_rent": 1200, "image_url": "https://cdn.example.com/studio.jpg"},
+            {"source_kind": "unit", "unit_number": "Apartment 2B", "monthly_rent": 1400},
+            {"bedrooms": 2, "bathrooms": 1, "square_footage": 900},
+        ],
+    })
+
+    assert options == [
+        {
+            "source_kind": "unit",
+            "source_order": 0,
+            "unit_number": "B204",
+            "building_name": "North Tower",
+            "monthly_rent": 1600,
+            "unit_floor": "2",
+            "photo_urls": ["https://cdn.example.com/b204.jpg"],
+        },
+        {
+            "source_kind": "floor_plan",
+            "source_order": 2,
+            "floor_plan_name": "Studio",
+            "starting_rent": 1200,
+            "image_url": "https://cdn.example.com/studio.jpg",
+        },
+    ]
 
 
 def test_publisher_prefers_original_cdn_photo_order_and_publishes_floor_plan_media(monkeypatch):
@@ -192,7 +261,7 @@ def test_publisher_prefers_original_cdn_photo_order_and_publishes_floor_plan_med
         lambda *_: pytest.fail("original CDN photos must not be re-uploaded"),
     )
 
-    result = publisher_service.publish(_property(), repo)
+    result = publisher_service.publish(_property(), repo, inventory_reviewed=True)
 
     assert result["listing_status"] == "private_placement"
     assert result["photo_count"] == 2
@@ -207,6 +276,11 @@ def test_publisher_prefers_original_cdn_photo_order_and_publishes_floor_plan_med
     assert photos[0]["display_order"] == 1
     assert client.inserted["property_media"][0]["kind"] == "floor_plan"
     assert client.inserted["property_media"][0]["url"] == "https://cdn.example.com/plan.jpg"
+    assert client.inserted["property_units"][0]["monthly_rent"] == 1800
+    assert client.inserted["property_units"][0]["photo_urls"] == ["https://cdn.example.com/unit-A101.jpg"]
+    assert client.inserted["property_units"][0]["review_status"] == "approved"
+    assert client.inserted["property_floor_plans"][0]["starting_rent"] == 1450
+    assert client.inserted["property_floor_plans"][0]["review_status"] == "approved"
 
 
 def test_public_visibility_requires_explicit_status(monkeypatch):
@@ -218,3 +292,8 @@ def test_public_visibility_requires_explicit_status(monkeypatch):
     assert public["status"] == "active"
     with pytest.raises(ValueError, match="visibility"):
         publisher_service.publish(_property(), object(), listing_status=["active"])
+
+
+def test_publisher_requires_inventory_review_before_apartment_publication():
+    with pytest.raises(ValueError, match="Review and confirm apartment"):
+        publisher_service.publish(_property(), object())
