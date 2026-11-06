@@ -26,7 +26,7 @@ _bulk_state = {
 _bulk_lock = threading.Lock()
 
 
-def _bulk_publish_worker(ids: list[str]):
+def _bulk_publish_worker(ids: list[str], listing_status: str = "private_placement"):
     global _bulk_state
     with _bulk_lock:
         _bulk_state.update({
@@ -37,6 +37,7 @@ def _bulk_publish_worker(ids: list[str]):
             "skipped": 0,
             "current": None,
             "errors": [],
+            "listing_status": listing_status,
             "started_at": time.time(),
             "finished_at": None,
         })
@@ -61,7 +62,7 @@ def _bulk_publish_worker(ids: list[str]):
                     _bulk_state["skipped"] += 1
                 continue
 
-            publisher_service.publish(prop, repo)
+            publisher_service.publish(prop, repo, listing_status=listing_status)
             with _bulk_lock:
                 _bulk_state["done"] += 1
 
@@ -78,7 +79,7 @@ def _bulk_publish_worker(ids: list[str]):
 
 
 @router.post("/publish/{id}")
-def publish_property(id: str, repo: Repository = Depends(get_db)):
+def publish_property(id: str, body: dict = None, repo: Repository = Depends(get_db)):
     prop = repo.get(id)
     if not prop:
         raise HTTPException(status_code=404, detail="Property not found")
@@ -90,7 +91,8 @@ def publish_property(id: str, repo: Repository = Depends(get_db)):
         )
 
     try:
-        result = publisher_service.publish(prop, repo)
+        listing_status = (body or {}).get("status", "private_placement")
+        result = publisher_service.publish(prop, repo, listing_status=listing_status)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -194,26 +196,32 @@ def start_bulk_publish(body: dict = None, repo: Repository = Depends(get_db)):
             return {"ok": False, "message": "Bulk publish is already running.", "state": dict(_bulk_state)}
 
     ids = (body or {}).get("ids") or None
+    listing_status = (body or {}).get("status", "private_placement")
+    if not isinstance(listing_status, str) or listing_status not in {"private_placement", "active"}:
+        raise HTTPException(status_code=400, detail="Listing visibility must be private_placement or active")
 
     if ids is None:
-        from database.supabase_client import get_supabase
-        sb = get_supabase()
+        from database.supabase_client import get_pipeline_schema
+        sb = get_pipeline_schema()
         result = (
             sb.table("pipeline_properties")
-            .select("id, local_image_paths")
+            .select("id, local_image_paths, original_image_urls")
             .is_("choice_property_id", "null")
             .not_.in_("status", ["published", "archived", "rented"])
             .execute()
         )
         ids = [
             row["id"] for row in (result.data or [])
-            if row.get("local_image_paths") and row["local_image_paths"] not in ("[]", "null", "", None)
+            if (
+                row.get("original_image_urls") not in ("[]", "null", "", None)
+                or row.get("local_image_paths") not in ("[]", "null", "", None)
+            )
         ]
 
     if not ids:
         return {"ok": False, "message": "No eligible unpublished properties with downloaded images found.", "state": dict(_bulk_state)}
 
-    t = threading.Thread(target=_bulk_publish_worker, args=(ids,), daemon=True)
+    t = threading.Thread(target=_bulk_publish_worker, args=(ids, listing_status), daemon=True)
     t.start()
 
     return {"ok": True, "total": len(ids), "state": dict(_bulk_state)}

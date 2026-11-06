@@ -35,8 +35,9 @@ const FIELD_LABELS = {
 }
 
 const PROPERTY_TYPES = [
-  '', 'house', 'apartment', 'condo', 'townhouse', 'duplex', 'studio',
-  'multi_family', 'mobile', 'land', 'commercial',
+  '', 'house', 'apartment', 'condo', 'townhouse', 'duplex', 'triplex',
+  'multi_family', 'studio', 'room', 'loft', 'mobile_home', 'basement',
+  'land', 'farm', 'commercial', 'other',
 ]
 
 const HEATING_OPTIONS = ['', 'Gas', 'Electric', 'Heat Pump', 'Radiant', 'Baseboard', 'Forced Air', 'Other']

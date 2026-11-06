@@ -276,12 +276,17 @@ export default function Library() {
     if (bulkPublishing) return
     const unpublished = (data || []).filter(p => !p.choice_property_id)
     const withImages = unpublished.filter(p => {
-      try { return JSON.parse(p.local_image_paths || '[]').length > 0 } catch { return false }
+      try {
+        return JSON.parse(p.original_image_urls || '[]').length > 0 ||
+          JSON.parse(p.local_image_paths || '[]').length > 0
+      } catch {
+        try { return JSON.parse(p.local_image_paths || '[]').length > 0 } catch { return false }
+      }
     })
     if (withImages.length === 0) {
       openConfirm({
-        title: 'No properties ready to publish',
-        message: 'Download images first, then use Bulk Publish.',
+        title: 'No properties with photos found',
+        message: 'Add authentic source photos before using Bulk Publish.',
         confirmLabel: 'OK',
         cancelLabel: null,
         onConfirm: () => {},
@@ -290,12 +295,12 @@ export default function Library() {
     }
     openConfirm({
       title: `Publish ${withImages.length} ${withImages.length === 1 ? 'property' : 'properties'}?`,
-      message: 'This will upload images to ImageKit and push each listing live to Choice Properties.',
-      confirmLabel: 'Publish',
+      message: 'Listings will be created as private placements, hidden from public search. You can create a share link from Choice Properties after review.',
+      confirmLabel: 'Create private placements',
       danger: false,
       onConfirm: async () => {
         try {
-          const res = await startBulkPublish({ ids: withImages.map(p => p.id) })
+          const res = await startBulkPublish({ ids: withImages.map(p => p.id), status: 'private_placement' })
           if (res.data.ok === false) { return }
           setBulkPublishProgress(res.data.state)
           setBulkPublishing(true)

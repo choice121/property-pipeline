@@ -66,7 +66,7 @@ export const deleteImage = (id, index) => api.delete('/properties/' + id + '/ima
 export const reorderImages = (id, order) => api.put('/properties/' + id + '/images/reorder', { order })
 export const redownloadImages = (id) => api.post('/properties/' + id + '/redownload-images')
 export const bulkAction = (ids, action) => api.post('/properties/bulk-action', { ids, action })
-export const publishProperty   = (id) => api.post('/publish/' + id)
+export const publishProperty   = (id, status = 'private_placement') => api.post('/publish/' + id, { status })
 export const refreshImages    = (id) => api.post('/publish/' + id + '/refresh-images')
 export const syncFields       = (id) => api.post('/publish/' + id + '/sync-fields')
 export const setListingStatus = (id, status) => api.post('/publish/' + id + '/set-listing-status', { status })

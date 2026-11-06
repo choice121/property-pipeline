@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 from imagekitio import ImageKit
 from supabase import create_client
@@ -13,61 +13,117 @@ logger = logging.getLogger(__name__)
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 PROPERTY_TYPE_MAP = {
-    "SINGLE_FAMILY":  "house",
-    "APARTMENT":      "apartment",
-    "APARTMENTS":     "apartment",
-    "CONDO":          "condo",
-    "CONDOS":         "condo",
-    "CONDO_TOWNHOME": "condo",
-    "TOWNHOMES":      "townhouse",
-    "TOWNHOME":       "townhouse",
-    "MULTI_FAMILY":   "house",
-    "DUPLEX_TRIPLEX": "house",
-    "MOBILE":         "house",
-    "LAND":           "house",
-    "FARM":           "house",
+    "SINGLE_FAMILY": "house",
+    "SINGLE_FAMILY_HOME": "house",
+    "HOUSE": "house",
+    "APARTMENT": "apartment",
+    "APARTMENTS": "apartment",
+    "APARTMENT_COMMUNITY": "apartment",
+    "CONDO": "condo",
+    "CONDOS": "condo",
+    "CONDO_TOWNHOME": "townhouse",
+    "TOWNHOMES": "townhouse",
+    "TOWNHOME": "townhouse",
+    "TOWNHOUSE": "townhouse",
+    "ROW_HOUSE": "townhouse",
+    "DUPLEX": "duplex",
+    "HALF_DUPLEX": "duplex",
+    "TRIPLEX": "triplex",
+    "MULTI_FAMILY": "multi_family",
+    "MULTIFAMILY": "multi_family",
+    "MOBILE": "mobile_home",
+    "MOBILE_HOME": "mobile_home",
+    "MANUFACTURED": "mobile_home",
+    "STUDIO": "studio",
+    "ROOM": "room",
+    "LOFT": "loft",
+    "BASEMENT": "basement",
+    "LAND": "land",
+    "LOT": "land",
+    "FARM": "farm",
+    "COMMERCIAL": "commercial",
 }
 
-BOILERPLATE_PATTERNS = [
-    r"To apply,?\s+visit\s+TurboTenant[^.]*\.",
-    r"apply here on TurboTenant[^.]*\.",
-    r"Applications are only received through\s+TurboTenant[^.]*\.",
-    r"search for Property ID\s+\d+[^.]*\.",
-    r"FOLLOW these STEPS to END YOUR SEARCH[\s\S]*?(?=\n\n|\Z)",
-    r"For more information.*?call[^.]*\.",
-    r"Contact\s+(?:us|the agent|the landlord|your|our)[^.]*for (?:more|a) (?:info|showing|tour)[^.]*\.",
-    r"Visit our website for more properties[^.]*\.",
-    r"Schedule a tour (?:today|now)[^.]*\.",
-    r"Don['']t miss (?:this|out)[^!.]*[!.]",
-    r"This (?:won['']t|will not) last[^!.]*[!.]",
-    r"Call (?:today|now|us)[^!.]*[!.]",
-    r"Apply Now[^\n]*",
-    r"Apply (?:today|now|online)[^!.]*[!.]",
-    r"-{8,}",
-    r"={8,}",
-    r"\*{8,}",
-    r"_{8,}",
-    r"All applicants must[^.]*\.",
-    r"We (?:do not|don['']t) accept[^.]*applications[^.]*\.",
-    r"Background check(?:s)? required[^.]*\.",
-    # Restrictive pet / smoking language (directive: always Pets Allowed, Smoking Allowed)
-    r"(?:Sorry,?\s+)?[Nn]o\s+pets?\s+allowed[^.]*\.",
-    r"[Pp]ets?\s+(?:are\s+)?not\s+allowed[^.]*\.",
-    r"[Nn]o\s+(?:dogs?|cats?|animals?)[^.]*\.",
-    r"[Pp]et[\s-]free[^.]*\.",
-    r"[Nn]o\s+smoking[^.]*\.",
-    r"[Ss]moke[\s-]free[^.]*\.",
-    r"[Nn]on[\s-]smoking[^.]*\.",
-    r"[Ss]moking\s+(?:is\s+)?(?:not\s+)?(?:allowed|permitted|prohibited)[^.]*\.",
-    # Contact / screening info
-    r"\b\d{3}[-.\s]\d{3}[-.\s]\d{4}\b[^.]*\.",
-    r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b",
-    r"https?://\S+",
-    r"www\.\S+",
-    r"[Cc]redit\s+score[^.]*\.",
-    r"[Ii]ncome\s+(?:requirement|verification|must)[^.]*\.",
-    r"[Ee]viction\s+(?:history|record)[^.]*\.",
+PROHIBITED_DESCRIPTION_BLOCKS = [
+    re.compile(
+        r"(?im)^\s*(?:requirements\s*&\s*qualifications|qualifications\s*&\s*requirements|"
+        r"rental\s+requirements)\s*:?.*?(?=\n\s*\n|\Z)"
+    ),
 ]
+
+PROHIBITED_DESCRIPTION_SENTENCES = [
+    re.compile(pattern, re.IGNORECASE)
+    for pattern in (
+        r"\bsecurity\s+deposit\b",
+        r"\blease\s+(?:term|duration|length)\b|\b\d+[- ]month\s+lease\b",
+        r"\bavailab(?:le|ility)\b|\bmove[- ]in\b",
+        r"\bsmok(?:e|ing)\b",
+        r"\b(?:pets?|animals?|cats?|dogs?)\b",
+        r"\b(?:schedule|book|request|arrange)\s+(?:a\s+)?(?:tour|showing|viewing)\b|"
+        r"\b(?:tour|showing|viewing)\s+(?:this|the|today|now)\b|\bopen\s+house\b",
+        r"\b(?:agent|broker|realtor|property\s+manager|landlord)\b.*\b(?:call|text|contact|email)\b|"
+        r"\b(?:call|text|contact|email)\b.*\b(?:agent|broker|realtor|property\s+manager|landlord)\b|"
+        r"\b(?:agent|broker|realtor)\b",
+        r"https?://|www\.",
+        r"\b(?:zillow|realtor\.com|apartments\.com|turbotenant|rentcafe|rentspree|appfolio)\b",
+        r"\bMLS\s*#?\s*\d+\b|\blisted\s+by\b|\bcourtesy\s+of\b",
+        r"\b(?:requirements\s*&\s*qualifications|qualifications?\s*&\s*requirements|"
+        r"rental\s+requirements|lease\s+requirements|credit\s+score|income\s+must\s+exceed|"
+        r"three\s+times\s+the\s+monthly\s+rent|no\s+evictions|no\s+criminal\s+history|"
+        r"application\s+pending|waiting\s+list\s+options?)\b",
+        r"\b(?:stock\s+images?|marketing\s+purposes|illustrative\s+purposes|virtual\s+furniture\s+staging)\b",
+        r"\b(?:scams?|fraud|scammers?)\b|\b(?:beware|protect\s+yourself)\b",
+        r"\b(?:craigslist|facebook\s+marketplace|tiktok|offerup)\b|\b(?:do\s+not|don['']t|never)\s+"
+        r"(?:advertise|post|list)\s+on\b",
+        r"\b(?:cash\s*apps?|cashapp|zelle|paypal|venmo|apple\s*pay|wire\s*transfers?|"
+        r"western\s+union|money\s+orders?)\b",
+        r"\bapplication\s+fee\b|\b(?:free|waived|complimentary)\s+application\b",
+        r"(?:\+?1[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}|"
+        r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}",
+    )
+]
+
+APPLICATION_NOTE = (
+    "Application Fee: $50. Submit your rental application today at Choice Properties."
+)
+EXPLICIT_NULL_FIELDS = {
+    "original_description", "showing_instructions", "move_in_special",
+    "move_in_total", "available_date", "lease_terms", "minimum_lease_months",
+    "pet_deposit", "pets_allowed", "pet_types_allowed", "pet_weight_limit",
+    "pet_details", "smoking_allowed", "virtual_tour_url",
+}
+
+
+def _standard_title(prop) -> str:
+    address = str(getattr(prop, "address", None) or "").strip()
+    city = str(getattr(prop, "city", None) or "").strip()
+    state = str(getattr(prop, "state", None) or "").strip()
+    zip_code = str(getattr(prop, "zip", None) or "").strip()
+    location = ", ".join(part for part in (address, city) if part)
+    if state:
+        location = f"{location}, {state}" if location else state
+    if zip_code:
+        location = f"{location} {zip_code}".strip()
+    return location
+
+
+def _normalize_property_type(value, total_units=None) -> str:
+    raw_type = re.sub(r"[\s/-]+", "_", str(value or "").strip().upper())
+    normalized = PROPERTY_TYPE_MAP.get(raw_type)
+    if raw_type == "DUPLEX_TRIPLEX":
+        try:
+            normalized = "triplex" if int(total_units or 0) >= 3 else "duplex"
+        except (TypeError, ValueError):
+            normalized = "duplex"
+    return normalized or "other"
+
+
+def _is_true(value) -> bool:
+    return value is True or (isinstance(value, str) and value.strip().lower() in {"true", "1", "yes"})
+
+
+def _metadata_text(value, limit: int) -> str | None:
+    return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
 
 # Amenity slug → human-readable label (raw homeharvest slugs arrive as-is)
 _AMENITY_SLUG_MAP = {
@@ -139,36 +195,143 @@ def _humanize_amenities(items: list) -> list:
     return result
 
 
-def _strip_prices(text: str, published_rent: int = 1800) -> str:
-    """Replace every price figure in the description with the published rent.
+def _clean_description(text: str | None) -> str | None:
+    if not isinstance(text, str) or not text.strip():
+        return APPLICATION_NOTE
 
-    Catches: $1,855  $1855  $1,855/month  1855/mo  1,855 per month
-    """
-    rent_label = f"${published_rent:,}/month"
-    # $X,XXX/mo patterns (with or without comma, with or without /mo suffix)
-    text = re.sub(
-        r"\$\s*[\d,]{3,}(?:\.\d{2})?\s*(?:per\s+month|/\s*mo(?:nth)?)?",
-        rent_label, text, flags=re.IGNORECASE,
-    )
-    # Bare number + /month or per month (e.g. "1,855/month" or "1855 per month")
-    text = re.sub(
-        r"\b[\d,]{4,}\s*(?:per\s+month|/\s*mo(?:nth)?)\b",
-        rent_label, text, flags=re.IGNORECASE,
-    )
-    return text
+    for pattern in PROHIBITED_DESCRIPTION_BLOCKS:
+        text = pattern.sub("", text)
+
+    sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
+    safe_sentences = [
+        sentence.strip()
+        for sentence in sentences
+        if sentence.strip()
+        and not any(pattern.search(sentence) for pattern in PROHIBITED_DESCRIPTION_SENTENCES)
+    ]
+    source_text = re.sub(r"[ \t]{2,}", " ", " ".join(safe_sentences)).strip()
+    if not source_text:
+        return APPLICATION_NOTE
+    return f"{source_text} {APPLICATION_NOTE}"
 
 
-def _clean_description(text: str, monthly_rent: int | None = None) -> str:
-    if not text:
-        return text
-    for pattern in BOILERPLATE_PATTERNS:
-        text = re.sub(pattern, "", text, flags=re.IGNORECASE)
-    # Fix 3: strip original price references and replace with published rent
-    if monthly_rent:
-        text = _strip_prices(text, monthly_rent)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    text = text.strip()
-    return text
+def _parse_object(value) -> dict:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _parse_photo_urls(value) -> list[dict]:
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+
+    photos = []
+    for item in parsed[:40]:
+        if isinstance(item, str):
+            photo = {"url": item}
+        elif isinstance(item, dict):
+            photo = {
+                "url": item.get("url"),
+                "file_id": item.get("file_id") or item.get("fileId"),
+                "width": item.get("width"),
+                "height": item.get("height"),
+            }
+        else:
+            continue
+        parsed_url = urlparse(str(photo.get("url") or ""))
+        if parsed_url.scheme != "https" or not parsed_url.netloc:
+            continue
+        photos.append(photo)
+    return photos
+
+
+def _positive_number(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number >= 0 else None
+
+
+def _build_unit_options(original_data: dict) -> list[dict]:
+    raw_options = original_data.get("unit_options")
+    if not isinstance(raw_options, list):
+        return []
+
+    options = []
+    for item in raw_options[:100]:
+        if not isinstance(item, dict):
+            continue
+        unit = {}
+        unit_number = item.get("unit_number") or item.get("unit")
+        floor_plan_name = item.get("floor_plan_name") or item.get("name")
+        if isinstance(unit_number, str) and unit_number.strip():
+            unit["unit_number"] = unit_number.strip()[:80]
+        if isinstance(floor_plan_name, str) and floor_plan_name.strip():
+            unit["floor_plan_name"] = floor_plan_name.strip()[:120]
+        for target, sources in {
+            "unit_floor": ("unit_floor", "floor"),
+            "bedrooms": ("bedrooms", "beds"),
+            "bathrooms": ("bathrooms", "baths"),
+            "square_footage": ("square_footage", "sqft"),
+            "monthly_rent": ("monthly_rent", "starting_rent", "rent"),
+        }.items():
+            value = next((item.get(key) for key in sources if item.get(key) is not None), None)
+            parsed = _positive_number(value)
+            if parsed is not None:
+                unit[target] = int(parsed) if parsed.is_integer() else parsed
+        rent_basis = item.get("rent_basis")
+        if isinstance(rent_basis, str) and rent_basis.strip():
+            unit["rent_basis"] = rent_basis.strip()[:80]
+        if unit:
+            options.append(unit)
+    return options
+
+
+def _build_floor_plan_media(original_data: dict) -> list[dict]:
+    raw_media = original_data.get("media")
+    if not isinstance(raw_media, list):
+        return []
+
+    media = []
+    seen_urls = set()
+    for item in raw_media[:100]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").strip().lower().replace("-", "_")
+        url = str(item.get("url") or "").strip()
+        parsed_url = urlparse(url)
+        if kind not in {"floor_plan", "floorplan"}:
+            continue
+        if parsed_url.scheme != "https" or not parsed_url.netloc or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        entry = {
+            "kind": "floor_plan",
+            "url": url,
+            "display_order": len(media) + 1,
+        }
+        title = item.get("title") or item.get("floor_plan_name")
+        floor = item.get("floor_label") or item.get("unit_floor")
+        if isinstance(title, str) and title.strip():
+            entry["title"] = title.strip()[:120]
+        if isinstance(floor, (str, int, float)) and str(floor).strip():
+            entry["floor_label"] = str(floor).strip()[:60]
+        entry["provider"] = parsed_url.hostname
+        media.append(entry)
+    return media
 
 
 def _get_imagekit():
@@ -283,7 +446,11 @@ def _build_amenities_list(prop, parse_json_fn) -> list:
     return amenities
 
 
-def _build_supabase_record(prop, imagekit_results: list) -> dict:
+def _build_supabase_record(
+    prop,
+    image_results: list,
+    listing_status: str = "private_placement",
+) -> dict:
     def parse_json(val):
         if not val:
             return []
@@ -304,45 +471,26 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     if poster_id:
         logger.info("Using poster_landlord_id %s for property %s", poster_id, getattr(prop, "id", "?"))
 
-    def _generate_title(prop) -> str:
-        if prop.title:
-            return prop.title
-        parts = []
-        if prop.bedrooms:
-            parts.append(f"{prop.bedrooms} Bed")
-        if prop.bathrooms:
-            baths = int(prop.bathrooms) if prop.bathrooms == int(prop.bathrooms) else prop.bathrooms
-            parts.append(f"{baths} Bath")
-        ptype = (prop.property_type or "").replace("_", " ").title() or "Property"
-        bed_bath = " / ".join(parts)
-        location = ", ".join(filter(None, [prop.city, prop.state]))
-        if bed_bath:
-            return f"{bed_bath} {ptype} in {location}" if location else f"{bed_bath} {ptype}"
-        return f"{ptype} in {location}" if location else prop.address or "Rental Property"
-
+    title = _standard_title(prop)
     choice_id = "prop-" + uuid.uuid4().hex[:8]
 
-    raw_type = (prop.property_type or "").upper()
-    normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)
+    normalized_type = _normalize_property_type(prop.property_type, prop.total_units)
 
-    # Fix 1: smoking_allowed is ALWAYS True per Choice Properties directive.
-    # Fix (pet): pets_allowed is ALWAYS True per Choice Properties directive.
-    pets_allowed = True
-    smoking_allowed = True
-
-    # Fix 3: pass monthly_rent so price references in description get replaced.
-    cleaned_description = _clean_description(prop.description, monthly_rent=prop.monthly_rent)
-
-    application_fee = prop.application_fee if prop.application_fee is not None else 0
-
-    # Move-in total: sum of first month + deposit + application fee + any pet/admin deposits
-    move_in_total = sum(filter(None, [
-        prop.monthly_rent,
-        prop.security_deposit,
-        application_fee,
-        prop.pet_deposit,
-        prop.admin_fee,
-    ])) or None
+    original_data = _parse_object(getattr(prop, "original_data", None))
+    unit_options = _build_unit_options(original_data)
+    source_description = _clean_description(prop.description)
+    source_original_description = _clean_description(
+        getattr(prop, "original_description", None) or prop.description
+    )
+    is_multi_unit = _is_true(original_data.get("is_multi_unit")) or bool(
+        (prop.total_units or 0) > 1
+        or unit_options
+    )
+    building_name = _metadata_text(original_data.get("building_name"), 160)
+    price_range = _metadata_text(original_data.get("price_range"), 120)
+    unit_floor = _positive_number(original_data.get("unit_floor"))
+    if unit_floor is not None and unit_floor.is_integer():
+        unit_floor = int(unit_floor)
 
     # Fix 2: humanize amenity slugs before sending to Supabase
     raw_amenities = _build_amenities_list(prop, parse_json)
@@ -359,10 +507,11 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
 
     record = {
         "id":                   choice_id,
-        "status":               "active",
-        "title":                _generate_title(prop),
-        "description":          cleaned_description,
-        "showing_instructions": prop.showing_instructions,
+        "status":               listing_status,
+        "title":                title,
+        "description":          source_description,
+        "original_description": source_original_description,
+        "showing_instructions": None,
         "address":              prop.address,
         "city":                 prop.city,
         "state":                prop.state,
@@ -376,6 +525,11 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "floors":               prop.floors,
         "unit_number":          prop.unit_number,
         "total_units":          prop.total_units,
+        "building_name":        building_name,
+        "is_multi_unit":        is_multi_unit,
+        "price_range":          price_range,
+        "unit_options":         unit_options,
+        "unit_floor":           unit_floor,
         "bedrooms":             prop.bedrooms,
         "bathrooms":            prop.bathrooms,
         "half_bathrooms":       prop.half_bathrooms,
@@ -386,21 +540,21 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "has_basement":         prop.has_basement,
         "has_central_air":      prop.has_central_air,
         "monthly_rent":         prop.monthly_rent,
-        "security_deposit":     prop.security_deposit,
+        "security_deposit":     prop.monthly_rent,
         "last_months_rent":     prop.last_months_rent,
-        "application_fee":      application_fee,
-        "pet_deposit":          prop.pet_deposit,
+        "application_fee":      50,
+        "pet_deposit":          None,
         "admin_fee":            prop.admin_fee,
-        "move_in_special":      prop.move_in_special,
-        "move_in_total":        move_in_total,
-        "available_date":       prop.available_date,
-        "lease_terms":          parse_json(prop.lease_terms),
-        "minimum_lease_months": prop.minimum_lease_months,
-        "pets_allowed":         pets_allowed,
-        "pet_types_allowed":    parse_json(prop.pet_types_allowed),
-        "pet_weight_limit":     prop.pet_weight_limit,
-        "pet_details":          prop.pet_details,
-        "smoking_allowed":      smoking_allowed,   # Fix 1: always True
+        "move_in_special":      None,
+        "move_in_total":        None,
+        "available_date":       None,
+        "lease_terms":          None,
+        "minimum_lease_months": None,
+        "pets_allowed":         None,
+        "pet_types_allowed":    None,
+        "pet_weight_limit":     None,
+        "pet_details":          None,
+        "smoking_allowed":      None,
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
@@ -410,7 +564,7 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
         "heating_type":         prop.heating_type,
         "cooling_type":         prop.cooling_type,
         "laundry_type":         prop.laundry_type,
-        "virtual_tour_url":     prop.virtual_tour_url,
+        "virtual_tour_url":     None,
         # Enriched fields — populated by enrichment_service after scrape
         "flood_zone":           getattr(prop, "flood_zone", None),
         "walk_score":           getattr(prop, "walk_score", None),
@@ -424,16 +578,13 @@ def _build_supabase_record(prop, imagekit_results: list) -> dict:
     if landlord_id:
         record["landlord_id"] = landlord_id
 
-    # Only strip False for structural booleans — smoking_allowed is now always True
-    # so it no longer needs special treatment.
-    SCHEMA_OPTIONAL_BOOLEANS = {"has_basement", "has_central_air"}
-    result = {}
-    for k, v in record.items():
-        if v is None:
-            continue
-        if k in SCHEMA_OPTIONAL_BOOLEANS and v is False:
-            continue
-        result[k] = v
+    result = {
+        key: value
+        for key, value in record.items()
+        if value is not None or key in EXPLICIT_NULL_FIELDS
+    }
+    if not result.get("unit_options"):
+        result.pop("unit_options", None)
     return result
 
 
@@ -507,13 +658,18 @@ def sync_fields(prop, repo) -> dict:
             pass
         return []
 
-    raw_type = (prop.property_type or "").upper()
-    normalized_type = PROPERTY_TYPE_MAP.get(raw_type, raw_type.lower() if raw_type else None)
+    normalized_type = _normalize_property_type(prop.property_type, prop.total_units)
+
+    original_data = _parse_object(getattr(prop, "original_data", None))
+    unit_options = _build_unit_options(original_data)
 
     update_payload = {
-        "title":                prop.title,
-        "description":          _clean_description(prop.description, monthly_rent=prop.monthly_rent),
-        "showing_instructions": prop.showing_instructions,
+        "title":                _standard_title(prop),
+        "description":          _clean_description(prop.description),
+        "original_description": _clean_description(
+            getattr(prop, "original_description", None) or prop.description
+        ),
+        "showing_instructions": None,
         "address":              prop.address,
         "city":                 prop.city,
         "state":                prop.state,
@@ -526,6 +682,11 @@ def sync_fields(prop, repo) -> dict:
         "floors":               prop.floors,
         "unit_number":          prop.unit_number,
         "total_units":          prop.total_units,
+        "building_name":        _metadata_text(original_data.get("building_name"), 160),
+        "is_multi_unit":        _is_true(original_data.get("is_multi_unit")) or (prop.total_units or 0) > 1 or bool(unit_options),
+        "price_range":          _metadata_text(original_data.get("price_range"), 120),
+        "unit_options":         unit_options,
+        "unit_floor":           _positive_number(original_data.get("unit_floor")),
         "bedrooms":             prop.bedrooms,
         "bathrooms":            prop.bathrooms,
         "half_bathrooms":       prop.half_bathrooms,
@@ -536,19 +697,19 @@ def sync_fields(prop, repo) -> dict:
         "has_basement":         prop.has_basement,
         "has_central_air":      prop.has_central_air,
         "monthly_rent":         prop.monthly_rent,
-        "security_deposit":     prop.security_deposit,
+        "security_deposit":     prop.monthly_rent,
         "last_months_rent":     prop.last_months_rent,
-        "application_fee":      prop.application_fee if prop.application_fee is not None else 0,
-        "pet_deposit":          prop.pet_deposit,
+        "application_fee":      50,
+        "pet_deposit":          None,
         "admin_fee":            prop.admin_fee,
-        "available_date":       prop.available_date,
-        "lease_terms":          parse_json(prop.lease_terms),
-        "minimum_lease_months": prop.minimum_lease_months,
-        "pets_allowed":         prop.pets_allowed,
-        "pet_types_allowed":    parse_json(prop.pet_types_allowed),
-        "pet_weight_limit":     prop.pet_weight_limit,
-        "pet_details":          prop.pet_details,
-        "smoking_allowed":      True,   # Fix 1: always True per directive
+        "available_date":       None,
+        "lease_terms":          None,
+        "minimum_lease_months": None,
+        "pets_allowed":         None,
+        "pet_types_allowed":    None,
+        "pet_weight_limit":     None,
+        "pet_details":          None,
+        "smoking_allowed":      None,
         "utilities_included":   parse_json(prop.utilities_included),
         "parking":              prop.parking,
         "parking_fee":          prop.parking_fee,
@@ -558,8 +719,8 @@ def sync_fields(prop, repo) -> dict:
         "heating_type":         prop.heating_type,
         "cooling_type":         prop.cooling_type,
         "laundry_type":         prop.laundry_type,
-        "move_in_special":      prop.move_in_special,
-        "virtual_tour_url":     prop.virtual_tour_url,
+        "move_in_special":      None,
+        "virtual_tour_url":     None,
         # Enriched fields
         "flood_zone":           getattr(prop, "flood_zone", None),
         "walk_score":           getattr(prop, "walk_score", None),
@@ -568,7 +729,25 @@ def sync_fields(prop, repo) -> dict:
         "neighborhood":         prop.neighborhood,
     }
 
-    update_payload = {k: v for k, v in update_payload.items() if v is not None}
+    update_payload = {
+        key: value
+        for key, value in update_payload.items()
+        if value is not None or key in EXPLICIT_NULL_FIELDS
+    }
+    update_payload["security_deposit"] = prop.monthly_rent
+    update_payload["application_fee"] = 50
+    update_payload["available_date"] = None
+    update_payload["lease_terms"] = None
+    update_payload["minimum_lease_months"] = None
+    update_payload["pets_allowed"] = None
+    update_payload["pet_types_allowed"] = None
+    update_payload["pet_deposit"] = None
+    update_payload["pet_weight_limit"] = None
+    update_payload["pet_details"] = None
+    update_payload["smoking_allowed"] = None
+    update_payload["showing_instructions"] = None
+    update_payload["move_in_special"] = None
+    update_payload["virtual_tour_url"] = None
 
     result = (
         client.table("properties")
@@ -591,7 +770,7 @@ def sync_fields(prop, repo) -> dict:
 
 
 def set_listing_status(prop, status: str, repo) -> dict:
-    valid = {"active", "rented", "archived", "inactive"}
+    valid = {"active", "private_placement", "rented", "archived", "inactive"}
     if status not in valid:
         raise ValueError(f"Invalid status '{status}'. Must be one of: {', '.join(sorted(valid))}")
     if not prop.choice_property_id:
@@ -620,13 +799,34 @@ def set_listing_status(prop, status: str, repo) -> dict:
     }
 
 
+def _local_image_paths(prop) -> list[str]:
+    try:
+        parsed = json.loads(prop.local_image_paths or "[]")
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    flat = [path for item in parsed for path in (item if isinstance(item, list) else [item])]
+    return [path for path in flat if isinstance(path, str) and path.strip()]
+
+
 BLOCKING_RULES = [
-    ("address",   lambda p: bool(p.address),                               "Address is required"),
-    ("city_state",lambda p: bool(p.city and p.state),                      "City and state are required"),
-    ("rent",      lambda p: bool(p.monthly_rent),                          "Monthly rent must be set"),
-    ("bedrooms",  lambda p: p.bedrooms is not None,                        "Bedroom count is required"),
-    ("photos",    lambda p: bool(json.loads(p.local_image_paths or "[]")), "At least one image must be downloaded"),
-    ("quality",   lambda p: (p.data_quality_score or 0) >= 50,            "Quality score is below 50 — too many critical fields missing"),
+    ("address", lambda p: bool(p.address), "Address is required"),
+    ("city_state", lambda p: bool(p.city and p.state), "City and state are required"),
+    ("zip", lambda p: bool(p.zip), "ZIP code is required"),
+    ("rent", lambda p: p.monthly_rent is not None and p.monthly_rent > 0, "Monthly rent must be set"),
+    ("bedrooms", lambda p: p.bedrooms is not None, "Bedroom count is required"),
+    ("bathrooms", lambda p: p.bathrooms is not None, "Bathroom count is required"),
+    (
+        "photos",
+        lambda p: bool(_parse_photo_urls(p.original_image_urls) or _local_image_paths(p)),
+        "At least one authentic source photo is required",
+    ),
+    (
+        "quality",
+        lambda p: (p.data_quality_score or 0) >= 50,
+        "Quality score is below 50 — too many critical fields missing",
+    ),
 ]
 
 
@@ -641,7 +841,9 @@ def pre_publish_checks(prop) -> list[str]:
     return errors
 
 
-def publish(prop, repo) -> dict:
+def publish(prop, repo, listing_status: str = "private_placement") -> dict:
+    if not isinstance(listing_status, str) or listing_status not in {"private_placement", "active"}:
+        raise ValueError("Listing visibility must be private_placement or active")
     if prop.choice_property_id:
         raise ValueError(
             f"Property {prop.id} is already published (choice_property_id={prop.choice_property_id})"
@@ -651,17 +853,15 @@ def publish(prop, repo) -> dict:
     if blocking_errors:
         raise ValueError("Cannot publish — failing checks:\n• " + "\n• ".join(blocking_errors))
 
-    local_paths = []
-    try:
-        parsed = json.loads(prop.local_image_paths or "[]")
-        # Flatten legacy doubly-nested format: [["p1","p2"]] → ["p1","p2"]
-        flat = [p for item in parsed for p in (item if isinstance(item, list) else [item])]
-        local_paths = [p for p in flat if isinstance(p, str)]
-    except Exception:
-        pass
-
-    if not local_paths:
-        raise ValueError("No local images found. Download images before publishing.")
+    image_results = _parse_photo_urls(prop.original_image_urls)
+    if not image_results:
+        local_paths = _local_image_paths(prop)
+        if not local_paths:
+            raise ValueError("No authentic source photos are available.")
+        logger.info("Uploading %d legacy local images to ImageKit for property %s", len(local_paths), prop.id)
+        image_results = _upload_images_to_imagekit(prop.id, local_paths)
+    if not image_results:
+        raise RuntimeError("No valid property photos are available for publishing.")
 
     client = _get_supabase()
     existing_id = _check_duplicate_in_supabase(client, prop)
@@ -678,14 +878,8 @@ def publish(prop, repo) -> dict:
             "was_duplicate":     True,
         }
 
-    logger.info("Uploading %d images to ImageKit for property %s", len(local_paths), prop.id)
-    imagekit_results = _upload_images_to_imagekit(prop.id, local_paths)
-
-    if not imagekit_results:
-        raise RuntimeError("Image upload to ImageKit failed — no images were uploaded successfully.")
-
     logger.info("Inserting property into Supabase for property %s", prop.id)
-    record = _build_supabase_record(prop, imagekit_results)
+    record = _build_supabase_record(prop, image_results, listing_status)
 
     stripped_columns = []
     for attempt in range(15):
@@ -700,6 +894,11 @@ def publish(prop, repo) -> dict:
                 if col_match:
                     bad_col = col_match.group(1)
                     if bad_col in record:
+                        if bad_col == "unit_options" and record[bad_col]:
+                            raise RuntimeError(
+                                "The Choice schema is missing properties.unit_options. "
+                                "Apply the property-unit-options migration before publishing this community."
+                            ) from exc
                         stripped_columns.append(bad_col)
                         del record[bad_col]
                         logger.warning(
@@ -723,18 +922,20 @@ def publish(prop, repo) -> dict:
         )
 
     choice_property_id = result.data[0].get("id")
-    now = datetime.now(timezone.utc).isoformat()
-
     # Insert photos into property_photos (photos no longer live as columns on properties)
-    if imagekit_results:
+    if image_results:
         photos_payload = [
             {
                 "property_id":   str(choice_property_id),
                 "url":           r["url"],
-                "file_id":       r["file_id"],
-                "display_order": i,
+                "file_id":       r.get("file_id"),
+                "width":         r.get("width"),
+                "height":        r.get("height"),
+                "display_order": i + 1,
+                "is_hero":       i == 0,
+                "watermark_status": "clean",
             }
-            for i, r in enumerate(imagekit_results)
+            for i, r in enumerate(image_results)
         ]
         try:
             client.table("property_photos").insert(photos_payload).execute()
@@ -743,17 +944,45 @@ def publish(prop, repo) -> dict:
                 len(photos_payload), choice_property_id
             )
         except Exception as photo_exc:
-            # Log but don't fail the publish — the listing record is already committed
-            logger.error(
-                "property_photos insert failed for %s: %s", choice_property_id, photo_exc
-            )
+            _rollback_published_record(client, choice_property_id)
+            raise RuntimeError(
+                f"Photo insertion failed for {choice_property_id}; publication was rolled back."
+            ) from photo_exc
+
+    floor_plan_media = _build_floor_plan_media(_parse_object(getattr(prop, "original_data", None)))
+    if floor_plan_media:
+        media_payload = [
+            {"property_id": str(choice_property_id), **item}
+            for item in floor_plan_media
+        ]
+        try:
+            client.table("property_media").insert(media_payload).execute()
+        except Exception as media_exc:
+            _rollback_published_record(client, choice_property_id)
+            raise RuntimeError(
+                f"Floor-plan media insertion failed for {choice_property_id}; publication was rolled back."
+            ) from media_exc
 
     repo.delete(prop.id)
 
-    logger.info("Property %s published successfully as %s and removed from pipeline", prop.id, choice_property_id)
+    logger.info(
+        "Property %s published as %s (%s) and removed from pipeline",
+        prop.id, choice_property_id, listing_status,
+    )
     return {
         "ok":                 True,
         "choice_property_id": str(choice_property_id),
-        "message":           "Published successfully",
+        "listing_status":     listing_status,
+        "photo_count":        len(image_results),
+        "floor_plan_count":   len(floor_plan_media),
+        "message":            "Private placement created" if listing_status == "private_placement" else "Published publicly",
         "was_duplicate":     False,
     }
+
+
+def _rollback_published_record(client, property_id: str) -> None:
+    for table in ("property_media", "property_photos", "properties"):
+        try:
+            client.table(table).delete().eq("property_id" if table != "properties" else "id", property_id).execute()
+        except Exception:
+            logger.exception("Could not roll back %s for incomplete publication %s", table, property_id)

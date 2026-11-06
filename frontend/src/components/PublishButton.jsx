@@ -46,6 +46,7 @@ function parseArray(value) {
 }
 
 const LISTING_STATUS_OPTIONS = [
+  { value: 'private_placement', label: 'Private placement', color: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
   { value: 'active',   label: 'Active',   color: 'text-green-700 bg-green-50 border-green-200' },
   { value: 'rented',   label: 'Rented',   color: 'text-purple-700 bg-purple-50 border-purple-200' },
   { value: 'archived', label: 'Archived', color: 'text-gray-600 bg-gray-50 border-gray-200' },
@@ -91,6 +92,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   const [syncDone, setSyncDone] = useState(false)
   const [refreshDone, setRefreshDone] = useState(false)
   const [statusDone, setStatusDone] = useState(false)
+  const [makePublic, setMakePublic] = useState(false)
 
   const [gateChecking, setGateChecking] = useState(false)
   const [gateIssues, setGateIssues] = useState(null)
@@ -106,7 +108,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
   }
 
   const publishMutation = useMutation({
-    mutationFn: () => publishProperty(property.id).then((r) => r.data),
+    mutationFn: () => publishProperty(property.id, makePublic ? 'active' : 'private_placement').then((r) => r.data),
     onSuccess: (data) => {
       setConfirming(false)
       setGateIssues(null)
@@ -203,7 +205,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
               <p className="text-xs text-green-500">{new Date(property.published_at).toLocaleString()}</p>
             )}
           </div>
-          {liveUrl && (
+          {liveUrl && (property.live_status === 'active' || publishMutation.data?.listing_status === 'active') && (
             <a
               href={liveUrl}
               target="_blank"
@@ -220,11 +222,16 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
           <div className="flex gap-2">
             {LISTING_STATUS_OPTIONS.map(opt => {
               const isCurrent = property.status === opt.value ||
-                (opt.value === 'active' && property.status === 'published')
-              return (
+                (opt.value === 'active' && property.live_status === 'active') ||
+                (opt.value === 'private_placement' && property.live_status === 'private_placement')
+                return (
                 <button
                   key={opt.value}
-                  onClick={() => !isCurrent && statusMutation.mutate(opt.value)}
+                  onClick={() => {
+                    if (isCurrent || statusMutation.isPending) return
+                    if (opt.value === 'active' && !window.confirm('Make this property publicly visible on the Choice website now?')) return
+                    statusMutation.mutate(opt.value)
+                  }}
                   disabled={statusMutation.isPending || isCurrent}
                   className={`flex-1 text-xs font-medium px-2 py-1.5 rounded-md border transition-colors disabled:cursor-default
                     ${isCurrent
@@ -295,7 +302,9 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
         <p className="text-sm font-medium text-green-700">
           {wasDuplicate
             ? 'Duplicate detected — linked to existing listing.'
-            : 'Published successfully — listing is now live.'}
+            : publishMutation.data?.listing_status === 'active'
+              ? 'Published publicly — listing is now visible on Choice Properties.'
+              : 'Private placement created — not visible in public search.'}
         </p>
       </div>
     )
@@ -362,8 +371,19 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
     return (
       <div className="flex flex-col gap-2 p-4 bg-amber-50 border border-amber-200 rounded-lg">
         <p className="text-sm font-medium text-amber-800">
-          This will upload all images and push the listing live to Choice Properties immediately. Continue?
+          This will save the listing as a private placement, hidden from public search. Continue?
         </p>
+        <label className="flex items-start gap-2 text-xs text-gray-700">
+          <input
+            type="checkbox"
+            checked={makePublic}
+            onChange={(event) => setMakePublic(event.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Make this listing public now. It will appear in public browse and search.
+          </span>
+        </label>
         {duplicateWarning && duplicateWarning.length > 0 && (
           <div className="text-xs bg-orange-50 border border-orange-200 rounded-md px-3 py-2 space-y-1">
             <p className="font-semibold text-orange-800">⚠ Possible duplicate listing detected</p>
@@ -389,7 +409,7 @@ export default function PublishButton({ property, onPublished, savedAfterPublish
             disabled={publishMutation.isPending}
             className="bg-green-600 text-white px-4 py-1.5 rounded-md text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
           >
-            {publishMutation.isPending ? 'Publishing…' : 'Yes, Publish Now'}
+            {publishMutation.isPending ? 'Publishing…' : makePublic ? 'Publish Publicly' : 'Create Private Placement'}
           </button>
           <button
             onClick={() => { setConfirming(false); setGateOverride(false) }}
